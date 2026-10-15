@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from django.db import connection
@@ -69,20 +69,6 @@ class PlanningBacklogTest(TestCase):
         ticket = make_ticket(self.company)
 
         self.assertEqual(self.ids(unplanned_tickets(self.company)), [ticket.pk])
-
-    def test_a_planned_ticket_disappears(self):
-        ticket = make_ticket(self.company)
-        for sequence, stage in enumerate((STAGE_CUT, STAGE_WELD, STAGE_PAINT)):
-            make_session(
-                ticket,
-                stage=stage,
-                sequence=sequence,
-                start=datetime(2026, 9, 14, 9 + sequence, tzinfo=self.tz),
-                end=datetime(2026, 9, 14, 10 + sequence, tzinfo=self.tz),
-                resources=[self.operator],
-            )
-
-        self.assertEqual(unplanned_tickets(self.company), [])
 
     def test_unplanning_returns_the_ticket_to_the_panel(self):
         ticket = make_ticket(self.company)

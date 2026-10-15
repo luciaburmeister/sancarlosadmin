@@ -14,9 +14,7 @@ from django.test import TestCase
 from djmoney.money import Money
 
 from configurator.services.export.sales_invoice import SalesInvoiceExportStrategy
-from invoices.models import SalesInvoiceDocumentType, SalesInvoiceItem, SalesInvoiceStatus
-from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
-from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+from invoices.models import SalesInvoiceDocumentType, SalesInvoiceItem
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, UserExpedienteMixin
 
 
@@ -25,22 +23,10 @@ class UserExpedienteAdvanceExportTests(UserExpedienteMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        self.advance = AdvanceInvoiceService.create(
-            self.project_file, date_issued=date(2026, 9, 3), percentage=Decimal("30"),
-        )
-        self.advance.status = SalesInvoiceStatus.FINAL
-        self.advance.invoice_number = "INV-2026-00012"
-        self.advance.save(update_fields=["status", "invoice_number"])
+        self.advance = self.issue_advance()
 
     def _rest(self):
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-        ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(summary, "percentage", Decimal("100"))
-        invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29), due_date=None,
-            items_data=ProjectFileInvoiceService.build_items_for_ratio(summary, ratio),
-        )
-        AdvanceDeductionService.apply(invoice)
+        invoice = self.rest_invoice()
         invoice.refresh_from_db()
         return invoice
 

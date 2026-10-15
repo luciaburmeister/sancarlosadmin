@@ -19,15 +19,21 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
 from configurator.models import Configuration, ProductTemplate
-from inventory.models import InventoryItem
 from invoices.models import AppliedTax, TaxType
-from sales.models import Client, Quote, QuoteInventoryItem
+from sales.models import Quote, QuoteInventoryItem
 from sales.services.quote_tax_service import (
     ClientTaxStrategy,
     QuoteTaxService,
     SourceTaxStrategy,
+)
+from sales.tests.factories import (
+    apply_taxes,
+    make_client,
+    make_company,
+    make_configuration,
+    make_inventory_item,
+    make_quote,
 )
 
 
@@ -36,7 +42,7 @@ class _QuoteTaxBase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Tax Strategy Co")
+        cls.company = make_company(name="Tax Strategy Co")
 
         cls.iva, _ = TaxType.objects.get_or_create(
             tax_name="IVA",
@@ -62,101 +68,25 @@ class _QuoteTaxBase(TestCase):
             company=cls.company,
         )
 
-    def _make_client(self, name="Test Client", taxes=None):
-        """Create a client, optionally with AppliedTax records."""
-        client = Client.objects.create(name=name, company=self.company)
-        if taxes:
-            ct = ContentType.objects.get_for_model(client)
-            for order, (tax_type, pct) in enumerate(taxes):
-                AppliedTax.objects.create(
-                    content_type=ct,
-                    object_id=client.pk,
-                    tax_type=tax_type,
-                    selected_percentage=pct,
-                    order=order,
-                )
-        return client
+    def _make_client(self, taxes=()):
+        return make_client(company=self.company, taxes=taxes)
 
     def _make_quote(self, client=None):
-        return Quote.objects.create(
-            client=client,
-            company=self.company,
-            project_name="Tax Test Quote",
-        )
+        return make_quote(company=self.company, client=client, project_name="Tax Test Quote")
 
-    def _make_config(self, quote, subtotal, taxes=None, client=None):
-        """Create a configuration with a given subtotal and optional taxes."""
-        config = Configuration.objects.create(
-            company=self.company,
-            client=client or quote.client,
-            quote=quote,
-            product=self.product,
-            name=f"Config {subtotal}",
-            subtotal_price=subtotal,
-            total_price=subtotal,  # Will be updated with taxes
-        )
-        if taxes:
-            ct = ContentType.objects.get_for_model(config)
-            for order, (tax_type, pct) in enumerate(taxes):
-                rate = pct / Decimal("100")
-                base = Decimal(str(subtotal))
-                calc = (base * rate).quantize(Decimal("0.01"))
-                AppliedTax.objects.create(
-                    content_type=ct,
-                    object_id=config.pk,
-                    tax_type=tax_type,
-                    selected_percentage=pct,
-                    base_amount=base,
-                    calculated_amount=calc,
-                    order=order,
-                )
-            # Update config tax_breakdown snapshot
-            breakdown = []
-            total = Decimal(str(subtotal))
-            for order, (tax_type, pct) in enumerate(taxes):
-                rate = pct / Decimal("100")
-                calc = (total * rate).quantize(Decimal("0.01"))
-                breakdown.append({
-                    "tax_name": tax_type.tax_name,
-                    "percentage": str(pct),
-                    "base": str(total.quantize(Decimal("0.01"))),
-                    "tax_amount": str(calc),
-                })
-                if tax_type.behavior == "add":
-                    total += calc
-                else:
-                    total -= calc
-            config.tax_breakdown = breakdown
-            config.total_price = total
-            config.save(update_fields=["tax_breakdown", "total_price"])
-        return config
+    def _make_config(self, quote, subtotal, taxes=()):
+        return make_configuration(quote=quote, subtotal=subtotal, product=self.product, taxes=taxes)
 
-    def _make_inv_item(self, quote, unit_price, quantity, taxes=None):
-        """Create a QuoteInventoryItem with optional taxes (bypassing save auto-copy)."""
-        inv = InventoryItem.objects.create(name="Widget", company=self.company)
+    def _make_inv_item(self, quote, unit_price, quantity, taxes=()):
+        """A quote line with ``taxes``, saved without the item-tax auto-copy."""
         qii = QuoteInventoryItem(
-            quote=quote,
-            inventory_item=inv,
-            quantity=quantity,
-            unit_price=unit_price,
+            quote=quote, inventory_item=make_inventory_item(company=self.company),
+            quantity=quantity, unit_price=unit_price,
         )
-        # Compute line_total manually to avoid triggering save side-effects
-        discount_factor = (Decimal("100") - qii.discount) / Decimal("100")
-        qii.line_total = unit_price * quantity * discount_factor
+        qii.line_total = unit_price * quantity * ((Decimal("100") - qii.discount) / Decimal("100"))
         qii.total_with_tax = qii.line_total
-        # Save without triggering _copy_taxes_from_item
         super(QuoteInventoryItem, qii).save()
-
-        if taxes:
-            ct = ContentType.objects.get_for_model(qii)
-            for order, (tax_type, pct) in enumerate(taxes):
-                AppliedTax.objects.create(
-                    content_type=ct,
-                    object_id=qii.pk,
-                    tax_type=tax_type,
-                    selected_percentage=pct,
-                    order=order,
-                )
+        apply_taxes(qii, taxes=taxes)
         return qii
 
     def _quote_taxes(self, quote):
@@ -208,20 +138,35 @@ class ClientTaxStrategyTest(_QuoteTaxBase):
         self.company.save()
 
     def test_single_tax_no_discount(self):
-        """Base = discounted_subtotal when there's no discount."""
-        client = self._make_client(taxes=[(self.iva, Decimal("21.00"))])
-        quote = self._make_quote(client)
-        self._make_config(quote, Decimal("1000.00"),
-                          taxes=[(self.iva, Decimal("21.00"))])
+        """Base = discounted_subtotal when there's no discount, however the
+        1000.00 is split across configs and inventory items."""
+        iva21 = [(self.iva, Decimal("21.00"))]
 
-        raw = Decimal("1000.00")
-        discounted = Decimal("1000.00")
-        tax_amount, breakdown = QuoteTaxService.apply(quote, raw, discounted)
+        def single_config(quote):
+            self._make_config(quote, Decimal("1000.00"), taxes=iva21)
 
-        self.assertEqual(tax_amount, Decimal("210.00"))
-        self.assertEqual(len(breakdown), 1)
-        self.assertEqual(breakdown[0]["base"], "1000.00")
-        self.assertEqual(breakdown[0]["tax_amount"], "210.00")
+        def two_configs(quote):
+            self._make_config(quote, Decimal("600.00"), taxes=iva21)
+            self._make_config(quote, Decimal("400.00"), taxes=iva21)
+
+        def config_plus_inventory_item(quote):
+            self._make_config(quote, Decimal("500.00"), taxes=iva21)
+            self._make_inv_item(quote, Decimal("100.00"), Decimal("5"), taxes=iva21)
+
+        for build_sources in (single_config, two_configs, config_plus_inventory_item):
+            with self.subTest(sources=build_sources.__name__):
+                client = self._make_client(taxes=iva21)
+                quote = self._make_quote(client)
+                build_sources(quote)
+
+                raw = Decimal("1000.00")
+                discounted = Decimal("1000.00")
+                tax_amount, breakdown = QuoteTaxService.apply(quote, raw, discounted)
+
+                self.assertEqual(tax_amount, Decimal("210.00"))
+                self.assertEqual(len(breakdown), 1)
+                self.assertEqual(breakdown[0]["base"], "1000.00")
+                self.assertEqual(breakdown[0]["tax_amount"], "210.00")
 
     def test_single_tax_with_discount(self):
         """Base = discounted_subtotal (subtotal - discount)."""
@@ -263,39 +208,6 @@ class ClientTaxStrategyTest(_QuoteTaxBase):
         # The IRPF retention is subtracted; its breakdown entry stays positive.
         self.assertEqual(tax_amount, Decimal("189.00") - Decimal("135.00"))
 
-    def test_multiple_configs_single_tax(self):
-        """Multiple configs — base is still the full discounted_subtotal."""
-        client = self._make_client(taxes=[(self.iva, Decimal("21.00"))])
-        quote = self._make_quote(client)
-        self._make_config(quote, Decimal("600.00"),
-                          taxes=[(self.iva, Decimal("21.00"))])
-        self._make_config(quote, Decimal("400.00"),
-                          taxes=[(self.iva, Decimal("21.00"))])
-
-        raw = Decimal("1000.00")
-        discounted = Decimal("1000.00")
-        tax_amount, breakdown = QuoteTaxService.apply(quote, raw, discounted)
-
-        self.assertEqual(len(breakdown), 1)
-        self.assertEqual(breakdown[0]["base"], "1000.00")
-        self.assertEqual(tax_amount, Decimal("210.00"))
-
-    def test_config_plus_inventory_item(self):
-        """Configs + inventory items — base is discounted_subtotal."""
-        client = self._make_client(taxes=[(self.iva, Decimal("21.00"))])
-        quote = self._make_quote(client)
-        self._make_config(quote, Decimal("500.00"),
-                          taxes=[(self.iva, Decimal("21.00"))])
-        self._make_inv_item(quote, Decimal("100.00"), Decimal("5"),
-                            taxes=[(self.iva, Decimal("21.00"))])
-
-        raw = Decimal("1000.00")  # 500 config + 500 inv
-        discounted = Decimal("1000.00")
-        tax_amount, breakdown = QuoteTaxService.apply(quote, raw, discounted)
-
-        self.assertEqual(breakdown[0]["base"], "1000.00")
-        self.assertEqual(tax_amount, Decimal("210.00"))
-
     def test_stale_taxes_removed(self):
         """When a config's tax type changes, stale quote taxes are removed."""
         client = self._make_client(taxes=[(self.iva, Decimal("21.00"))])
@@ -321,8 +233,10 @@ class ClientTaxStrategyTest(_QuoteTaxBase):
         self.assertEqual(taxes.count(), 1)
         self.assertEqual(taxes.first().tax_type, self.irpf)
 
-    def test_base_never_negative(self):
-        """Even with a large discount, the base should not go negative."""
+    def test_base_is_not_clamped_at_zero(self):
+        """The strategy takes discounted_subtotal as the base verbatim: a
+        negative one (discount larger than the subtotal) is passed through,
+        not clamped to zero. Clamping, if wanted, belongs to the caller."""
         client = self._make_client(taxes=[(self.iva, Decimal("21.00"))])
         quote = self._make_quote(client)
         self._make_config(quote, Decimal("100.00"),
@@ -332,7 +246,6 @@ class ClientTaxStrategyTest(_QuoteTaxBase):
         discounted = Decimal("-50.00")  # extreme edge case
         tax_amount, breakdown = QuoteTaxService.apply(quote, raw, discounted)
 
-        # The service doesn't clamp, but base should be discounted_subtotal
         self.assertEqual(breakdown[0]["base"], "-50.00")
 
     def test_zero_subtotal(self):
@@ -509,7 +422,8 @@ class RecalcTotalsIntegrationTest(_QuoteTaxBase):
     """End-to-end tests that call quote.recalc_totals()."""
 
     def test_client_strategy_recalc(self):
-        """recalc_totals uses ClientTaxStrategy when flag is ON."""
+        """recalc_totals uses ClientTaxStrategy when flag is ON and persists
+        base_amount and calculated_amount on the quote's AppliedTax."""
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
@@ -526,6 +440,12 @@ class RecalcTotalsIntegrationTest(_QuoteTaxBase):
         self.assertEqual(quote.tax_amount.amount, Decimal("210.00"))
         self.assertEqual(quote.total_price.amount, Decimal("1210.00"))
         self.assertEqual(quote.tax_breakdown[0]["base"], "1000.00")
+
+        taxes = self._quote_taxes(quote)
+        self.assertEqual(taxes.count(), 1)
+        tax = taxes.first()
+        self.assertEqual(tax.base_amount.amount, Decimal("1000.00"))
+        self.assertEqual(tax.calculated_amount.amount, Decimal("210.00"))
 
     def test_source_strategy_recalc(self):
         """recalc_totals uses SourceTaxStrategy when flag is OFF."""
@@ -568,21 +488,3 @@ class RecalcTotalsIntegrationTest(_QuoteTaxBase):
         self.assertEqual(quote.total_price.amount, Decimal("1060.00"))
         irpf = self._quote_taxes(quote).get(tax_type=self.irpf)
         self.assertEqual(irpf.calculated_amount.amount, Decimal("150.00"))
-
-    def test_recalc_updates_applied_tax_records(self):
-        """recalc_totals persists base_amount and calculated_amount on AppliedTax."""
-        self.company.auto_apply_client_taxes = True
-        self.company.save()
-
-        client = self._make_client(taxes=[(self.iva, Decimal("21.00"))])
-        quote = self._make_quote(client)
-        self._make_config(quote, Decimal("500.00"),
-                          taxes=[(self.iva, Decimal("21.00"))])
-
-        quote.recalc_totals()
-
-        taxes = self._quote_taxes(quote)
-        self.assertEqual(taxes.count(), 1)
-        tax = taxes.first()
-        self.assertEqual(tax.base_amount.amount, Decimal("500.00"))
-        self.assertEqual(tax.calculated_amount.amount, Decimal("105.00"))

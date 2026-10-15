@@ -12,6 +12,7 @@ from datetime import date, time
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from assets.models import Asset, AssetPlanning, AssetType, PlanningStatus, PlanningType
 from company.models import Company, Employee, WorkingZone
@@ -43,11 +44,14 @@ def make_employee(company, user):
     )
 
 
-def make_asset_type(company, name="Cuba 6m3"):
-    """Create an AssetType (e.g. 'Cuba 6m3')."""
+def make_asset_type(company, name="Cuba 6m3", category=None):
+    """Create an AssetType (e.g. 'Cuba 6m3'). Pass category= (an
+    AssetTypeCategory) for machines/trucks; omitted keeps the model default."""
+    fields = {"category": category} if category is not None else {}
     return AssetType.objects.create(
         company=company,
         name=name,
+        **fields,
     )
 
 
@@ -62,7 +66,7 @@ def make_asset(company, asset_type, employee=None, zone=None, name="CUBA-001"):
     )
 
 
-def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790, confirmed=True):
+def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790, confirmed=True, zone_type=None):
     """
     Create a WorkingZone with a location point.
     POINT(longitude latitude) — note lon comes first, lat second.
@@ -72,7 +76,11 @@ def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790, confirmed
     confirmed, matching how established zones behave in production
     (strict geofence radius, no auto-relocate). Pass confirmed=False
     to test the first-transaction leniency/auto-relocate behavior.
+
+    zone_type=None keeps the model default; pass a WorkingZone.ZoneType
+    (or use make_obra / make_almacen) for a typed zone.
     """
+    fields = {"zone_type": zone_type} if zone_type is not None else {}
     return WorkingZone.objects.create(
         company=company,
         name=name,
@@ -81,7 +89,18 @@ def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790, confirmed
         postal_code="28001",
         location=f"POINT({lon} {lat})",
         location_confirmed_at=timezone.now() if confirmed else None,
+        **fields,
     )
+
+
+def make_obra(company, name="Obra", **kwargs):
+    """A WorkingZone of type OBRA (a client's job site)."""
+    return make_zone(company, name=name, zone_type=WorkingZone.ZoneType.OBRA, **kwargs)
+
+
+def make_almacen(company, name="Almacen", **kwargs):
+    """A WorkingZone of type ALMACEN (the company's own yard)."""
+    return make_zone(company, name=name, zone_type=WorkingZone.ZoneType.ALMACEN, **kwargs)
 
 
 def make_planning(
@@ -100,3 +119,52 @@ def make_planning(
         scheduled_date=scheduled_date or timezone.localdate(),
         **overrides,
     )
+
+
+def run_strategy(transaction_type, asset, employee, user, data=None, *, move_asset_to=None):
+    """
+    Run MovementStrategy / DeliveryStrategy / ReceiptStrategy directly (no HTTP),
+    picked by transaction_type ("movement", "delivery" or "receipt"), and return
+    its response. `data` is the rest of the payload the app would send.
+
+    move_asset_to=<zone> first parks the asset in that zone, the way it sits
+    before a driver picks it up there.
+    """
+    from api.fleet.views.assets import DeliveryStrategy, MovementStrategy, ReceiptStrategy
+
+    strategies = {
+        "movement": MovementStrategy,
+        "delivery": DeliveryStrategy,
+        "receipt": ReceiptStrategy,
+    }
+    if move_asset_to is not None:
+        asset.current_working_zone = move_asset_to
+        asset.save(update_fields=["current_working_zone"])
+    payload = {"transaction_type": transaction_type, **(data or {})}
+    return strategies[transaction_type](payload, asset, employee, user).execute()
+
+
+class DriverFixtureMixin:
+    """
+    TestCase mixin: setUp builds the driver every fleet test acts as --
+    self.company, self.user and self.employee (the user's Employee in that company).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+
+
+class ApiFixtureMixin(DriverFixtureMixin):
+    """
+    DriverFixtureMixin plus an APIClient already authenticated as self.user,
+    exposed as both self.api_client and self.client.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+        self.client = self.api_client

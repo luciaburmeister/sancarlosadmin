@@ -14,14 +14,13 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 from accounting.models import CostCenter
-from company.models import Company
-from materials.models import Provider
 from purchasing.models import PurchaseOrder, PurchaseOrderStatus
+from purchasing.tests.factories import make_company, make_provider, make_purchase_order
 
 
 class PurchaseOrderCostCenterTest(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
+        self.company = make_company()
         self.flota = CostCenter.objects.create(
             company=self.company, code="210", name="Flota", is_assignable=False
         )
@@ -31,16 +30,12 @@ class PurchaseOrderCostCenterTest(TestCase):
         self.taller = CostCenter.objects.create(
             company=self.company, code="220", name="Taller"
         )
-        self.provider = Provider.objects.create(
-            company=self.company, name="Proveedor SA", default_cost_center=self.cuba
-        )
+        self.provider = make_provider(company=self.company, default_cost_center=self.cuba)
 
     def _make_po(self, provider=None, **kwargs):
-        return PurchaseOrder.objects.create(
-            company=self.company,
-            provider=provider or self.provider,
-            date_ordered=date(2026, 6, 1),
-            **kwargs,
+        return make_purchase_order(
+            company=self.company, provider=provider or self.provider,
+            date_ordered=date(2026, 6, 1), **kwargs,
         )
 
     # ---- Defaulting at creation ----
@@ -54,7 +49,7 @@ class PurchaseOrderCostCenterTest(TestCase):
         self.assertEqual(po.cost_center_id, self.taller.pk)
 
     def test_provider_without_a_default_leaves_it_empty(self):
-        other = Provider.objects.create(company=self.company, name="Sin centro")
+        other = make_provider(company=self.company, name="Sin centro")
         po = self._make_po(provider=other)
         self.assertIsNone(po.cost_center_id)
 
@@ -91,21 +86,15 @@ class PurchaseOrderCostCenterTest(TestCase):
     # ---- Validation ----
 
     def test_cost_center_from_another_company_is_rejected(self):
-        other_company = Company.objects.create(name="Otra SA", tax_identifier="B87654321")
+        other_company = make_company(name="Otra SA", tax_identifier="B87654321")
         foreign = CostCenter.objects.create(company=other_company, code="900", name="Ajeno")
-        po = PurchaseOrder(
-            company=self.company, provider=self.provider,
-            date_ordered=date(2026, 6, 1), cost_center=foreign,
-        )
+        po = self._make_po(save=False, cost_center=foreign)
         with self.assertRaises(ValidationError) as ctx:
             po.clean()
         self.assertIn("cost_center", ctx.exception.message_dict)
 
     def test_grouping_only_cost_center_is_rejected(self):
-        po = PurchaseOrder(
-            company=self.company, provider=self.provider,
-            date_ordered=date(2026, 6, 1), cost_center=self.flota,
-        )
+        po = self._make_po(save=False, cost_center=self.flota)
         with self.assertRaises(ValidationError) as ctx:
             po.clean()
         self.assertIn("cost_center", ctx.exception.message_dict)
@@ -128,14 +117,12 @@ class CostCenterAdminSmokeTest(TestCase):
     """The admin pages the new field touches must actually render."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
+        self.company = make_company()
         self.cuba = CostCenter.objects.create(
             company=self.company, code="211", name="Flota Cuba"
         )
-        self.provider = Provider.objects.create(
-            company=self.company, name="Proveedor SA", default_cost_center=self.cuba
-        )
-        self.po = PurchaseOrder.objects.create(
+        self.provider = make_provider(company=self.company, default_cost_center=self.cuba)
+        self.po = make_purchase_order(
             company=self.company, provider=self.provider,
             date_ordered=date(2026, 6, 1), status=PurchaseOrderStatus.APPROVED,
         )

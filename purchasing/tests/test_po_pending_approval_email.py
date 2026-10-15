@@ -11,49 +11,36 @@ from datetime import date
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 
-from company.models import Company
-from materials.models import Provider
 from purchasing.admin import PurchaseOrderAdmin
 from purchasing.models import PurchaseOrder, PurchaseOrderStatus
 from purchasing.tasks import send_purchase_order_pending_approval_notification
+from purchasing.tests.factories import make_admin_request, make_company, make_provider, make_purchase_order
 
 User = get_user_model()
 
 
 class PendingApprovalEmailTests(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(
-            name="Test Company",
-            tax_identifier="B12345678",
+        self.company = make_company(
             purchase_order_notification_emails=["approver@example.com"],
         )
-        self.provider = Provider.objects.create(company=self.company, name="Proveedor SA")
+        self.provider = make_provider(company=self.company)
         self.user = User.objects.create_superuser(
             username="requester", password="x", email="requester@example.com",
             first_name="Rita", last_name="Requester",
         )
 
     def _make_po(self, status=PurchaseOrderStatus.DRAFT):
-        return PurchaseOrder.objects.create(
+        return make_purchase_order(
             company=self.company,
             provider=self.provider,
             date_ordered=date(2026, 8, 1),
             status=status,
             requested_by=self.user,
         )
-
-    def _admin_request(self):
-        req = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(req)
-        req.session.save()
-        MessageMiddleware(lambda r: None).process_request(req)
-        req.user = self.user
-        return req
 
     def test_creating_po_sends_no_email(self):
         with self.captureOnCommitCallbacks(execute=True):
@@ -64,7 +51,7 @@ class PendingApprovalEmailTests(TestCase):
         po = self._make_po()
         po_admin = PurchaseOrderAdmin(PurchaseOrder, admin.site)
         with self.captureOnCommitCallbacks(execute=True):
-            po_admin._send_to_approval(self._admin_request(), po)
+            po_admin._send_to_approval(make_admin_request(user=self.user), po)
 
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
@@ -82,7 +69,7 @@ class PendingApprovalEmailTests(TestCase):
         po = self._make_po()
         po_admin = PurchaseOrderAdmin(PurchaseOrder, admin.site)
         with self.captureOnCommitCallbacks(execute=True):
-            po_admin._send_to_approval(self._admin_request(), po)
+            po_admin._send_to_approval(make_admin_request(user=self.user), po)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
         self.assertEqual(len(mail.outbox), 0)
@@ -91,7 +78,7 @@ class PendingApprovalEmailTests(TestCase):
         po = self._make_po(status=PurchaseOrderStatus.APPROVED)
         po_admin = PurchaseOrderAdmin(PurchaseOrder, admin.site)
         with self.captureOnCommitCallbacks(execute=True):
-            po_admin._send_to_approval(self._admin_request(), po)
+            po_admin._send_to_approval(make_admin_request(user=self.user), po)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrderStatus.APPROVED)
         self.assertEqual(len(mail.outbox), 0)

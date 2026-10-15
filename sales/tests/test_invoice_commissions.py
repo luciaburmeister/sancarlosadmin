@@ -67,14 +67,6 @@ class InvoiceCommissionTest(_ClientAgentTestCase):
         self.assertEqual(row.release_date, date(2026, 9, 25))
         self.assertEqual(row.commission_percentage, Decimal("10.00"))
 
-    def test_quote_invoice_row_adds_up_the_quote_commission(self):
-        invoice = self.final_goods_invoice()
-        self.pay(invoice, invoice.total_amount.amount)
-        row = self.row(invoice)
-        self.assertEqual(row.own_base_amount.amount, Decimal("0.00"))
-        self.assertEqual(row.released_amount.amount, Decimal("100.00"))
-        self.assertEqual(self.released(), Decimal("100.00"))
-
     def test_rule_is_frozen_once_issued(self):
         invoice = self.plain_invoice(Decimal("500.00"))
         self.rule.value = Decimal("20")

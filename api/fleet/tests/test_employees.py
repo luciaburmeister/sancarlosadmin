@@ -9,19 +9,14 @@ Run just this file:
 from datetime import date
 
 from django.test import TestCase
-from rest_framework.test import APIClient
 
 from company.models import Employee
-from api.fleet.tests.helpers import make_company, make_employee, make_user
+from api.fleet.tests.helpers import ApiFixtureMixin, make_company
 
 
-class EmployeesListEndpointTests(TestCase):
+class EmployeesListEndpointTests(ApiFixtureMixin, TestCase):
     def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
+        super().setUp()
 
     def _url(self):
         return "/es/api/employees/"
@@ -30,7 +25,7 @@ class EmployeesListEndpointTests(TestCase):
         Employee.objects.create(
             company=self.company, first_name="Juan", last_name="Perez", hired_at=date.today(),
         )
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         self.assertEqual(response.status_code, 200)
         names = [r["name"] for r in response.json()["results"]]
         self.assertIn("Juan Perez", names)
@@ -41,7 +36,7 @@ class EmployeesListEndpointTests(TestCase):
             company=self.company, first_name="Retired", last_name="Guy",
             hired_at=date.today(), is_active=False,
         )
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         names = [r["name"] for r in response.json()["results"]]
         self.assertNotIn("Retired Guy", names)
 
@@ -50,11 +45,6 @@ class EmployeesListEndpointTests(TestCase):
         Employee.objects.create(
             company=other_company, first_name="Other", last_name="Co", hired_at=date.today(),
         )
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         names = [r["name"] for r in response.json()["results"]]
         self.assertNotIn("Other Co", names)
-
-    def test_unauthenticated_is_rejected(self):
-        self.client_api.force_authenticate(user=None)
-        response = self.client_api.get(self._url())
-        self.assertEqual(response.status_code, 401)

@@ -18,10 +18,6 @@ from assets.forms import EstimatedDurationChoiceField
 
 
 class EstimatedDurationChoiceFieldTests(SimpleTestCase):
-    def test_has_changed_does_not_crash_with_a_timedelta_initial(self):
-        field = EstimatedDurationChoiceField()
-        field.has_changed(timedelta(hours=1), "60")  # no exception
-
     def test_has_changed_is_false_when_the_submitted_value_matches_initial(self):
         field = EstimatedDurationChoiceField()
         self.assertFalse(field.has_changed(timedelta(hours=1), "60"))

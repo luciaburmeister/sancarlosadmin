@@ -1,13 +1,7 @@
-from datetime import date, time
+from datetime import date
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
-from djmoney.money import Money
 
-from company.models import Company, CompanyScheduleSlot, Machine
-from configurator.models import Configuration, ConfigurationItem, ProductTemplate
-from materials.models import Component
-from production.models import ProductionResource
 from production.services.scheduler import reasons
 from production.services.scheduler.reasons import describe_reason
 from production.services.scheduler.serialization import (
@@ -15,6 +9,13 @@ from production.services.scheduler.serialization import (
     proposal_to_dict,
 )
 from production.services.scheduler.strategies.margin import MarginScheduler
+from production.tests.factories import (
+    machine_stage_resources,
+    make_machine,
+    make_priced_configuration,
+    make_scheduling_world,
+    resource_for,
+)
 
 # 2026-08-10 is a Monday
 MONDAY = date(2026, 8, 10)
@@ -24,70 +25,23 @@ class SchedulerUnselectedReasonsTest(TestCase):
     STAGE = "corte"
 
     def setUp(self):
-        self.company = Company.objects.create(
-            name="Test Co",
-            production_stages=[self.STAGE],
-        )
-        CompanyScheduleSlot.objects.create(
-            company=self.company,
-            weekday=0,  # Monday
-            start_time=time(8, 0),
-            end_time=time(10, 0),
-        )
-        self.product = ProductTemplate.objects.create(
-            name="Ventana",
-            company=self.company,
-            production_stages=[self.STAGE],
-        )
-        self.component = Component.objects.create(
-            company=self.company,
-            name="Perfil",
-            unit_price_expression="0",
-        )
+        self.company, self.product, self.component = make_scheduling_world(stage=self.STAGE)
 
     def _create_configuration(self, *, name, price, cost, stages=None, work_time_min=60):
-        configuration = Configuration.objects.create(
-            company=self.company,
-            product=self.product,
-            name=name,
-            total_price=Money(price, "EUR"),
-            total_cost=Money(cost, "EUR"),
-        )
         stages = [self.STAGE] if stages is None else stages
-        stage_resources = {
-            stage: {
-                "machine_types": [{"quantity": 1, "machine_type_id": 1}],
-                "employee_types": [],
-                "prep_time_min": 0,
-                "work_time_min": work_time_min,
-                "post_time_min": 0,
-            }
-            for stage in stages
-        }
-        ConfigurationItem.objects.create(
-            configuration=configuration,
-            component=self.component,
-            unit_price=Money(0, "EUR"),
-            is_template_item=True,
-            production_stages=stages,
-            stage_resources=stage_resources,
+        return make_priced_configuration(
+            product=self.product, component=self.component, name=name, price=price, cost=cost,
+            stages=stages,
+            stage_resources=machine_stage_resources(stages, work_time_min=work_time_min, machine_type_id=1),
         )
-        return configuration
 
     def _create_machine_resource(self, *, parallel_capacity=1):
         # The post_save signal on Machine auto-creates the ProductionResource
-        machine = Machine.objects.create(
-            company=self.company,
-            name="Sierra",
-            code="SIE-1",
-            production_stages=[self.STAGE],
-            daily_capacity_minutes=480,
-            parallel_capacity=parallel_capacity,
-            is_active=True,
-        )
-        return ProductionResource.objects.get(
-            content_type=ContentType.objects.get_for_model(Machine),
-            object_id=machine.id,
+        return resource_for(
+            make_machine(
+                self.company, name="Sierra", code="SIE-1", stages=[self.STAGE],
+                daily_capacity_minutes=480, parallel_capacity=parallel_capacity, is_active=True,
+            )
         )
 
     def _schedule(self, configurations, *, ts=60, start=MONDAY, end=MONDAY):

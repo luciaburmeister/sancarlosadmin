@@ -6,13 +6,11 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
-from django.urls import reverse
-from django.utils import translation
 from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import InvoicePaymentStatus
 from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod
+from payments.testing import CompanyAdminTestMixin, payment_form
 from apps.expenses.models import ExpenseClaim, ExpenseClaimStatus, ExpenseTicket
 from apps.expenses.services.expense_ticket_service import ExpenseTicketService
 from apps.expenses.services.ocr_services.ocr_interface import TicketOcrInterface, TicketData
@@ -45,9 +43,9 @@ def make_ticket_data(**overrides) -> TicketData:
     return TicketData(**defaults)
 
 
-class ExpenseTicketConflictTest(TestCase):
+class ExpenseTicketConflictTest(CompanyAdminTestMixin, TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.user = User.objects.create_user(username="driver")
 
     def _make_ticket(self):
@@ -105,9 +103,9 @@ class ExpenseTicketConflictTest(TestCase):
         self.assertFalse(result.is_duplicate)
 
 
-class ExpenseClaimPaymentStatusTest(TestCase):
+class ExpenseClaimPaymentStatusTest(CompanyAdminTestMixin, TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.user = User.objects.create_user(username="traveller")
         self.claim = ExpenseClaim.objects.create(company=self.company, submitted_by=self.user)
         ExpenseTicket.objects.create(
@@ -135,17 +133,6 @@ class ExpenseClaimPaymentStatusTest(TestCase):
         )
         self.claim.refresh_from_db()
 
-    def test_claim_starts_unpaid(self):
-        self.assertEqual(self.claim.payment_status, InvoicePaymentStatus.UNPAID)
-
-    def test_partial_allocation_marks_claim_partial(self):
-        self._allocate(Decimal("40.00"))
-        self.assertEqual(self.claim.payment_status, InvoicePaymentStatus.PARTIAL)
-
-    def test_full_allocation_marks_claim_paid(self):
-        self._allocate(Decimal("100.00"))
-        self.assertEqual(self.claim.payment_status, InvoicePaymentStatus.PAID)
-
     def test_removing_the_allocation_returns_the_claim_to_unpaid(self):
         self._allocate(Decimal("100.00"))
         PaymentAllocation.objects.get(object_id=self.claim.pk).delete()
@@ -153,13 +140,12 @@ class ExpenseClaimPaymentStatusTest(TestCase):
         self.assertEqual(self.claim.payment_status, InvoicePaymentStatus.UNPAID)
 
 
-class ExpenseClaimAdminPaymentDisplayTest(TestCase):
+class ExpenseClaimAdminPaymentDisplayTest(CompanyAdminTestMixin, TestCase):
     """The claim change page has to show what was paid and what is still owed."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
-        self.admin = User.objects.create_superuser(username="boss", password="pw", email="boss@example.com")
-        self.client.force_login(self.admin)
+        super().setUp()
+        self.admin = self.login_superuser(username="boss", email="boss@example.com")
         self.claim = ExpenseClaim.objects.create(company=self.company, submitted_by=self.admin)
         ExpenseTicket.objects.create(
             company=self.company,
@@ -185,16 +171,6 @@ class ExpenseClaimAdminPaymentDisplayTest(TestCase):
         )
         self.claim.refresh_from_db()
 
-    def _get(self, url_name, *args):
-        # Admin URLs are language-prefixed by i18n_patterns, so the prefix -
-        # not an Accept-Language header - decides the rendered language. Pin it
-        # to English so the assertions can match untranslated labels. The
-        # request has to run inside the override too, not just reverse():
-        # LocaleMiddleware activates the URL's language and never restores it,
-        # which would leave English active for every test that follows.
-        with translation.override("en"):
-            return self.client.get(reverse(url_name, args=args))
-
     def test_change_page_shows_totals_status_and_the_payments_behind_them(self):
         response = self._get("admin:expenses_expenseclaim_change", self.claim.pk)
         self.assertEqual(response.status_code, 200)
@@ -212,14 +188,13 @@ class ExpenseClaimAdminPaymentDisplayTest(TestCase):
         self.assertIn("60.00", response.content.decode())
 
 
-class ExpenseClaimRegisterPaymentTest(TestCase):
+class ExpenseClaimRegisterPaymentTest(CompanyAdminTestMixin, TestCase):
     """Reimbursing a claim without leaving its admin page."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
-        self.finance = User.objects.create_superuser(username="finance", password="pw", email="fin@example.com")
+        super().setUp()
+        self.finance = self.login_superuser()
         self.employee = User.objects.create_user(username="traveller")
-        self.client.force_login(self.finance)
         self.claim = ExpenseClaim.objects.create(company=self.company, submitted_by=self.employee)
         ExpenseTicket.objects.create(
             company=self.company,
@@ -232,20 +207,11 @@ class ExpenseClaimRegisterPaymentTest(TestCase):
         self.claim.transition_to(ExpenseClaimStatus.SUBMITTED)
         self.claim.transition_to(ExpenseClaimStatus.APPROVED)
 
-    def _get(self, url_name, *args):
-        with translation.override("en"):
-            return self.client.get(reverse(url_name, args=args))
-
-    def _post(self, amount):
-        with translation.override("en"):
-            url = reverse("admin:expenses_expenseclaim_register_payment", args=[self.claim.pk])
-            return self.client.post(url, {
-                "amount": amount,
-                "currency": "EUR",
-                "payment_date": "2026-07-03",
-                "method": PaymentMethod.TRANSFER,
-                "reference": "REIMB-1",
-            })
+    def _pay(self, amount):
+        return self._post(
+            "admin:expenses_expenseclaim_register_payment", self.claim.pk,
+            data=payment_form(amount=amount, reference="REIMB-1"),
+        )
 
     def test_the_button_is_on_the_claim_page(self):
         response = self._get("admin:expenses_expenseclaim_change", self.claim.pk)
@@ -253,7 +219,7 @@ class ExpenseClaimRegisterPaymentTest(TestCase):
         self.assertIn(f"/expenses/expenseclaim/{self.claim.pk}/register-payment/", response.content.decode())
 
     def test_the_button_is_hidden_once_there_is_nothing_left_to_pay(self):
-        self._post("100.00")
+        self._pay("100.00")
         response = self._get("admin:expenses_expenseclaim_change", self.claim.pk)
         self.assertNotIn("register-payment", response.content.decode())
 
@@ -263,7 +229,7 @@ class ExpenseClaimRegisterPaymentTest(TestCase):
         self.assertIn("Register Payment", response.content.decode())
 
     def test_registering_a_partial_payment_creates_the_payment_and_its_allocation(self):
-        response = self._post("40.00")
+        response = self._pay("40.00")
         self.assertEqual(response.status_code, 302)
 
         payment = Payment.objects.get()
@@ -281,13 +247,13 @@ class ExpenseClaimRegisterPaymentTest(TestCase):
         self.assertEqual(self.claim.amount_remaining, Money(Decimal("60.00"), "EUR"))
 
     def test_paying_the_full_amount_marks_the_claim_paid_and_reimbursed(self):
-        self._post("100.00")
+        self._pay("100.00")
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.payment_status, InvoicePaymentStatus.PAID)
         self.assertEqual(self.claim.status, ExpenseClaimStatus.REIMBURSED)
 
     def test_cannot_pay_more_than_is_outstanding(self):
-        response = self._post("150.00")
+        response = self._pay("150.00")
         self.assertEqual(response.status_code, 200)  # redisplayed with the error
         self.assertFalse(Payment.objects.exists())
         self.claim.refresh_from_db()
@@ -315,13 +281,12 @@ class ExpenseClaimRegisterPaymentTest(TestCase):
         self.assertEqual(response.status_code, 403)
 
 
-class ExpenseClaimTicketsSectionTest(TestCase):
+class ExpenseClaimTicketsSectionTest(CompanyAdminTestMixin, TestCase):
     """The changelist dropdown showing which tickets make up each claim."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
-        self.admin = User.objects.create_superuser(username="boss", password="pw", email="boss@example.com")
-        self.client.force_login(self.admin)
+        super().setUp()
+        self.admin = self.login_superuser(username="boss", email="boss@example.com")
         self.claim = ExpenseClaim.objects.create(
             company=self.company,
             submitted_by=self.admin,
@@ -341,10 +306,9 @@ class ExpenseClaimTicketsSectionTest(TestCase):
         self.claim.recalculate_total()
 
     def _get_changelist(self):
-        # See ExpenseClaimAdminPaymentDisplayTest._get for why the language is
-        # pinned through the URL prefix rather than a header.
-        with translation.override("en"):
-            return self.client.get(reverse("admin:expenses_expenseclaim_changelist"))
+        # See CompanyAdminTestMixin for why the language is pinned through the
+        # URL prefix rather than a header.
+        return self._get("admin:expenses_expenseclaim_changelist")
 
     def test_the_dropdown_lists_each_ticket_with_its_value_and_notes(self):
         response = self._get_changelist()

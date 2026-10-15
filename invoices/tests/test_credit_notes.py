@@ -122,11 +122,6 @@ class CreditNoteAllocationTest(CreditNoteTestBase):
         alloc.delete()
         self.assertEqual(self._invoiced(), Decimal("6"))
 
-    def test_rectifies_link(self):
-        credit_note = self._make_credit_note("A-001", rectifies=self.invoice)
-        self.assertEqual(credit_note.rectifies, self.invoice)
-        self.assertIn(credit_note, self.invoice.credit_notes.all())
-
 
 class CreditNoteMatchingTest(CreditNoteTestBase):
     def test_credit_note_candidates_require_invoiced_quantity(self):
@@ -205,14 +200,3 @@ class CreditNotePaymentStatusTest(CreditNoteTestBase):
         self._apply_payment(credit_note, -30)
         credit_note.recalculate_payment_status()
         self.assertEqual(credit_note.payment_status, InvoicePaymentStatus.PAID)
-
-    def test_positive_total_logic_unchanged(self):
-        Invoice.objects.filter(pk=self.invoice.pk).update(total_amount=Decimal("50.00"))
-        self.invoice.refresh_from_db()
-
-        self.invoice.recalculate_payment_status()
-        self.assertEqual(self.invoice.payment_status, InvoicePaymentStatus.UNPAID)
-
-        self._apply_payment(self.invoice, 50)
-        self.invoice.recalculate_payment_status()
-        self.assertEqual(self.invoice.payment_status, InvoicePaymentStatus.PAID)

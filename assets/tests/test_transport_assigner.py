@@ -16,24 +16,15 @@ from django.test import TestCase
 from assets.models import (
     Asset,
     AssetPlanning,
-    AssetType,
-    AssetTypeCategory,
     MachinePermission,
     PlanningUrgency,
     TransportCompatibilityRule,
 )
 from assets.services.transport_assigner import TransportAssigner
+from assets.tests.factories import make_truck, make_truck_type
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user, make_zone
 
 TODAY = date(2026, 8, 10)
-
-
-def make_truck_type(company, name="CAMIONES"):
-    return AssetType.objects.create(company=company, name=name, category=AssetTypeCategory.TRUCK)
-
-
-def make_truck(company, truck_type, name="Truck 1", assigned_to=None):
-    return Asset.objects.create(company=company, asset_type=truck_type, name=name, assigned_to=assigned_to)
 
 
 def make_driver(company, username):
@@ -76,7 +67,7 @@ class TransportAssignerTests(TestCase):
         self.destination = make_zone(self.company, name="Destination")
         self.truck_type = make_truck_type(self.company)
         self.driver = make_driver(self.company, "driver1")
-        self.truck = make_truck(self.company, self.truck_type, name="Truck 1", assigned_to=self.driver)
+        self.truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 1", driver=self.driver)
 
     # ── Basic resolution ──────────────────────────────────────────────────
     def test_assigns_truck_and_derives_driver_from_its_own_link(self, _mock):
@@ -108,7 +99,7 @@ class TransportAssignerTests(TestCase):
     def test_falls_back_to_authorized_employee_when_primary_is_fully_booked(self, _mock):
         # Block the primary driver's entire working day — on a different
         # truck, so self.truck itself stays free; only the driver is busy.
-        blocker_truck = make_truck(self.company, self.truck_type, name="Blocker")
+        blocker_truck = make_truck(self.company, asset_type=self.truck_type, name="Blocker")
         make_planning(
             self.company, self.origin, self.destination,
             scheduled_time=time(7, 0), scheduled_end_time=time(17, 0),
@@ -126,7 +117,7 @@ class TransportAssignerTests(TestCase):
         self.assertEqual(planning.assigned_to, alternate)
 
     def test_picks_the_least_busy_authorized_alternate(self, _mock):
-        blocker_truck = make_truck(self.company, self.truck_type, name="Blocker")
+        blocker_truck = make_truck(self.company, asset_type=self.truck_type, name="Blocker")
         make_planning(
             self.company, self.origin, self.destination,
             scheduled_time=time(7, 0), scheduled_end_time=time(17, 0),
@@ -137,7 +128,7 @@ class TransportAssignerTests(TestCase):
         MachinePermission.objects.create(company=self.company, employee=busy_alt, asset=self.truck)
         MachinePermission.objects.create(company=self.company, employee=free_alt, asset=self.truck)
         # busy_alt already has two unrelated jobs that day (different truck/zone, just workload).
-        other_truck = make_truck(self.company, self.truck_type, name="Truck 2")
+        other_truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 2")
         for i in range(2):
             make_planning(
                 self.company, self.origin, self.destination,
@@ -173,7 +164,7 @@ class TransportAssignerTests(TestCase):
         self.assertEqual(planning.assigned_to, self.driver)
 
     def test_never_overrides_a_fully_manual_assignment_only_fills_time(self, _mock):
-        other_truck = make_truck(self.company, self.truck_type, name="Truck 0")  # sorts first by name
+        other_truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 0")  # sorts first by name
         other_driver = make_driver(self.company, "other")
         planning = make_planning(
             self.company, self.origin, self.destination,
@@ -198,7 +189,7 @@ class TransportAssignerTests(TestCase):
         )
         self.truck.data = {"carga_maxima_kg": 1000}  # too weak, sorts first by name
         self.truck.save(update_fields=["data"])
-        strong_truck = make_truck(self.company, self.truck_type, name="Truck 2", assigned_to=self.driver)
+        strong_truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 2", driver=self.driver)
         strong_truck.data = {"carga_maxima_kg": 9000}
         strong_truck.save(update_fields=["data"])
         planning = make_planning(self.company, self.origin, self.destination, asset=cuba)
@@ -211,7 +202,7 @@ class TransportAssignerTests(TestCase):
 
     def test_manually_excluded_truck_is_never_picked(self, _mock):
         cuba = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company, "Cuba"), name="Cuba 1")
-        other_truck = make_truck(self.company, self.truck_type, name="Truck 2", assigned_to=self.driver)
+        other_truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 2", driver=self.driver)
         cuba.excluded_assets.add(self.truck)  # only self.truck is excluded — "Truck 1" would sort first
         planning = make_planning(self.company, self.origin, self.destination, asset=cuba)
 
@@ -220,21 +211,6 @@ class TransportAssignerTests(TestCase):
         self.assertEqual(result.assigned, [planning])
         planning.refresh_from_db()
         self.assertEqual(planning.transport_asset, other_truck)
-
-    # ── Duration is never recalculated once specified ───────────────────
-    def test_duration_is_preserved_across_reassignment(self, _mock):
-        planning = make_planning(
-            self.company, self.origin, self.destination,
-            scheduled_time=time(9, 0), scheduled_end_time=time(12, 0),  # 3 hours — route mock says 1h
-            transport_asset=self.truck, assigned_to=self.driver,
-        )
-
-        result = TransportAssigner().assign_bulk([TODAY], self.company.id, reassign_all=True)
-
-        self.assertEqual(result.assigned, [planning])
-        planning.refresh_from_db()
-        self.assertEqual(planning.scheduled_time, time(9, 0))
-        self.assertEqual(planning.scheduled_end_time, time(12, 0))
 
     # ── time_locked ───────────────────────────────────────────────────────
     def test_time_locked_skips_instead_of_shifting_on_conflict(self, _mock):
@@ -324,7 +300,7 @@ class TransportAssignerTests(TestCase):
         self.assertNotIn(cancelled, result.assigned + result.skipped)
 
     def test_default_bulk_never_touches_an_already_fully_assigned_planning(self, _mock):
-        other_truck = make_truck(self.company, self.truck_type, name="Truck 0", assigned_to=self.driver)
+        other_truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 0", driver=self.driver)
         planning = make_planning(
             self.company, self.origin, self.destination,
             scheduled_time=time(9, 0), scheduled_end_time=time(10, 0),
@@ -339,17 +315,25 @@ class TransportAssignerTests(TestCase):
         self.assertEqual(planning.transport_asset, other_truck)
 
     def test_reassign_all_resets_truck_and_driver_but_never_the_schedule(self, _mock):
-        other_truck = make_truck(self.company, self.truck_type, name="Truck 0", assigned_to=self.driver)
+        # The planning starts on a truck/driver pair that a from-scratch
+        # resolution would NOT pick: "Truck 2" sorts after self.truck ("Truck 1"),
+        # whose own driver is self.driver. Landing on self.truck/self.driver
+        # proves the old assignment was reset, not just re-confirmed.
+        other_driver = make_driver(self.company, "driver2")
+        other_truck = make_truck(self.company, asset_type=self.truck_type, name="Truck 2", driver=other_driver)
         planning = make_planning(
             self.company, self.origin, self.destination,
-            scheduled_time=time(9, 0), scheduled_end_time=time(12, 0),
-            transport_asset=other_truck, assigned_to=self.driver,
+            scheduled_time=time(9, 0), scheduled_end_time=time(12, 0),  # 3 hours — route mock says 1h
+            transport_asset=other_truck, assigned_to=other_driver,
         )
 
         result = TransportAssigner().assign_bulk([TODAY], self.company.id, reassign_all=True)
 
         self.assertEqual(result.assigned, [planning])
         planning.refresh_from_db()
+        self.assertEqual(planning.transport_asset, self.truck)
+        self.assertEqual(planning.assigned_to, self.driver)
+        # Duration is never recalculated once specified, and the slot is kept.
         self.assertEqual(planning.scheduled_time, time(9, 0))
         self.assertEqual(planning.scheduled_end_time, time(12, 0))
 

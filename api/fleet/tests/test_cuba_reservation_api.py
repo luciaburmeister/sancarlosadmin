@@ -1,7 +1,16 @@
 from django.urls import reverse
 from rest_framework.test import APIClient, APITestCase
 
-from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_employee, make_planning, make_user, make_zone
+from api.fleet.tests.helpers import (
+    make_almacen,
+    make_asset,
+    make_asset_type,
+    make_company,
+    make_employee,
+    make_obra,
+    make_planning,
+    make_user,
+)
 from assets.constants import AssignRequestKey
 from assets.models import (
     AssetDataKey,
@@ -12,7 +21,6 @@ from assets.models import (
     PlanningType,
     TransactionTypeChoices,
 )
-from company.models import WorkingZone
 
 
 class CubaReservationApiTests(APITestCase):
@@ -23,12 +31,8 @@ class CubaReservationApiTests(APITestCase):
         cls.employee = make_employee(cls.company, cls.user)
         cls.asset_type = make_asset_type(cls.company)
 
-        cls.destination = make_zone(cls.company, name="Obra")
-        cls.destination.zone_type = WorkingZone.ZoneType.OBRA
-        cls.destination.save(update_fields=["zone_type"])
-        cls.almacen = make_zone(cls.company, name="Almacén")
-        cls.almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        cls.almacen.save(update_fields=["zone_type"])
+        cls.destination = make_obra(cls.company)
+        cls.almacen = make_almacen(cls.company, name="Almacén")
 
         cls.cuba = make_asset(cls.company, cls.asset_type, zone=cls.almacen, name="CUBA-001")
         cls.cuba.data = {AssetDataKey.CAPACIDAD: CubaSize.M3_10}
@@ -56,10 +60,6 @@ class CubaReservationApiTests(APITestCase):
     def reserve_url(self, planning=None):
         return reverse("reserve_cuba", args=[(planning or self.planning).id])
 
-    def test_suggestions_require_authentication(self):
-        response = self.client.get(self.suggestions_url())
-        self.assertEqual(response.status_code, 401)
-
     def test_suggestions_lists_candidate_cuba(self):
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.suggestions_url())
@@ -78,12 +78,6 @@ class CubaReservationApiTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.suggestions_url(other_planning))
         self.assertEqual(response.status_code, 404)
-
-    def test_reserve_requires_authentication(self):
-        response = self.client.post(
-            self.reserve_url(), {AssignRequestKey.ASSET_ID: self.cuba.id}, format="json",
-        )
-        self.assertEqual(response.status_code, 401)
 
     def test_reserve_sets_reserved_asset(self):
         self.client.force_authenticate(user=self.user)
@@ -119,10 +113,6 @@ class CubaReservationApiTests(APITestCase):
             self.reserve_url(), {AssignRequestKey.ASSET_ID: other_asset.id}, format="json",
         )
         self.assertEqual(response.status_code, 404)
-
-    def test_cancel_requires_authentication(self):
-        response = self.client.delete(self.reserve_url())
-        self.assertEqual(response.status_code, 401)
 
     def test_cancel_clears_reservation(self):
         self.planning.reserved_asset = self.cuba

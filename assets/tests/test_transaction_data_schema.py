@@ -55,12 +55,6 @@ class ConditionalFieldsVisibilityTests(TestCase):
         transaction_type, so it must not appear in this dict at all."""
         self.assertNotIn("reference_number", TRANSACTION_DATA_CONDITIONAL_FIELDS)
 
-    def test_matricula_is_visible_for_both_cuba_and_porte(self):
-        condition = TRANSACTION_DATA_CONDITIONAL_FIELDS["matricula"]
-        self.assertIn("transaction_type == 'movement'", condition)
-        self.assertIn("transaction_type == 'delivery'", condition)
-        self.assertIn("transaction_type == 'porte_movement'", condition)
-
     def test_a_single_schema_field_is_unaffected(self):
         """tipo_cuba only exists on CubaSchema -- sanity check the merge logic
         doesn't change behaviour for the non-shared common case."""

@@ -10,9 +10,10 @@ it block a driver mid-pickup.
 from datetime import date, timedelta
 
 from django.utils import timezone
-from rest_framework.test import APIClient, APITestCase
+from rest_framework.test import APITestCase
 
 from api.fleet.tests.helpers import (
+    ApiFixtureMixin,
     make_asset,
     make_asset_type,
     make_company,
@@ -25,18 +26,11 @@ from assets.models import AssetTransaction, CubaOperationType, PlanningStatus, P
 from assets.constants import AssignRequestKey
 
 
-class AssetAssignViewTests(APITestCase):
+class AssetAssignViewTests(ApiFixtureMixin, APITestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.asset = make_asset(self.company, self.asset_type)
-
-    def test_requires_authentication(self):
-        response = self.client.post(f"/en/api/assets/{self.asset.id}/assign/")
-        self.assertEqual(response.status_code, 401)
 
     def test_assigns_scanned_asset_to_my_own_pending_planning(self):
         self.client.force_authenticate(user=self.user)

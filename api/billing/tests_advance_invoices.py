@@ -22,43 +22,24 @@ works on net goods figures.
   while one is left to deduct; its quotes are not reverted to draft.
 """
 import json
-from datetime import date
 from decimal import Decimal
 
-from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
-from rest_framework.test import APIClient
 
 from api._serializers import project_file_can_mark_completed
-from apps.einvoicing.models import (
-    EInvoicingAccount,
-    EInvoicingSubmission,
-    SubmissionAction,
-    SubmissionStatus,
-)
-from company.models import Employee
+from apps.einvoicing.models import SubmissionStatus
 from invoices.models import (
     InvoicePaymentStatus,
     SalesInvoice,
     SalesInvoiceDocumentType,
     SalesInvoiceStatus,
 )
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
+from invoices.tests.advance_fixtures import AdvanceApiMixin, aeat_cancel_marker
 from management.models import ProjectFile, ProjectFileStatus
 from sales.models import QuoteStatus
 
 
-class _AdvanceApiBase(AdvanceExpedienteMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        user = User.objects.create_user("advances", password="pw")
-        Employee.objects.create(
-            user=user, company=self.company, first_name="Ana", last_name="Anticipo",
-            is_active=True, hired_at=date(2020, 1, 1),
-        )
-        self.api = APIClient()
-        self.api.force_authenticate(user=user)
-
+class _AdvanceApiBase(AdvanceApiMixin, TestCase):
     def _mark_paid(self, *invoices):
         SalesInvoice.objects.filter(pk__in=[i.pk for i in invoices]).update(
             payment_status=InvoicePaymentStatus.PAID,
@@ -351,11 +332,7 @@ class CancellingAdvanceTests(_AdvanceApiBase):
     def setUp(self):
         super().setUp()
         self.advance, self.line = self.make_advance(Decimal("300.00"), "30")
-        self.marker = EInvoicingSubmission.objects.create(
-            account=EInvoicingAccount.objects.create(company=self.company, name="Verifacti"),
-            sales_invoice=self.advance, action=SubmissionAction.CANCEL,
-            status=SubmissionStatus.PENDING,
-        )
+        self.marker = aeat_cancel_marker(self.advance)
 
     def _goods_invoices(self):
         return SalesInvoice.objects.filter(document_type=SalesInvoiceDocumentType.INVOICE)

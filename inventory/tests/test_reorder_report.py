@@ -12,6 +12,7 @@ from django.utils.translation import gettext as _
 from inventory.choices import ItemType
 from inventory.models import BillOfMaterialsLine, InventoryItem
 from inventory.services.reorder_report import reorder_report_rows, reorder_report_xlsx
+from inventory.tests.factories import make_item
 from inventory.tests.test_stock_position import _StockPositionTestCase
 from purchasing.models import PurchaseOrderStatus
 from sales.models import QuoteStatus
@@ -73,11 +74,9 @@ class ReorderReportTests(_StockPositionTestCase):
         self.assertEqual(rows[0].recommended, Decimal("5"))
 
     def test_service_items_are_omitted(self):
-        service = InventoryItem.objects.create(
-            code="SRV",
-            name="Install",
-            company=self.company,
-            item_type=ItemType.SERVICE,
+        service = make_item(
+            company=self.company, warehouse=None,
+            code="SRV", name="Install", item_type=ItemType.SERVICE,
         )
         self._accepted_quote_line(service, 2)
 

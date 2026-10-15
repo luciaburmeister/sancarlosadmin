@@ -31,24 +31,33 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from djmoney.money import Money
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
+from configurator.models import Configuration
 from inventory.models import InventoryItem
-from invoices.models import AppliedTax, SalesInvoice, TaxType
+from invoices.models import AppliedTax, SalesInvoice
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+from invoices.tests.factories import (
+    apply_tax,
+    build_api_items,
+    create_invoice,
+    get_irpf,
+    get_iva21,
+    make_client,
+    make_company,
+    make_configuration,
+    make_product_template,
+    make_project_file,
+    make_quote,
+)
 from management.models import ProjectFile, WorkEntry, WorkEntryType
 from materials.models import Category, Material
 from sales.models import (
-    Client,
     DiscountKind,
     DiscountLevel,
     DiscountMode,
     DiscountPolicy,
     DiscountRule,
-    Quote,
     QuoteInventoryItem,
     QuoteItem,
-    QuoteStatus,
 )
 
 
@@ -91,15 +100,13 @@ def _invoice_snapshot(invoice):
 class _GoldenExpedienteBase(TestCase):
 
     def setUp(self):
-        self.company = Company.objects.create(name="Golden Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Golden", company=self.company, client=self.client_obj,
+        self.company = make_company(name="Golden Co")
+        self.client_obj = make_client(company=self.company)
+        self.product = make_product_template(company=self.company)
+        self.project_file = make_project_file(
+            company=self.company, client=self.client_obj, name="PF Golden",
         )
-        self.iva, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
+        self.iva = get_iva21()
 
         policy = DiscountPolicy.objects.create(name="Golden policy", company=self.company)
         DiscountRule.objects.create(
@@ -112,12 +119,8 @@ class _GoldenExpedienteBase(TestCase):
             kind=DiscountKind.FINANCING,
         )
 
-        self.quote = Quote.objects.create(
-            project_name="Golden Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
+        self.quote = make_quote(
+            project_file=self.project_file, project_name="Golden Quote",
         )
         self.quote.discount_policies.add(policy)
 
@@ -148,52 +151,27 @@ class _GoldenExpedienteBase(TestCase):
             unit_price=Money("45.50", "EUR"),
             date=date(2026, 9, 1),
         )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(WorkEntry),
-            object_id=self.entry.pk,
-            tax_type=self.iva,
-            selected_percentage=Decimal("21"),
-            base_amount=Decimal("91.00"),
-            calculated_amount=Decimal("19.11"),
+        apply_tax(
+            self.entry, tax_type=self.iva,
+            base=Decimal("91.00"), calculated=Decimal("19.11"),
         )
 
     def _make_config(self, name, subtotal, quote=None):
         """A configuration taxed at IVA 21 %; direct (quote-less) if no quote."""
         tax = (subtotal * Decimal("0.21")).quantize(Decimal("0.01"))
-        config = Configuration.objects.create(
-            name=name,
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED if quote else ConfigurationStatus.SHOP,
-            subtotal_price=subtotal,
-            total_price=subtotal + tax,
+        return make_configuration(
+            quote=quote, project_file=self.project_file, product=self.product,
+            subtotal=subtotal, name=name,
             tax_breakdown=[{
                 "tax_name": self.iva.tax_name, "percentage": "21.00",
                 "base": str(subtotal), "tax_amount": str(tax),
             }],
         )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(Configuration),
-            object_id=config.pk,
-            tax_type=self.iva,
-            selected_percentage=Decimal("21"),
-            base_amount=subtotal,
-            calculated_amount=tax,
-        )
-        return config
 
     def _make_inv_item(self, name, quantity, unit_price, percentage):
         """A quote inventory line; it copies its stock item's IVA on creation."""
         stock_item = InventoryItem.objects.create(name=name, company=self.company)
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(InventoryItem),
-            object_id=stock_item.pk,
-            tax_type=self.iva,
-            selected_percentage=percentage,
-        )
+        apply_tax(stock_item, tax_type=self.iva, percentage=percentage)
         return QuoteInventoryItem.objects.create(
             quote=self.quote, inventory_item=stock_item,
             quantity=quantity, unit_price=unit_price,
@@ -203,18 +181,12 @@ class _GoldenExpedienteBase(TestCase):
         return ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
 
     def _items(self, percentage):
-        from api.billing.serializers import build_items_from_summary
-
-        return build_items_from_summary(self._summary(), "percentage", percentage, None)
+        return build_api_items(self._summary(), percentage=percentage)
 
     def _create_invoice(self, items_data):
-        return ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 9, 29),
-            due_date=date(2026, 10, 29),
-            items_data=items_data,
+        return create_invoice(
+            project_file=self.project_file, items=items_data,
+            date_issued=date(2026, 9, 29), due_date=date(2026, 10, 29),
         )
 
 
@@ -392,15 +364,6 @@ class GoldenPriceLinesTests(_GoldenExpedienteBase):
 class BuildItemsForRatioTests(_GoldenExpedienteBase):
     """The service builder behind the API's build_items_from_summary."""
 
-    def test_api_wrapper_uses_the_ratio_builder(self):
-        from api.billing.serializers import build_items_from_summary
-
-        summary = self._summary()
-        self.assertCountEqual(
-            ProjectFileInvoiceService.build_items_for_ratio(summary, Decimal("0.4")),
-            build_items_from_summary(summary, "percentage", Decimal("40"), None),
-        )
-
     def test_full_ratio_bills_every_source_in_full(self):
         items = ProjectFileInvoiceService.build_items_for_ratio(self._summary(), Decimal("1"))
         self.assertCountEqual(
@@ -435,18 +398,14 @@ class _RetentionExpedienteBase(TestCase):
     """
 
     def setUp(self):
-        self.company = Company.objects.create(name="Retention Co")
-        self.client_obj = Client.objects.create(name="Autónomo", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF IRPF", company=self.company, client=self.client_obj,
+        self.company = make_company(name="Retention Co")
+        self.client_obj = make_client(company=self.company, name="Autónomo")
+        self.product = make_product_template(company=self.company)
+        self.project_file = make_project_file(
+            company=self.company, client=self.client_obj, name="PF IRPF",
         )
-        self.iva, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
-        self.irpf, _ = TaxType.objects.get_or_create(
-            tax_name="IRPF", country="ES", defaults={"behavior": "subtract"}
-        )
+        self.iva = get_iva21()
+        self.irpf = get_irpf()
 
         policy = DiscountPolicy.objects.create(name="Financing", company=self.company)
         DiscountRule.objects.create(
@@ -454,25 +413,14 @@ class _RetentionExpedienteBase(TestCase):
             mode=DiscountMode.ACCUMULATED, level=DiscountLevel.BASKET,
             kind=DiscountKind.FINANCING,
         )
-        self.quote = Quote.objects.create(
-            project_name="IRPF Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
+        self.quote = make_quote(
+            project_file=self.project_file, project_name="IRPF Quote",
         )
         self.quote.discount_policies.add(policy)
 
-        self.config = Configuration.objects.create(
-            name="Cerramiento",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=self.quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=Decimal("10000.00"),
-            total_price=Decimal("10600.00"),
+        self.config = make_configuration(
+            quote=self.quote, product=self.product, name="Cerramiento",
+            subtotal="10000.00", total=Decimal("10600.00"), tax_pct=None,
             tax_breakdown=[
                 {"tax_name": "IVA", "percentage": "21.00",
                  "base": "10000.00", "tax_amount": "2100.00"},
@@ -480,16 +428,13 @@ class _RetentionExpedienteBase(TestCase):
                  "base": "10000.00", "tax_amount": "1500.00"},
             ],
         )
-        config_ct = ContentType.objects.get_for_model(Configuration)
         for order, (tax_type, pct, calc) in enumerate((
             (self.iva, Decimal("21"), Decimal("2100.00")),
             (self.irpf, Decimal("15"), Decimal("1500.00")),
         )):
-            AppliedTax.objects.create(
-                content_type=config_ct, object_id=self.config.pk,
-                tax_type=tax_type, selected_percentage=pct,
-                base_amount=Decimal("10000.00"), calculated_amount=calc,
-                order=order,
+            apply_tax(
+                self.config, tax_type=tax_type, percentage=pct,
+                base=Decimal("10000.00"), calculated=calc, order=order,
             )
         self.quote.recalc_totals()
         self.quote.refresh_from_db()
@@ -516,10 +461,8 @@ class _RetentionExpedienteBase(TestCase):
         self.assertEqual(invoice.total_amount.amount, base + iva - irpf)
 
     def _full_items(self):
-        from api.billing.serializers import build_items_from_summary
-
         summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-        return build_items_from_summary(summary, "percentage", Decimal("100"), None)
+        return build_api_items(summary)
 
 
 class GoldenRetentionTests(_RetentionExpedienteBase):

@@ -14,11 +14,10 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from company.active_company import ActiveCompany
-from company.models import Company
 from configurator.forms.client_selection_form import ClientSelectionForm
 from configurator.views.configuration.autocomplete_views import QuoteAutocompleteView
 from sales.components.quote_dashboard_charts import _get_company_filtered_quotes
-from sales.models import Client, Quote
+from sales.tests.factories import make_client, make_company, make_quote
 from sales.views.quote_dashboard_view import QuoteDashboardView
 
 User = get_user_model()
@@ -27,17 +26,13 @@ User = get_user_model()
 class QuoteActiveCompanyScopeTests(TestCase):
     def setUp(self):
         cache.clear()  # LocMem cache persists across tests in-process
-        self.alpha = Company.objects.create(name="Alpha")
-        self.beta = Company.objects.create(name="Beta")
-        self.quote_alpha = Quote.objects.create(
-            company=self.alpha,
-            client=Client.objects.create(name="A client", company=self.alpha),
-            project_name="Alpha job",
+        self.alpha = make_company(name="Alpha")
+        self.beta = make_company(name="Beta")
+        self.quote_alpha = make_quote(
+            company=self.alpha, client=make_client(company=self.alpha, name="A client"), project_name="Alpha job",
         )
-        self.quote_beta = Quote.objects.create(
-            company=self.beta,
-            client=Client.objects.create(name="B client", company=self.beta),
-            project_name="Beta job",
+        self.quote_beta = make_quote(
+            company=self.beta, client=make_client(company=self.beta, name="B client"), project_name="Beta job",
         )
         self.superuser = User.objects.create_superuser(
             username="root", email="root@example.com", password="x"
@@ -74,7 +69,9 @@ class QuoteActiveCompanyScopeTests(TestCase):
 
         self.assertEqual(list(quotes), [self.quote_beta])
 
-    def test_changelist_lists_only_the_active_company(self):
+    def test_changelist_renders_only_the_active_company(self):
+        # The only test that renders the quote changelist, so it also guards
+        # the list columns, filters and the expandable details section.
         self.client.force_login(self.superuser)
         self.client.post(
             reverse("admin:company_switch_active_apply"),
@@ -83,4 +80,5 @@ class QuoteActiveCompanyScopeTests(TestCase):
 
         response = self.client.get(reverse("admin:sales_quote_changelist"))
 
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(list(response.context["cl"].queryset), [self.quote_alpha])

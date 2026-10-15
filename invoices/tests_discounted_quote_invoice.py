@@ -12,15 +12,13 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from invoices.models import AppliedTax, TaxType
+from invoices.models import AppliedTax
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile
-from sales.models import Client, Quote, QuoteStatus
+from invoices.tests.factories import ExpedienteMixin, make_quote
+from sales.models import Quote
 
 
-class _DiscountedQuoteTestBase(TestCase):
+class _DiscountedQuoteTestBase(ExpedienteMixin, TestCase):
     """A project file with one accepted quote carrying a 198.67 € discount.
 
     Numbers mirror a real case: subtotal 1045.62, discount 198.67,
@@ -32,67 +30,31 @@ class _DiscountedQuoteTestBase(TestCase):
     TAXABLE = Decimal("846.95")
     TAX = Decimal("177.86")     # 21% of 846.95
     TOTAL = Decimal("1024.81")  # 846.95 + 177.86
+    # Legacy breakdown shape: no "kind"/"level" keys.
+    DISCOUNT_BREAKDOWN = [
+        {"base": "1045.62", "mode": "net", "amount": "104.56",
+         "rule_name": "10%", "percentage": "10.00"},
+        {"base": "941.06", "mode": "accumulated", "amount": "94.11",
+         "rule_name": "10% si mayor a 500", "percentage": "10.00"},
+    ]
+
+    project_file_name = "PF Discount"
+    invoice_date_issued = date(2026, 7, 14)
+    invoice_due_date = date(2026, 8, 14)
 
     def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Discount",
-            company=self.company,
-            client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
-
-        self.quote = Quote.objects.create(
-            project_name="Discounted Quote",
-            company=self.company,
-            client=self.client_obj,
+        super().setUp()
+        self.quote = make_quote(
             project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
+            project_name="Discounted Quote",
             subtotal_price=self.SUBTOTAL,
             discount_amount=self.DISCOUNT,
             discounted_subtotal=self.TAXABLE,
             tax_amount=self.TAX,
             total_price=self.TOTAL,
-            discount_breakdown=[
-                {"base": "1045.62", "mode": "net", "amount": "104.56",
-                 "rule_name": "10%", "percentage": "10.00"},
-                {"base": "941.06", "mode": "accumulated", "amount": "94.11",
-                 "rule_name": "10% si mayor a 500", "percentage": "10.00"},
-            ],
+            discount_breakdown=self.DISCOUNT_BREAKDOWN,
         )
-        self.config = Configuration.objects.create(
-            name="Corredera",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=self.quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=self.SUBTOTAL,
-            total_price=self.SUBTOTAL * Decimal("1.21"),
-        )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(Configuration),
-            object_id=self.config.pk,
-            tax_type=self.iva21,
-            selected_percentage=Decimal("21"),
-            base_amount=self.SUBTOTAL,
-            calculated_amount=(self.SUBTOTAL * Decimal("0.21")).quantize(Decimal("0.01")),
-        )
-
-    def _create_invoice(self, items_data):
-        return ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 7, 14),
-            due_date=date(2026, 8, 14),
-            items_data=items_data,
-        )
+        self.config = self._make_config(self.quote, self.SUBTOTAL, name="Corredera")
 
     def _full_items(self):
         """Line items for 100% of the quote (pre-discount, as the wizard builds them)."""
@@ -107,20 +69,18 @@ class _DiscountedQuoteTestBase(TestCase):
 
 class FullInvoiceOfDiscountedQuoteTests(_DiscountedQuoteTestBase):
 
-    def test_full_invoice_does_not_raise_over_invoicing(self):
-        """100% of a discounted quote must not trip the over-invoicing check."""
+    def test_full_invoice_of_legacy_breakdown_quote(self):
+        """100% of a discounted quote (legacy breakdown, no kind/level keys)
+        does not trip the over-invoicing check, carries the discount and
+        breakdown, taxes the discounted base and leaves nothing pending."""
         invoice = self._create_invoice(self._full_items())
         self.assertIsNotNone(invoice.pk)
 
-    def test_full_invoice_matches_quote_amounts(self):
-        invoice = self._create_invoice(self._full_items())
         self.assertEqual(invoice.subtotal_amount.amount, self.SUBTOTAL)
         self.assertEqual(invoice.discount_amount.amount, self.DISCOUNT)
         self.assertEqual(invoice.tax_amount.amount, self.TAX)
         self.assertEqual(invoice.total_amount.amount, self.TOTAL)
 
-    def test_tax_record_uses_discounted_base(self):
-        invoice = self._create_invoice(self._full_items())
         applied = AppliedTax.objects.get(
             content_type=ContentType.objects.get_for_model(invoice),
             object_id=invoice.pk,
@@ -129,14 +89,10 @@ class FullInvoiceOfDiscountedQuoteTests(_DiscountedQuoteTestBase):
         self.assertEqual(applied.calculated_amount.amount, self.TAX)
         self.assertEqual(applied.selected_percentage, Decimal("21"))
 
-    def test_discount_breakdown_carried_over(self):
-        invoice = self._create_invoice(self._full_items())
         self.assertEqual(len(invoice.discount_breakdown), 2)
         amounts = sorted(Decimal(e["amount"]) for e in invoice.discount_breakdown)
         self.assertEqual(amounts, [Decimal("94.11"), Decimal("104.56")])
 
-    def test_summary_shows_fully_invoiced_after_full_invoice(self):
-        self._create_invoice(self._full_items())
         summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
         self.assertEqual(summary["remaining"], Decimal("0.00"))
         self.assertEqual(summary["remaining_subtotal_net"], Decimal("0.00"))
@@ -225,12 +181,9 @@ class MultiQuoteDiscountAttributionTests(_DiscountedQuoteTestBase):
         from sales.models import QuoteInventoryItem
 
         # Second accepted quote WITHOUT discount: 400 € + 21% IVA = 484 €
-        self.quote2 = Quote.objects.create(
-            project_name="Plain Quote",
-            company=self.company,
-            client=self.client_obj,
+        self.quote2 = make_quote(
             project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
+            project_name="Plain Quote",
             subtotal_price=Decimal("400.00"),
             tax_amount=Decimal("84.00"),
             total_price=Decimal("484.00"),
@@ -333,64 +286,18 @@ class MultiQuoteDiscountAttributionTests(_DiscountedQuoteTestBase):
         self.assertEqual(summary["remaining_subtotal_net"], Decimal("0.00"))
 
 
-class UndiscountedQuoteRegressionTests(TestCase):
+class UndiscountedQuoteRegressionTests(_DiscountedQuoteTestBase):
     """Quotes without a discount must keep taxing the full subtotal."""
 
-    def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Plain", company=self.company, client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
-        self.quote = Quote.objects.create(
-            project_name="Plain Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("100.00"),
-            tax_amount=Decimal("21.00"),
-            total_price=Decimal("121.00"),
-        )
-        self.config = Configuration.objects.create(
-            name="Puerta",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=self.quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=Decimal("100.00"),
-            total_price=Decimal("121.00"),
-        )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(Configuration),
-            object_id=self.config.pk,
-            tax_type=self.iva21,
-            selected_percentage=Decimal("21"),
-            base_amount=Decimal("100.00"),
-            calculated_amount=Decimal("21.00"),
-        )
+    SUBTOTAL = Decimal("100.00")
+    DISCOUNT = Decimal("0.00")
+    TAXABLE = Decimal("100.00")
+    TAX = Decimal("21.00")
+    TOTAL = Decimal("121.00")
+    DISCOUNT_BREAKDOWN = []
 
     def test_tax_on_full_base_without_discount(self):
-        invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 7, 14),
-            due_date=date(2026, 8, 14),
-            items_data=[{
-                "source_id": f"config_{self.config.pk}",
-                "description": "Puerta",
-                "quantity": Decimal("1"),
-                "unit_price": Decimal("100.00"),
-                "discount_percentage": Decimal("0.00"),
-            }],
-        )
+        invoice = self._create_invoice(self._full_items())
         self.assertEqual(invoice.subtotal_amount.amount, Decimal("100.00"))
         self.assertEqual(invoice.discount_amount.amount, Decimal("0.00"))
         self.assertEqual(invoice.tax_amount.amount, Decimal("21.00"))

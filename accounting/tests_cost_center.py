@@ -6,6 +6,7 @@ Run just this file:
 """
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from accounting.models import CostCenter
@@ -98,5 +99,5 @@ class CostCenterTreeTest(TestCase):
     def test_code_is_unique_per_company_only(self):
         # Same code in another company is fine — it is scoped, not global.
         CostCenter.objects.create(company=self.other_company, code="211", name="Flota Cuba")
-        with self.assertRaises(Exception):
+        with transaction.atomic(), self.assertRaises(IntegrityError):
             CostCenter.objects.create(company=self.company, code="211", name="Duplicado")

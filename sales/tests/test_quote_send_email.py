@@ -4,21 +4,20 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
-from company.models import Company
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from core.services.pdf_service import PDFService
 from core.views.send_document_email_view import ClientRecipientsForm
-from sales.models import Client, Quote
 from sales.services.quote_email_service import QuoteEmailService
+from sales.tests.factories import make_client, make_company, make_quote
 from sales.views.quote_send_email_view import QuoteSendEmailView
 
 
 class QuoteSendEmailViewTemplatePickerTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Acme")
-        cls.other_company = Company.objects.create(name="Other Co")
-        cls.quote = Quote.objects.create(company=cls.company, project_name="Q1")
+        cls.company = make_company(name="Acme")
+        cls.other_company = make_company(name="Other Co")
+        cls.quote = make_quote(company=cls.company, project_name="Q1")
 
         cls.generic_template = ConfigurationExportTemplate.objects.create(
             name="Generic", kind=ExportTemplateKind.CONSOLIDATED_QUOTATION,
@@ -57,7 +56,7 @@ class QuoteSendEmailViewTemplatePickerTest(TestCase):
 class ClientRecipientsFormTemplateFieldTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Acme")
+        cls.company = make_company(name="Acme")
         cls.template_a = ConfigurationExportTemplate.objects.create(
             name="A", kind=ExportTemplateKind.CONSOLIDATED_QUOTATION,
         )
@@ -92,10 +91,8 @@ class ClientRecipientsFormTemplateFieldTest(TestCase):
 class QuoteEmailServiceTemplateOverrideTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Acme")
-        cls.quote = Quote.objects.create(
-            company=cls.company, project_name="Q1",
-        )
+        cls.company = make_company(name="Acme")
+        cls.quote = make_quote(company=cls.company, project_name="Q1")
 
     @patch.object(PDFService, "render_object_pdf", return_value=b"%PDF-fake")
     def test_send_quote_email_forwards_the_chosen_template_id(self, mock_render):
@@ -117,13 +114,9 @@ class QuoteSendEmailViewPostWiringTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Acme")
-        cls.client_obj = Client.objects.create(
-            company=cls.company, name="Cliente SA", email="client@example.com",
-        )
-        cls.quote = Quote.objects.create(
-            company=cls.company, client=cls.client_obj, project_name="Q1",
-        )
+        cls.company = make_company(name="Acme")
+        cls.client_obj = make_client(company=cls.company, name="Cliente SA", email="client@example.com")
+        cls.quote = make_quote(company=cls.company, client=cls.client_obj, project_name="Q1")
         cls.template = ConfigurationExportTemplate.objects.create(
             name="Chosen template",
             kind=ExportTemplateKind.CONSOLIDATED_QUOTATION,

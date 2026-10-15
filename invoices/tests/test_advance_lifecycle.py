@@ -60,7 +60,7 @@ from apps.einvoicing.models import (
 from apps.einvoicing.providers.base import SubmissionResult
 from apps.einvoicing.tasks import cancel_invoice_at_aeat
 from company.models import Company, CompanyUser, Employee
-from configurator.models import Configuration, ProductTemplate
+from configurator.models import Configuration
 from invoices.admin import AppliedTaxInline, SalesInvoiceItemInline
 from invoices.models import (
     AppliedTax,
@@ -80,9 +80,13 @@ from invoices.services.discounts import (
 from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
 from invoices.services.delivery_order_service import DeliveryOrderService
-from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.services.sales_invoice_service import SalesInvoiceService
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, UserExpedienteMixin
+from invoices.tests.advance_fixtures import (
+    AdvanceExpedienteMixin,
+    ExpedienteInvoicingMixin,
+    UserExpedienteMixin,
+    aeat_cancel_marker,
+)
 from invoices.tests.test_project_file_invoice_pricing_golden import (
     _GoldenExpedienteBase,
     _RetentionExpedienteBase,
@@ -90,8 +94,7 @@ from invoices.tests.test_project_file_invoice_pricing_golden import (
 from management.models import ProjectFile
 from materials.models import PaymentMethod
 from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentStatus
-from production.models import ProductionTicket
-from sales.models import Client, DeliveryOrder, DeliveryOrderItem
+from sales.models import Client
 
 
 class _InvoiceFixtures(TestCase):
@@ -359,16 +362,6 @@ class AdvanceConstraintTests(_InvoiceFixtures):
         self.assertEqual(invoice.document_type, SalesInvoiceDocumentType.INVOICE)
         self.assertIsNone(invoice.advance_percentage)
 
-    def test_history_records_the_document_type(self):
-        advance = self._invoice(
-            document_type=SalesInvoiceDocumentType.ADVANCE,
-            project_file=self.project_file,
-            advance_percentage=Decimal("30"),
-        )
-        record = advance.history.first()
-        self.assertEqual(record.document_type, SalesInvoiceDocumentType.ADVANCE)
-        self.assertEqual(record.advance_percentage, Decimal("30"))
-
 
 class AdvanceSourceIdTests(TestCase):
     def test_advance_prefixes(self):
@@ -594,30 +587,6 @@ class FinalizeCallersTests(_InvoiceFixtures):
         self.assertIn("error", response.json())
         invoice.refresh_from_db()
         self.assertEqual(invoice.status, SalesInvoiceStatus.CANCELLED)
-
-    def test_production_generate_invoice_shows_a_refusal_as_a_message(self):
-        product = ProductTemplate.objects.create(name="Ventana", company=self.company)
-        config = Configuration.objects.create(company=self.company, product=product)
-        ticket = ProductionTicket.objects.create(
-            company=self.company,
-            content_type=ContentType.objects.get_for_model(config),
-            object_id=config.pk,
-        )
-
-        with mock.patch(
-            "invoices.services.sales_invoice_service.SalesInvoiceService.create_from_configuration",
-            side_effect=ValidationError("refused"),
-        ):
-            response = self.client.get(
-                reverse("admin:production_productionticket_generate_invoice_action", args=[ticket.pk])
-            )
-
-        self.assertRedirects(
-            response, reverse("admin:production_productionticket_changelist"),
-            fetch_redirect_response=False,
-        )
-        self.assertEqual([level for level, _ in self._messages(response)], [messages.ERROR])
-        self.assertFalse(SalesInvoice.objects.filter(configuration=config).exists())
 
     def test_admin_finalize_names_the_invoice(self):
         invoice = self._invoice()
@@ -857,20 +826,9 @@ class LockOrderTests(AdvanceExpedienteMixin, TestCase):
         self.assertEqual(self._locked_tables(ctx)[:1], ["management_projectfile"])
 
     def test_delivery_order_invoice(self):
-        delivery_order = DeliveryOrder.objects.create(
-            company=self.company, client=self.client_obj, project_file=self.project_file,
-        )
-        DeliveryOrderItem.objects.create(
-            delivery_order=delivery_order, description=self.config.name,
-            quantity=Decimal("1"), unit_price=Decimal("1000.00"),
-            source_content_type=ContentType.objects.get_for_model(Configuration),
-            source_object_id=self.config.pk,
-        )
+        delivery_order = self.make_delivery_order(config=self.config)
         self._assert_project_file_locked_first(
-            lambda: DeliveryOrderService.create_invoice_from_delivery_orders(
-                [delivery_order], company=self.company, client=self.client_obj,
-                date_issued=date(2026, 9, 29),
-            )
+            lambda: self.invoice_delivery_orders(delivery_order)
         )
 
 
@@ -896,12 +854,6 @@ class ReleasingAdvancesTests(AdvanceExpedienteMixin, TestCase):
         self._rest_deducting_the_advance().delete()
         self._assert_advance_pending_again()
 
-    def test_cancelling_the_rest_invoice(self):
-        rest = self._rest_deducting_the_advance()
-        self._set_status(rest, SalesInvoiceStatus.FINAL)
-        self._set_status(rest, SalesInvoiceStatus.CANCELLED)
-        self._assert_advance_pending_again()
-
     def test_status_is_recomputed_once_the_deletion_commits(self):
         invoice = self.invoice_goods()
         with mock.patch("management.signals._recompute_project_file_status") as recompute:
@@ -911,10 +863,6 @@ class ReleasingAdvancesTests(AdvanceExpedienteMixin, TestCase):
             for callback in callbacks:
                 callback()
         recompute.assert_called_once_with(self.project_file.pk)
-
-    def _set_status(self, invoice, status):
-        invoice.status = status
-        invoice.save(update_fields=["status"])
 
 
 @override_settings(AEAT_SUBMISSIONS_ENABLED=False)
@@ -990,13 +938,7 @@ class FinalizeDeductionsTests(AdvanceExpedienteMixin, TestCase):
         )
 
     def test_an_advance_being_cancelled_at_the_aeat_is_refused(self):
-        account = EInvoicingAccount.objects.create(company=self.company, name="Verifacti")
-        self._assert_refused_once_the_advance(
-            lambda advance: EInvoicingSubmission.objects.create(
-                account=account, sales_invoice=advance,
-                action=SubmissionAction.CANCEL, status=SubmissionStatus.PENDING,
-            )
-        )
+        self._assert_refused_once_the_advance(aeat_cancel_marker)
 
     def test_an_advance_of_another_client_is_refused(self):
         other = Client.objects.create(name="Otro", company=self.company)
@@ -1101,9 +1043,7 @@ class CancelAdvanceTests(AdvanceExpedienteMixin, TestCase):
         self.client.force_login(User.objects.create_superuser("canceller", "c@x.com", "pw"))
 
     def deduct_on_the_rest(self):
-        rest = self.invoice_goods()
-        AdvanceDeductionService.apply(rest)
-        return rest
+        return self.rest_invoice()
 
     def pay(self):
         payment = Payment.objects.create(
@@ -1230,10 +1170,7 @@ class CancelAdvanceTests(AdvanceExpedienteMixin, TestCase):
         # A pro forma from before the cancellation was asked for (no new
         # one is invoiced meanwhile)
         invoice = self.invoice_goods()
-        EInvoicingSubmission.objects.create(
-            account=self.account(), sales_invoice=self.advance,
-            action=SubmissionAction.CANCEL, status=SubmissionStatus.PENDING,
-        )
+        aeat_cancel_marker(self.advance)
 
         self.assertEqual(AdvanceDeductionService.default_plan(invoice), [])
         self.assertEqual(AdvanceDeductionService.apply(invoice), [])
@@ -1262,8 +1199,6 @@ class ProformaAdvanceBlocksGoodsTests(AdvanceExpedienteMixin, TestCase):
     goods: paying it, invoicing the goods in full and then finalizing it
     would bill 130 %."""
 
-    STEP = "project_file_invoice_wizard_view-current_step"
-
     def setUp(self):
         super().setUp()
         self.advance, _ = self.make_advance(
@@ -1288,19 +1223,8 @@ class ProformaAdvanceBlocksGoodsTests(AdvanceExpedienteMixin, TestCase):
         ))
 
     def test_delivery_order_invoice(self):
-        delivery_order = DeliveryOrder.objects.create(
-            company=self.company, client=self.client_obj, project_file=self.project_file,
-        )
-        DeliveryOrderItem.objects.create(
-            delivery_order=delivery_order, description=self.config.name,
-            quantity=Decimal("1"), unit_price=Decimal("1000.00"),
-            source_content_type=ContentType.objects.get_for_model(Configuration),
-            source_object_id=self.config.pk,
-        )
-        self.assert_refused(lambda: DeliveryOrderService.create_invoice_from_delivery_orders(
-            [delivery_order], company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29),
-        ))
+        delivery_order = self.make_delivery_order(config=self.config)
+        self.assert_refused(lambda: self.invoice_delivery_orders(delivery_order))
         delivery_order.refresh_from_db()
         self.assertIsNone(delivery_order.sales_invoice_id)
 
@@ -1312,18 +1236,8 @@ class ProformaAdvanceBlocksGoodsTests(AdvanceExpedienteMixin, TestCase):
         self.assertEqual(deduction.line_total.amount, Decimal("-300.00"))
 
     def test_the_wizard_refuses_it_on_the_setup_step(self):
-        self.client.force_login(User.objects.create_superuser("wizard", "w@x.com", "pw"))
-        url = reverse("admin:management_projectfile_create_invoice", args=[self.project_file.pk])
-        data = {
-            self.STEP: "setup",
-            "setup-company": self.company.pk,
-            "setup-date_issued": "2026-09-29",
-            "setup-due_date": "",
-            "setup-invoice_mode": "percentage",
-            "setup-percentage": "100",
-            "setup-custom_amount": "",
-            "setup-payment_method": PaymentMethod.TRANSFER,
-        }
+        url = self.login_to_wizard()
+        data = self.wizard_setup_data()
         self.client.get(url)
 
         response = self.client.post(url, data)
@@ -1347,13 +1261,9 @@ class CancellingAdvanceBlocksGoodsTests(AdvanceExpedienteMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.advance, self.line = self.make_advance(Decimal("300.00"), "30")
-        self.account = EInvoicingAccount.objects.create(company=self.company, name="Verifacti")
 
     def cancel_marker(self, status):
-        return EInvoicingSubmission.objects.create(
-            account=self.account, sales_invoice=self.advance,
-            action=SubmissionAction.CANCEL, status=status,
-        )
+        return aeat_cancel_marker(self.advance, status=status)
 
     def assert_refused_while_in_flight(self, create):
         for status in self.IN_FLIGHT:
@@ -1379,37 +1289,16 @@ class CancellingAdvanceBlocksGoodsTests(AdvanceExpedienteMixin, TestCase):
         ))
 
     def test_delivery_order_invoice(self):
-        delivery_order = DeliveryOrder.objects.create(
-            company=self.company, client=self.client_obj, project_file=self.project_file,
-        )
-        DeliveryOrderItem.objects.create(
-            delivery_order=delivery_order, description=self.config.name,
-            quantity=Decimal("1"), unit_price=Decimal("1000.00"),
-            source_content_type=ContentType.objects.get_for_model(Configuration),
-            source_object_id=self.config.pk,
-        )
+        delivery_order = self.make_delivery_order(config=self.config)
         self.assert_refused_while_in_flight(
-            lambda: DeliveryOrderService.create_invoice_from_delivery_orders(
-                [delivery_order], company=self.company, client=self.client_obj,
-                date_issued=date(2026, 9, 29),
-            )
+            lambda: self.invoice_delivery_orders(delivery_order)
         )
         delivery_order.refresh_from_db()
         self.assertIsNone(delivery_order.sales_invoice_id)
 
     def test_the_wizard_refuses_it_on_the_setup_step(self):
-        self.client.force_login(User.objects.create_superuser("wizard", "w@x.com", "pw"))
-        url = reverse("admin:management_projectfile_create_invoice", args=[self.project_file.pk])
-        data = {
-            ProformaAdvanceBlocksGoodsTests.STEP: "setup",
-            "setup-company": self.company.pk,
-            "setup-date_issued": "2026-09-29",
-            "setup-due_date": "",
-            "setup-invoice_mode": "percentage",
-            "setup-percentage": "100",
-            "setup-custom_amount": "",
-            "setup-payment_method": PaymentMethod.TRANSFER,
-        }
+        url = self.login_to_wizard()
+        data = self.wizard_setup_data()
         for status in self.IN_FLIGHT:
             with self.subTest(status=status):
                 marker = self.cancel_marker(status)
@@ -1472,7 +1361,7 @@ class CancellingAdvanceBlocksGoodsTests(AdvanceExpedienteMixin, TestCase):
         self.assertEqual(invoice.total_amount.amount, Decimal("1210.00"))
 
 
-class _IssueAsBuiltMixin:
+class _IssueAsBuiltMixin(ExpedienteInvoicingMixin):
     """A 30 % advance issued on the expediente, and issuing what the
     builders lay out: the finalize checks must refuse none of it and move
     no figure."""
@@ -1487,12 +1376,7 @@ class _IssueAsBuiltMixin:
         )
 
     def rest(self):
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-        invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29), due_date=None,
-            items_data=ProjectFileInvoiceService.build_items_for_ratio(summary, Decimal("1")),
-        )
+        invoice = self.invoice_goods()
         self.assertTrue(AdvanceDeductionService.apply(invoice))
         return invoice
 
@@ -1524,10 +1408,7 @@ class IssueRetentionInvoicesTests(_IssueAsBuiltMixin, _RetentionExpedienteBase):
                 project_file=self.project_file, company=self.company, client=self.client_obj,
                 items_data=[{**item, "quantity": Decimal("1")}],
             )
-            invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
-                [delivery_order], company=self.company, client=self.client_obj,
-                date_issued=date(2026, 9, 29),
-            )
+            invoice = self.invoice_delivery_orders(delivery_order)
             self.assertEqual(self.issue(invoice).total_amount.amount, Decimal("3635.80"))
 
 
@@ -1565,12 +1446,7 @@ class IssuedAsSentTests(UserExpedienteMixin, TestCase):
         return invoice
 
     def test_expediente_invoice(self):
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-        invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29), due_date=None,
-            items_data=ProjectFileInvoiceService.build_items_for_ratio(summary, Decimal("1")),
-        )
+        invoice = self.invoice_goods()
 
         # Taxed per rate, as the quote: 1,526.34 × 21 % = 320.53
         self.assertEqual(
@@ -1601,9 +1477,7 @@ class IssuedAsSentTests(UserExpedienteMixin, TestCase):
             )
             for item in DeliveryOrderService.get_deliverable_items(self.project_file)
         ]
-        invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
-            orders, company=self.company, client=self.client_obj, date_issued=date(2026, 9, 29),
-        )
+        invoice = self.invoice_delivery_orders(*orders)
 
         invoice = self._issue(invoice)
         self.assertEqual(

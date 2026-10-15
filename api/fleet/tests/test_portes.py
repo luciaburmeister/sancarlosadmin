@@ -1,27 +1,23 @@
 """
 api/fleet/tests/test_portes.py
 
-Tests 46-50: Porte and cuba planning list endpoints
+Porte and cuba planning list endpoints
 
 Run just this file:
     python manage.py test api.fleet.tests.test_portes
 """
 
-import base64
 from datetime import date, time
 
 from django.test import TestCase
-from rest_framework.test import APIClient
 
 from assets.models import (
-    Asset, AssetPlanning, AssetTypeCategory, PorteAction, TransactionTypeChoices,
+    Asset, AssetPlanning, AssetTypeCategory, TransactionTypeChoices,
 )
 from api.fleet.tests.helpers import (
-    make_company,
-    make_user,
-    make_employee,
-    make_asset_type,
+    ApiFixtureMixin,
     make_asset,
+    make_asset_type,
     make_zone,
 )
 
@@ -29,22 +25,33 @@ from api.fleet.tests.helpers import (
 TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 
-class PortePlanningTests(TestCase):
+class PorteTestCase(ApiFixtureMixin, TestCase):
+    """Authenticated driver plus the porte's Origen/Destino zones."""
+
+    def setUp(self):
+        super().setUp()
+        self.origin = make_zone(self.company, name="Origen")
+        self.destination = make_zone(self.company, name="Destino")
+
+    def _submit(self, planning, action, extra=None, image=""):
+        """POST /portes/<id>/submit/ for one step (recogida/carga/entrega);
+        `image` fills both the firma and imagen base64 fields."""
+        data = {"action": action, "firma": image, "imagen": image, "matricula": "1234ABC", "notes": ""}
+        if extra:
+            data.update(extra)
+        return self.api_client.post(f"/en/api/portes/{planning.id}/submit/", data=data, format="json")
+
+
+class PortePlanningTests(PorteTestCase):
     """
     Tests for the porte and cuba planning list endpoints.
     Portes and cubas are separate planning types and must not leak into each other.
     """
 
     def setUp(self):
-        self.api_client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
-        self.origin = make_zone(self.company, name="Origen")
-        self.destination = make_zone(self.company, name="Destino")
         self.asset = make_asset(self.company, self.asset_type, employee=self.employee)
-        self.api_client.force_authenticate(user=self.user)
 
     def _make_planning(self, planning_type="porte", status="pending"):
         return AssetPlanning.objects.create(
@@ -59,7 +66,6 @@ class PortePlanningTests(TestCase):
             status=status,
         )
 
-    # Test 46
     def test_porte_planning_appears_in_portes_list(self):
         """A porte planning must appear in GET /en/api/portes/"""
         self._make_planning(planning_type="porte")
@@ -67,7 +73,6 @@ class PortePlanningTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["transport_plannings"]), 1)
 
-    # Test 47
     def test_cuba_planning_appears_in_plannings_list(self):
         """A cuba planning must appear in GET /en/api/plannings/"""
         self._make_planning(planning_type="cuba")
@@ -75,21 +80,18 @@ class PortePlanningTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["plannings"]), 1)
 
-    # Test 48
     def test_porte_planning_does_not_appear_in_cuba_list(self):
         """A porte planning must NOT appear in the cuba plannings list."""
         self._make_planning(planning_type="porte")
         response = self.api_client.get("/en/api/plannings/")
         self.assertEqual(len(response.json()["plannings"]), 0)
 
-    # Test 49
     def test_cuba_planning_does_not_appear_in_portes_list(self):
         """A cuba planning must NOT appear in the portes list."""
         self._make_planning(planning_type="cuba")
         response = self.api_client.get("/en/api/portes/")
         self.assertEqual(len(response.json()["transport_plannings"]), 0)
 
-    # Test 50
     def test_delivered_porte_does_not_appear_in_list(self):
         """
         A porte with status='delivered' must not appear in the active list.
@@ -100,7 +102,7 @@ class PortePlanningTests(TestCase):
         self.assertEqual(len(response.json()["transport_plannings"]), 0)
 
 
-class PorteWithoutAssetTests(TestCase):
+class PorteWithoutAssetTests(PorteTestCase):
     """
     Regression tests for service types with no cargo asset (Grúa, Material
     Externo) — `AssetPlanning.asset` is legitimately None for these since
@@ -111,19 +113,11 @@ class PorteWithoutAssetTests(TestCase):
     """
 
     def setUp(self):
-        self.api_client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.origin = make_zone(self.company, name="Origen")
-        self.destination = make_zone(self.company, name="Destino")
-        self.truck_type = make_asset_type(self.company, name="Camión")
-        self.truck_type.category = AssetTypeCategory.TRUCK
-        self.truck_type.save()
+        super().setUp()
+        self.truck_type = make_asset_type(self.company, name="Camión", category=AssetTypeCategory.TRUCK)
         self.truck = Asset.objects.create(
             company=self.company, asset_type=self.truck_type, name="MERCEDES 0709CBB",
         )
-        self.api_client.force_authenticate(user=self.user)
 
     def _make_planning(self, *, transport_asset=None, scheduled_time=time(8, 0), status="pending"):
         return AssetPlanning.objects.create(
@@ -140,20 +134,17 @@ class PorteWithoutAssetTests(TestCase):
             status=status,
         )
 
-    def test_list_does_not_500_when_asset_is_none(self):
-        """The bug from the screenshots: GET /portes/ must not 500 when a planning has no asset."""
+    def test_list_falls_back_to_transport_asset_when_asset_is_none(self):
+        """The bug from the screenshots: GET /portes/ must not 500 when a planning
+        has no asset. With a truck assigned, asset_id/asset_name must be the
+        truck's, so scanning it still works."""
         self._make_planning(transport_asset=self.truck)
         response = self.api_client.get("/en/api/portes/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["transport_plannings"]), 1)
-
-    def test_list_falls_back_to_transport_asset_for_qr_scan(self):
-        """No `asset` but a truck assigned: asset_id/asset_name must be the truck's, so scanning it still works."""
-        self._make_planning(transport_asset=self.truck)
-        response = self.api_client.get("/en/api/portes/")
-        item = response.json()["transport_plannings"][0]
-        self.assertEqual(item["asset_id"], self.truck.id)
-        self.assertEqual(item["asset_name"], self.truck.name)
+        items = response.json()["transport_plannings"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["asset_id"], self.truck.id)
+        self.assertEqual(items[0]["asset_name"], self.truck.name)
 
     def test_list_returns_zero_sentinel_when_no_asset_and_no_truck(self):
         """No `asset` and no truck either: asset_id/asset_name must be the safe sentinel (0/""), not a crash."""
@@ -178,17 +169,7 @@ class PorteWithoutAssetTests(TestCase):
         from assets.models import AssetTransaction
 
         planning = self._make_planning(transport_asset=self.truck)
-        response = self.api_client.post(
-            f"/en/api/portes/{planning.id}/submit/",
-            data={
-                "action": "recogida",
-                "firma": TINY_PNG_B64,
-                "imagen": TINY_PNG_B64,
-                "matricula": "1234ABC",
-                "notes": "",
-            },
-            format="json",
-        )
+        response = self._submit(planning, "recogida", image=TINY_PNG_B64)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json().get("success"))
         planning.refresh_from_db()
@@ -197,6 +178,8 @@ class PorteWithoutAssetTests(TestCase):
         self.assertEqual(tx.asset_id, self.truck.id)
         # The new FK is populated alongside the existing soft data["planning_id"].
         self.assertEqual(tx.planning_id, planning.id)
+        # No reference_number sent -> the model field stays empty, not null.
+        self.assertEqual(tx.reference_number, "")
 
     def test_submit_uses_selected_cargo_over_transport(self):
         """A specifically chosen cargo asset must survive save() and be used for the transaction, not the truck."""
@@ -218,17 +201,7 @@ class PorteWithoutAssetTests(TestCase):
         )
         planning.refresh_from_db()
         self.assertEqual(planning.asset_id, cargo.id)
-        response = self.api_client.post(
-            f"/en/api/portes/{planning.id}/submit/",
-            data={
-                "action": "recogida",
-                "firma": TINY_PNG_B64,
-                "imagen": TINY_PNG_B64,
-                "matricula": "1234ABC",
-                "notes": "",
-            },
-            format="json",
-        )
+        response = self._submit(planning, "recogida", image=TINY_PNG_B64)
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
         self.assertEqual(tx.asset_id, cargo.id)
@@ -237,61 +210,23 @@ class PorteWithoutAssetTests(TestCase):
         from assets.models import AssetTransaction
 
         planning = self._make_planning(transport_asset=self.truck)
-        response = self.api_client.post(
-            f"/en/api/portes/{planning.id}/submit/",
-            data={
-                "action": "recogida",
-                "firma": TINY_PNG_B64,
-                "imagen": TINY_PNG_B64,
-                "matricula": "1234ABC",
-                "notes": "",
-                "reference_number": "REF-12345",
-            },
-            format="json",
-        )
+        response = self._submit(planning, "recogida", extra={"reference_number": "REF-12345"}, image=TINY_PNG_B64)
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
         self.assertEqual(tx.reference_number, "REF-12345")
         self.assertNotIn("reference_number", tx.data)
 
-    def test_submit_without_reference_number_defaults_to_empty(self):
-        from assets.models import AssetTransaction
 
-        planning = self._make_planning(transport_asset=self.truck)
-        response = self.api_client.post(
-            f"/en/api/portes/{planning.id}/submit/",
-            data={
-                "action": "recogida",
-                "firma": TINY_PNG_B64,
-                "imagen": TINY_PNG_B64,
-                "matricula": "1234ABC",
-                "notes": "",
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, 200)
-        tx = AssetTransaction.objects.get(data__planning_id=planning.id)
-        self.assertEqual(tx.reference_number, "")
-
-
-class PorteCargaAndMachineTests(TestCase):
+class PorteCargaAndMachineTests(PorteTestCase):
     """New 'carga' step + AssetPlanning.machine (own-machine transport carried
     inside a cuba, tracked separately from the cuba itself)."""
 
     def setUp(self):
-        self.api_client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.cuba_type = make_asset_type(self.company, name="Cuba")
-        self.origin = make_zone(self.company, name="Origen")
-        self.destination = make_zone(self.company, name="Destino")
         self.cuba = make_asset(self.company, self.cuba_type, employee=self.employee, name="CUBA-PORTE")
-        self.machine_type = make_asset_type(self.company, name="Retroexcavadora")
-        self.machine_type.category = AssetTypeCategory.MACHINE
-        self.machine_type.save()
+        self.machine_type = make_asset_type(self.company, name="Retroexcavadora", category=AssetTypeCategory.MACHINE)
         self.machine = Asset.objects.create(company=self.company, asset_type=self.machine_type, name="MAQUINA-1")
-        self.api_client.force_authenticate(user=self.user)
 
     def _make_planning(self, *, service_type="porte_material", machine=None, asset=None):
         return AssetPlanning.objects.create(
@@ -306,12 +241,6 @@ class PorteCargaAndMachineTests(TestCase):
             service_type=service_type,
             status="in_transit",
         )
-
-    def _submit(self, planning, action, extra=None):
-        data = {"action": action, "firma": "", "imagen": "", "matricula": "1234ABC", "notes": ""}
-        if extra:
-            data.update(extra)
-        return self.api_client.post(f"/en/api/portes/{planning.id}/submit/", data=data, format="json")
 
     def test_material_carga_is_a_plain_button_no_scan_needed(self):
         from assets.models import AssetTransaction, TransactionTypeChoices
@@ -367,13 +296,14 @@ class PorteCargaAndMachineTests(TestCase):
         response = self._submit(planning, "carga", extra={"asset_id": self.machine.id})
         self.assertEqual(response.status_code, 200)
 
-    def test_entrega_updates_the_machine_working_zone(self):
+    def test_entrega_after_carga_scan_completes_the_machine_porte(self):
+        """The machine's zone sync on PORTE_DELIVERY is the model's job —
+        assets/tests/test_zone_sync.py (PorteDeliveryZoneSyncTests) covers it."""
         planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
         self._submit(planning, "carga", extra={"asset_id": self.machine.id})
         response = self._submit(planning, "entrega")
         self.assertEqual(response.status_code, 200)
-        self.machine.refresh_from_db()
-        self.assertEqual(self.machine.current_working_zone_id, self.destination.id)
+        self.assertTrue(response.json().get("success"))
         planning.refresh_from_db()
         self.assertEqual(planning.status, "delivered")
 
@@ -391,13 +321,13 @@ class PorteCargaAndMachineTests(TestCase):
             ).exists()
         )
 
-    def test_entrega_does_not_sync_the_cuba_working_zone_for_material_porte(self):
-        """Zone-sync is scoped to own-machine transport (AssetPlanning.machine)
-        — a material porte's cuba never gets this treatment, matching the
-        pre-existing PorteDeliveryZoneSyncTests.test_delivery_for_other_service_type_does_not_sync."""
+    def test_entrega_completes_a_material_porte_without_a_machine(self):
+        """A material porte has no machine to scan: entrega goes straight
+        through. (That its cuba's zone is left alone is
+        PorteDeliveryZoneSyncTests.test_delivery_for_other_service_type_does_not_sync.)"""
         planning = self._make_planning(service_type="porte_material")
-        original_zone_id = self.cuba.current_working_zone_id
         response = self._submit(planning, "entrega")
         self.assertEqual(response.status_code, 200)
-        self.cuba.refresh_from_db()
-        self.assertEqual(self.cuba.current_working_zone_id, original_zone_id)
+        self.assertTrue(response.json().get("success"))
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "delivered")

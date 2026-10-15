@@ -11,13 +11,11 @@ Covers:
 """
 import datetime
 
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from company.models import Company, Employee
-from sales.models import Client
+from company.models import Employee
 from management.models import (
     ProjectFile,
     ResourcePlanning,
@@ -27,66 +25,18 @@ from management.models import (
 )
 from management.services.resource_planning import (
     create_multi_plannings,
-    create_plannings,
     delete_day_from_planning,
     dissolve_group,
     iter_working_days,
     update_group,
     update_planning,
 )
+from management.tests.factories import ResourcePlanningFixturesMixin
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-class _Base(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Test Co")
-
-        cls.employee_ct = ContentType.objects.get(app_label="company", model="employee")
-        _hired = datetime.date(2020, 1, 1)
-        cls.employee = Employee.objects.create(
-            company=cls.company,
-            first_name="Ana",
-            last_name="García",
-            hired_at=_hired,
-            is_active=True,
-        )
-        cls.employee2 = Employee.objects.create(
-            company=cls.company,
-            first_name="Luis",
-            last_name="Pérez",
-            hired_at=_hired,
-            is_active=True,
-        )
-
-        cls.client = Client.objects.create(company=cls.company, name="Test Client")
-        cls.project_file = ProjectFile.objects.create(
-            company=cls.company,
-            reference="EXP-00001",
-            name="Test project",
-            status="open",
-            client=cls.client,
-        )
-        cls.planning_type = ResourcePlanningType.objects.create(
-            company=cls.company,
-            name="Installation",
-            color="#3B82F6",
-        )
-
-        cls.resources = [
-            (cls.employee_ct, cls.employee.pk),
-        ]
-        cls.two_resources = [
-            (cls.employee_ct, cls.employee.pk),
-            (cls.employee_ct, cls.employee2.pk),
-        ]
-
-        cls.date_from = datetime.date(2026, 7, 7)   # Tuesday
-        cls.date_to   = datetime.date(2026, 7, 9)   # Thursday
-        cls.t_start   = datetime.time(8, 0)
-        cls.t_end     = datetime.time(17, 0)
-
+class _Base(ResourcePlanningFixturesMixin, TestCase):
     def _make_planning(self, *, resource=None, date_from=None, date_to=None,
                        t_start=None, t_end=None, group=None, exclude_weekends=False):
         resource = resource or (self.employee_ct, self.employee.pk)
@@ -142,36 +92,20 @@ class TestIterWorkingDays(TestCase):
 # ── create_plannings ──────────────────────────────────────────────────────────
 
 class TestCreatePlannings(_Base):
-    def _call(self, **overrides):
-        kwargs = dict(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=self.resources,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
-            is_group=False,
-        )
-        kwargs.update(overrides)
-        return create_plannings(**kwargs)
-
     def test_creates_one_record_per_resource(self):
-        plannings = self._call()
+        plannings = self._create()
         self.assertEqual(len(plannings), 1)
         self.assertEqual(ResourcePlanning.objects.count(), 1)
+        self.assertIsNone(plannings[0].group_id)
+        self.assertEqual(ResourcePlanningGroup.objects.count(), 0)
 
     def test_two_resources_creates_two_records(self):
-        plannings = self._call(resources=self.two_resources)
+        plannings = self._create(resources=self.two_resources)
         self.assertEqual(len(plannings), 2)
         self.assertEqual(ResourcePlanning.objects.count(), 2)
 
     def test_start_end_datetimes_are_correct(self):
-        plannings = self._call()
+        plannings = self._create()
         p = ResourcePlanning.objects.get()
         local_start = timezone.localtime(p.start)
         local_end   = timezone.localtime(p.end)
@@ -181,30 +115,25 @@ class TestCreatePlannings(_Base):
         self.assertEqual(local_end.time(), self.t_end)
 
     def test_exclude_weekends_saved_on_model(self):
-        self._call(exclude_weekends=True)
+        self._create(exclude_weekends=True)
         self.assertTrue(ResourcePlanning.objects.get().exclude_weekends)
 
-    def test_is_group_false_creates_no_group(self):
-        plannings = self._call(is_group=False)
-        self.assertIsNone(plannings[0].group_id)
-        self.assertEqual(ResourcePlanningGroup.objects.count(), 0)
-
     def test_is_group_true_links_plannings_to_group(self):
-        plannings = self._call(resources=self.two_resources, is_group=True)
+        plannings = self._create(resources=self.two_resources, is_group=True)
         group_ids = {p.group_id for p in plannings}
         self.assertEqual(len(group_ids), 1)
         self.assertIsNotNone(list(group_ids)[0])
         self.assertEqual(ResourcePlanningGroup.objects.count(), 1)
 
     def test_overlap_raises_validation_error(self):
-        self._call()  # create first planning
+        self._create()  # create first planning
         with self.assertRaises(ValidationError):
-            self._call()  # overlapping second planning for same resource
+            self._create()  # overlapping second planning for same resource
 
     def test_no_working_days_raises(self):
         # Sat–Sun with exclude_weekends=True → no working days
         with self.assertRaises(ValidationError):
-            self._call(
+            self._create(
                 date_from=datetime.date(2026, 7, 11),
                 date_to=datetime.date(2026, 7, 12),
                 exclude_weekends=True,
@@ -212,7 +141,7 @@ class TestCreatePlannings(_Base):
 
     def test_end_before_start_raises(self):
         with self.assertRaises(ValidationError):
-            self._call(
+            self._create(
                 date_from=datetime.date(2026, 7, 7),
                 date_to=datetime.date(2026, 7, 7),
                 daily_start=datetime.time(17, 0),
@@ -221,7 +150,7 @@ class TestCreatePlannings(_Base):
 
     def test_multi_day_allows_end_time_before_start_time_when_span_valid(self):
         # Jul 7 17:00 → Jul 9 06:00: clock times look inverted but span is valid.
-        plannings = self._call(
+        plannings = self._create(
             daily_start=datetime.time(17, 0),
             daily_end=datetime.time(6, 0),
         )
@@ -236,23 +165,10 @@ class TestCreatePlannings(_Base):
 
 class TestUpdateGroup(_Base):
     def setUp(self):
-        self.plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=self.two_resources,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
-            is_group=True,
-        )
+        self.plannings = self._create(resources=self.two_resources, is_group=True)
         self.group = self.plannings[0].group
 
-    def test_replaces_old_plannings(self):
+    def test_replaces_old_plannings_with_updated_fields(self):
         old_pks = {p.pk for p in self.plannings}
         update_group(
             self.group.pk,
@@ -271,22 +187,6 @@ class TestUpdateGroup(_Base):
         new_pks = set(ResourcePlanning.objects.values_list("pk", flat=True))
         self.assertFalse(old_pks & new_pks, "Old plannings should have been deleted")
         self.assertEqual(ResourcePlanning.objects.count(), 1)
-
-    def test_updated_status_saved(self):
-        update_group(
-            self.group.pk,
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.CONFIRMED,
-            notes="",
-            resources=self.resources,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
-        )
         self.assertEqual(ResourcePlanning.objects.get().status, ResourcePlanningStatus.CONFIRMED)
 
     def test_overlap_with_external_planning_raises(self):
@@ -339,7 +239,7 @@ class TestUpdatePlanning(_Base):
         bad_end = timezone.make_aware(
             datetime.datetime.combine(self.date_from, datetime.time(7, 0))
         )
-        with self.assertRaises((ValidationError, Exception)):
+        with self.assertRaises(ValidationError):
             update_planning(self.planning.pk, end=bad_end)
 
 
@@ -347,68 +247,30 @@ class TestUpdatePlanning(_Base):
 
 class TestDissolveGroup(_Base):
     def setUp(self):
-        plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=self.two_resources,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
-            is_group=True,
-        )
+        plannings = self._create(resources=self.two_resources, is_group=True)
         self.group = plannings[0].group
 
-    def test_group_deleted(self):
+    def test_group_deleted_and_plannings_become_individual(self):
         dissolve_group(self.group.pk)
         self.assertFalse(ResourcePlanningGroup.objects.filter(pk=self.group.pk).exists())
-
-    def test_plannings_become_individual(self):
-        dissolve_group(self.group.pk)
         self.assertEqual(
             ResourcePlanning.objects.filter(group__isnull=False).count(), 0
         )
         self.assertEqual(ResourcePlanning.objects.count(), 2)
-
-    def test_dissolved_plannings_still_editable(self):
-        dissolve_group(self.group.pk)
-        p = ResourcePlanning.objects.first()
-        update_planning(p.pk, notes="now individual")
-        self.assertEqual(ResourcePlanning.objects.get(pk=p.pk).notes, "now individual")
 
 
 # ── ResourcePlanningGroup.cancel_all / ResourcePlanning.cancel ────────────────
 
 class TestCancelActions(_Base):
     def setUp(self):
-        plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=self.two_resources,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
-            is_group=True,
-        )
+        plannings = self._create(resources=self.two_resources, is_group=True)
         self.group = plannings[0].group
         self.p1, self.p2 = plannings[0], plannings[1]
 
-    def test_cancel_all_cancels_every_planning_in_group(self):
+    def test_cancel_all_cancels_every_planning_and_leaves_group_intact(self):
         self.group.cancel_all()
         statuses = set(ResourcePlanning.objects.values_list("status", flat=True))
         self.assertEqual(statuses, {ResourcePlanningStatus.CANCELLED})
-
-    def test_cancel_all_leaves_group_intact(self):
-        self.group.cancel_all()
         self.assertTrue(ResourcePlanningGroup.objects.filter(pk=self.group.pk).exists())
 
     def test_cancel_only_affects_one_planning(self):
@@ -425,20 +287,7 @@ class TestCancelActions(_Base):
 
 class TestDeleteGroup(_Base):
     def setUp(self):
-        plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=self.two_resources,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
-            is_group=True,
-        )
+        plannings = self._create(resources=self.two_resources, is_group=True)
         self.group = plannings[0].group
         self.plannings = plannings
 
@@ -454,24 +303,19 @@ class TestDeleteGroup(_Base):
 
 class TestDeleteDayFromPlanning(_Base):
     def setUp(self):
-        self.plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
+        self.plannings = self._create(
             resources=self.two_resources,
             date_from=datetime.date(2026, 7, 6),   # Mon
             date_to=datetime.date(2026, 7, 10),    # Fri
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            exclude_weekends=False,
             is_group=True,
         )
         self.group = self.plannings[0].group
         self.p1, self.p2 = self.plannings[0], self.plannings[1]
 
-    def test_detach_target_from_group_others_remain_grouped(self):
+    def test_split_day_detaches_target_into_ungrouped_fragments_others_untouched(self):
+        p2_start_before = self.p2.start
+        p2_end_before = self.p2.end
+
         delete_day_from_planning(self.p1.pk, datetime.date(2026, 7, 8))  # Wed
 
         self.p1.refresh_from_db()
@@ -479,16 +323,14 @@ class TestDeleteDayFromPlanning(_Base):
         self.assertIsNone(self.p1.group_id)
         self.assertEqual(self.p2.group_id, self.group.pk)
         self.assertTrue(ResourcePlanningGroup.objects.filter(pk=self.group.pk).exists())
-
-    def test_other_group_member_dates_unchanged(self):
-        p2_start_before = self.p2.start
-        p2_end_before = self.p2.end
-
-        delete_day_from_planning(self.p1.pk, datetime.date(2026, 7, 8))
-
-        self.p2.refresh_from_db()
         self.assertEqual(self.p2.start, p2_start_before)
         self.assertEqual(self.p2.end, p2_end_before)
+
+        p1_plannings = ResourcePlanning.objects.filter(
+            resource_object_id=self.p1.resource_object_id,
+        )
+        self.assertEqual(p1_plannings.count(), 2)
+        self.assertTrue(all(p.group_id is None for p in p1_plannings))
 
     def test_delete_first_day_removes_only_target_from_group(self):
         delete_day_from_planning(self.p1.pk, datetime.date(2026, 7, 6))
@@ -504,28 +346,12 @@ class TestDeleteDayFromPlanning(_Base):
         p2_start = timezone.localtime(self.p2.start)
         self.assertEqual(p2_start.date(), datetime.date(2026, 7, 6))
 
-    def test_split_day_creates_ungrouped_fragments(self):
-        delete_day_from_planning(self.p1.pk, datetime.date(2026, 7, 8))
-
-        p1_plannings = ResourcePlanning.objects.filter(
-            resource_object_id=self.p1.resource_object_id,
-        )
-        self.assertEqual(p1_plannings.count(), 2)
-        self.assertTrue(all(p.group_id is None for p in p1_plannings))
-
     def test_individual_planning_no_group_side_effects(self):
-        solo = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
+        solo = self._create(
             resources=[(self.employee_ct, self.employee2.pk)],
             date_from=datetime.date(2026, 8, 7),
             date_to=datetime.date(2026, 8, 9),
-            daily_start=self.t_start,
-            daily_end=self.t_end,
-            is_group=False,
+            exclude_weekends=True,
         )[0]
 
         delete_day_from_planning(solo.pk, datetime.date(2026, 8, 9))
@@ -546,7 +372,7 @@ class TestCreateMultiPlannings(_Base):
             reference="EXP-00002",
             name="Second project",
             status="open",
-            client=cls.client,
+            client=cls.client_obj,
         )
         cls.planning_type2 = ResourcePlanningType.objects.create(
             company=cls.company,
@@ -590,13 +416,10 @@ class TestCreateMultiPlannings(_Base):
         params.update(kwargs)
         return create_multi_plannings(**params)
 
-    def test_creates_one_record_per_line_and_resource(self):
+    def test_creates_one_ungrouped_record_per_line_and_resource(self):
         plannings = self._create(resources=self.two_resources)
         self.assertEqual(len(plannings), 4)
         self.assertEqual(ResourcePlanning.objects.count(), 4)
-
-    def test_no_group_created(self):
-        plannings = self._create()
         self.assertTrue(all(p.group_id is None for p in plannings))
         self.assertEqual(ResourcePlanningGroup.objects.count(), 0)
 
@@ -681,19 +504,11 @@ class TestShiftFollowingPlannings(_Base):
     forward by the new planning's duration (same resource, same day only)."""
 
     def _insert(self, t_start, t_end, *, shift=True, resources=None):
-        return create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
+        return self._create(
             resources=resources or self.resources,
-            date_from=self.date_from,
             date_to=self.date_from,
             daily_start=t_start,
             daily_end=t_end,
-            exclude_weekends=False,
-            is_group=False,
             shift_following=shift,
         )
 
@@ -795,22 +610,15 @@ class TestShiftFollowingPlannings(_Base):
 
 class TestRepeatPlannings(_Base):
     def _create(self, **overrides):
+        """Monday 08–10, weekends excluded, unless overridden."""
         params = dict(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=self.resources,
             date_from=datetime.date(2026, 7, 6),   # Monday
             date_to=datetime.date(2026, 7, 6),
-            daily_start=datetime.time(8, 0),
             daily_end=datetime.time(10, 0),
             exclude_weekends=True,
-            is_group=False,
         )
         params.update(overrides)
-        return create_plannings(**params)
+        return super()._create(**params)
 
     def test_no_repeat_creates_single_ungrouped_planning(self):
         plannings = self._create(repeat="never")
@@ -850,7 +658,7 @@ class TestRepeatPlannings(_Base):
                 repeat_until=datetime.date(2026, 7, 10),
             )
 
-    def test_repeat_weekly(self):
+    def test_repeat_weekly_occurrences_share_one_group(self):
         # Mon 6th, weekly until 20th → 6, 13, 20 = 3 occurrences
         plannings = self._create(
             repeat="weekly",
@@ -860,12 +668,6 @@ class TestRepeatPlannings(_Base):
         self.assertEqual(starts, [
             datetime.date(2026, 7, 6), datetime.date(2026, 7, 13), datetime.date(2026, 7, 20),
         ])
-
-    def test_repetitions_share_one_group(self):
-        plannings = self._create(
-            repeat="weekly",
-            repeat_until=datetime.date(2026, 7, 20),
-        )
         group_ids = {p.group_id for p in plannings}
         self.assertEqual(len(group_ids), 1)
         group_id = group_ids.pop()
@@ -949,7 +751,7 @@ class TestRepeatInMultiPlannings(_Base):
         super().setUpTestData()
         cls.project_file2 = ProjectFile.objects.create(
             company=cls.company, reference="EXP-00002", name="Second project",
-            status="open", client=cls.client,
+            status="open", client=cls.client_obj,
         )
 
     def test_repeating_line_creates_grouped_occurrences_only_for_that_line(self):

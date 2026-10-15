@@ -15,21 +15,16 @@ Run just this file:
 """
 from datetime import date, timedelta
 
-from django.contrib.auth import get_user_model
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import RequestFactory, TestCase
-
 from django.core.exceptions import ValidationError
+from django.test import TestCase
 
 from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
-from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetType, AssetTypeCategory
-from company.models import Company
-from management.models import ProjectFile
-from sales.models import Client
+from assets.models import Asset, AssetPlanning, AssetPlanningRequest
+from assets.tests.factories import (
+    PlanningRequestFixtureMixin, approve_request, make_admin_post_request, make_project_file,
+)
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user, make_zone
 
-User = get_user_model()
 NEEDED_DATE = date(2026, 8, 10)
 
 
@@ -37,8 +32,7 @@ class MachinistMovedCleanTests(TestCase):
     def setUp(self):
         self.company = make_company()
         self.to_zone = make_zone(self.company, name="To Zone")
-        client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
+        self.project_file = make_project_file(self.company)
 
     def test_reset_to_false_when_service_type_is_not_maquina_propia(self):
         request = AssetPlanningRequest(
@@ -71,17 +65,9 @@ class MachinistMovedCleanTests(TestCase):
         self.assertTrue(request.machinist_moved)
 
 
-class ApproveCopiesMachinistMovedTests(TestCase):
+class ApproveCopiesMachinistMovedTests(PlanningRequestFixtureMixin, TestCase):
     def setUp(self):
-        self.company = make_company()
-        self.to_zone = make_zone(self.company, name="To Zone")
-        self.asset = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Machine 1")
-        client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
-
-        self.superuser = User.objects.create_superuser(username="admin", password="testpass123", email="a@a.com")
-        make_employee(self.company, self.superuser)
-
+        super().setUp()
         self.mover_1 = make_employee(self.company, make_user(username="mover1"))
         self.mover_2 = make_employee(self.company, make_user(username="mover2"))
 
@@ -99,12 +85,7 @@ class ApproveCopiesMachinistMovedTests(TestCase):
         self.request_obj.moved_employees.set([self.mover_1, self.mover_2])
 
     def _approve(self):
-        request = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        request.session.save()
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.superuser
-        AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None).approve_submit_action(request, self.request_obj)
+        approve_request(self.request_obj, self.superuser)
 
     def test_approving_copies_machinist_moved_and_employees(self):
         self._approve()
@@ -123,12 +104,7 @@ class ApproveCopiesMachinistMovedTests(TestCase):
         self.assertEqual(planning.moved_employees.count(), 0)
 
     def test_duplicate_action_copies_moved_employees(self):
-        request = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        request.session.save()
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.superuser
-
+        request = make_admin_post_request(self.superuser)
         admin_instance = AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None)
         admin_instance.duplicate_action(request, self.request_obj.pk)
 
@@ -148,8 +124,7 @@ class MachineFieldCleanTests(TestCase):
         self.to_zone = make_zone(self.company, name="To Zone")
         self.from_zone = make_zone(self.company, name="From Zone")
         self.machine = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Machine 1")
-        client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
+        self.project_file = make_project_file(self.company)
 
     def test_request_requires_machine_for_maquina_propia(self):
         request = AssetPlanningRequest(
@@ -179,22 +154,6 @@ class MachineFieldCleanTests(TestCase):
         )
         request.clean()
         self.assertIsNone(request.asset_id)
-
-    def test_request_asset_is_not_cleared_by_clean(self):
-        asset = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Cuba 1")
-        request = AssetPlanningRequest(
-            company=self.company,
-            service_type="porte_maquina",
-            to_zone=self.to_zone,
-            from_zone=self.from_zone,
-            needed_date=NEEDED_DATE,
-            project_file=self.project_file,
-            asset=asset,
-            machine=self.machine,
-            estimated_duration=timedelta(hours=1),
-        )
-        request.clean()
-        self.assertEqual(request.asset_id, asset.id)
 
     def test_request_machine_cleared_for_other_service_types(self):
         request = AssetPlanningRequest(

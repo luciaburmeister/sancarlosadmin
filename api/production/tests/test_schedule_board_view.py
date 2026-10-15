@@ -92,6 +92,26 @@ class ScheduleBoardApiTestBase(TestCase):
     def _aware(self, d: date, t: time) -> datetime:
         return timezone.make_aware(datetime.combine(d, t))
 
+    def _session(self, **overrides):
+        """A planned 'corte' session for self.ticket on self.resource, Monday 09:00–10:00."""
+        fields = dict(
+            production_ticket=self.ticket, production_stage="corte",
+            planned_start=self._aware(self.MONDAY, time(9, 0)),
+            planned_end=self._aware(self.MONDAY, time(10, 0)),
+            primary_resource=self.resource,
+        )
+        fields.update(overrides)
+        return PlannedProductionSession.objects.create(**fields)
+
+    def _other_company_session(self):
+        """A production worker of other_company plus a ticketless Monday session on them."""
+        other_worker = Employee.objects.create(
+            company=self.other_company, first_name="Other", last_name="Co",
+            hired_at=date(2020, 1, 1), can_work_on_production=True, is_active=True,
+        )
+        resource = get_or_create_resource_for_target(other_worker)
+        return other_worker, self._session(production_ticket=None, primary_resource=resource)
+
 
 class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
     def test_default_week_starts_on_monday(self):
@@ -110,12 +130,7 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
         self.assertEqual(resp.json()["week_start"], self.MONDAY.isoformat())
 
     def test_session_in_range_is_returned_denormalized(self):
-        session = PlannedProductionSession.objects.create(
-            production_ticket=self.ticket, production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        session = self._session()
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
@@ -132,12 +147,7 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
         self.assertEqual(entry["production_item_ids"], [item.id])
 
     def test_session_stage_completed_flag_reflects_item_status(self):
-        session = PlannedProductionSession.objects.create(
-            production_ticket=self.ticket, production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        session = self._session()
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
@@ -156,12 +166,7 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
 
     def test_multi_day_session_appears_on_every_day_it_touches(self):
         wednesday = self.MONDAY + timedelta(days=2)
-        session = PlannedProductionSession.objects.create(
-            production_ticket=self.ticket, production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(wednesday, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        session = self._session(planned_end=self._aware(wednesday, time(10, 0)))
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
@@ -169,38 +174,25 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
         self.assertEqual(date.fromisoformat(entry["planned_start"][:10]), self.MONDAY)
         self.assertEqual(date.fromisoformat(entry["planned_end"][:10]), wednesday)
 
-    def test_backlog_entry_includes_production_item_ids(self):
+    def test_unscheduled_ticket_appears_in_backlog_with_item_ids_and_is_scheduled_false(self):
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
-        entry = next(b for b in resp.json()["backlog"] if b["ticket_id"] == self.ticket.id)
+        body = resp.json()
+        self.assertIn(self.ticket.id, {b["ticket_id"] for b in body["backlog"]})
+        self.assertIn(self.config.id, {c["config_id"] for c in body["unfinished_configurations"]})
+        entry = next(b for b in body["backlog"] if b["ticket_id"] == self.ticket.id)
         item = ProductionItem.objects.get(ticket=self.ticket)
         self.assertEqual(entry["production_item_ids"], [item.id])
+        self.assertFalse(entry["is_scheduled"])
 
     def test_session_from_other_company_is_not_visible(self):
-        other_worker = Employee.objects.create(
-            company=self.other_company, first_name="Other", last_name="Co",
-            hired_at=date(2020, 1, 1), can_work_on_production=True, is_active=True,
-        )
-        other_resource = get_or_create_resource_for_target(other_worker)
-        PlannedProductionSession.objects.create(
-            production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=other_resource,
-        )
+        other_worker, _ = self._other_company_session()
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
         employee_ids = {e["id"] for e in resp.json()["employees"]}
         self.assertNotIn(other_worker.id, employee_ids)
-
-    def test_unscheduled_backlog_entry_has_is_scheduled_false(self):
-        resp = self.client.get(
-            "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
-        )
-        entry = next(b for b in resp.json()["backlog"] if b["ticket_id"] == self.ticket.id)
-        self.assertFalse(entry["is_scheduled"])
 
     def _multi_stage_ticket(self):
         """A second, independent ticket with two stages — for is_scheduled
@@ -225,12 +217,7 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
         both (grouped by ticket_id on the client), flagged accordingly,
         instead of the planned one just disappearing."""
         ticket = self._multi_stage_ticket()
-        PlannedProductionSession.objects.create(
-            production_ticket=ticket, production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        self._session(production_ticket=ticket)
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
@@ -242,12 +229,7 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
     def test_fully_scheduled_ticket_excluded_from_backlog_but_kept_as_row(self):
         ticket = self._multi_stage_ticket()
         for stage in ("corte", "pintura"):
-            PlannedProductionSession.objects.create(
-                production_ticket=ticket, production_stage=stage,
-                planned_start=self._aware(self.MONDAY, time(9, 0)),
-                planned_end=self._aware(self.MONDAY, time(10, 0)),
-                primary_resource=self.resource,
-            )
+            self._session(production_ticket=ticket, production_stage=stage)
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
         )
@@ -293,16 +275,6 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
         self.assertNotIn(self.ticket.id, {b["ticket_id"] for b in body["backlog"]})
         self.assertIn(self.config.id, {c["config_id"] for c in body["unfinished_configurations"]})
 
-    def test_unfinished_ticket_without_planned_session_appears_in_backlog(self):
-        resp = self.client.get(
-            "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
-        )
-        body = resp.json()
-        backlog_tickets = {b["ticket_id"] for b in body["backlog"]}
-        self.assertIn(self.ticket.id, backlog_tickets)
-        config_ids = {c["config_id"] for c in body["unfinished_configurations"]}
-        self.assertIn(self.config.id, config_ids)
-
     def test_ticket_with_stale_status_but_no_incomplete_stage_is_excluded(self):
         """ticket.status can lag behind reality (only recomputed on certain
         events) — a ticket whose only item's stage is actually 'done' must
@@ -329,12 +301,7 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
 class RescheduleSessionApiTest(ScheduleBoardApiTestBase):
     def setUp(self):
         super().setUp()
-        self.session = PlannedProductionSession.objects.create(
-            production_ticket=self.ticket, production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        self.session = self._session()
 
     def _url(self, session_id):
         return f"/es/api/production/schedule/sessions/{session_id}/reschedule/"
@@ -364,11 +331,10 @@ class RescheduleSessionApiTest(ScheduleBoardApiTestBase):
         self.assertEqual(timezone.localtime(self.session.planned_start).date(), tuesday)
 
     def test_explicit_time_conflict_returns_409(self):
-        PlannedProductionSession.objects.create(
-            production_stage="pintura",
+        self._session(
+            production_ticket=None, production_stage="pintura",
             planned_start=self._aware(self.MONDAY, time(11, 0)),
             planned_end=self._aware(self.MONDAY, time(12, 0)),
-            primary_resource=self.resource,
         )
         resp = self.client.post(
             self._url(self.session.id),
@@ -422,34 +388,24 @@ class RescheduleSessionApiTest(ScheduleBoardApiTestBase):
         self.assertEqual(resp.status_code, 400)
 
     def test_session_from_other_company_returns_404(self):
-        other_worker = Employee.objects.create(
-            company=self.other_company, first_name="Other", last_name="Co",
-            hired_at=date(2020, 1, 1), can_work_on_production=True, is_active=True,
-        )
-        other_resource = get_or_create_resource_for_target(other_worker)
-        other_session = PlannedProductionSession.objects.create(
-            production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=other_resource,
-        )
-        resp = self.client.post(
-            self._url(other_session.id),
-            {"supervisor_id": self.supervisor.id, "date": self.MONDAY.isoformat()},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 404)
+        _, other_session = self._other_company_session()
+        for url in (
+            f"/es/api/production/schedule/sessions/{other_session.id}/reschedule/",
+            f"/es/api/production/schedule/sessions/{other_session.id}/delete/",
+        ):
+            with self.subTest(url=url):
+                resp = self.client.post(
+                    url,
+                    {"supervisor_id": self.supervisor.id, "date": self.MONDAY.isoformat()},
+                    format="json",
+                )
+                self.assertEqual(resp.status_code, 404)
 
 
 class DeleteSessionApiTest(ScheduleBoardApiTestBase):
     def setUp(self):
         super().setUp()
-        self.session = PlannedProductionSession.objects.create(
-            production_ticket=self.ticket, production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        self.session = self._session()
 
     def _url(self, session_id):
         return f"/es/api/production/schedule/sessions/{session_id}/delete/"
@@ -488,25 +444,6 @@ class DeleteSessionApiTest(ScheduleBoardApiTestBase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertTrue(PlannedProductionSession.objects.filter(id=self.session.id).exists())
-
-    def test_session_from_other_company_returns_404(self):
-        other_worker = Employee.objects.create(
-            company=self.other_company, first_name="Other", last_name="Co",
-            hired_at=date(2020, 1, 1), can_work_on_production=True, is_active=True,
-        )
-        other_resource = get_or_create_resource_for_target(other_worker)
-        other_session = PlannedProductionSession.objects.create(
-            production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=other_resource,
-        )
-        resp = self.client.post(
-            self._url(other_session.id),
-            {"supervisor_id": self.supervisor.id},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 404)
 
 
 class CreateSessionFromBacklogApiTest(ScheduleBoardApiTestBase):
@@ -549,12 +486,7 @@ class CreateSessionFromBacklogApiTest(ScheduleBoardApiTestBase):
         self.assertEqual(timezone.localtime(session.planned_start).time(), time(8, 0))
 
     def test_conflict_returns_409(self):
-        PlannedProductionSession.objects.create(
-            production_stage="corte",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
-            planned_end=self._aware(self.MONDAY, time(10, 0)),
-            primary_resource=self.resource,
-        )
+        self._session(production_ticket=None)
         resp = self.client.post(
             self.URL,
             {
@@ -601,17 +533,14 @@ class ReorderDaySessionsApiTest(ScheduleBoardApiTestBase):
 
     def setUp(self):
         super().setUp()
-        self.first = PlannedProductionSession.objects.create(
-            production_stage="corte",
+        self.first = self._session(
+            production_ticket=None,
             planned_start=self._aware(self.MONDAY, time(8, 0)),
             planned_end=self._aware(self.MONDAY, time(9, 0)),
-            primary_resource=self.resource,
         )
-        self.second = PlannedProductionSession.objects.create(
-            production_stage="pintura",
-            planned_start=self._aware(self.MONDAY, time(9, 0)),
+        self.second = self._session(
+            production_ticket=None, production_stage="pintura",
             planned_end=self._aware(self.MONDAY, time(9, 30)),
-            primary_resource=self.resource,
         )
 
     def test_reorders_and_repacks_times(self):

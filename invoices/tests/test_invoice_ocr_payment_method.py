@@ -8,42 +8,16 @@ so it must never overwrite the provider's configuration. The OCR reading is
 only used when no provider could be linked.
 """
 import tempfile
-from decimal import Decimal
 
 from django.test import TestCase, override_settings
 
 from company.models import Company
 from invoices.models import Invoice, PaymentMethod
-from invoices.services.invoice.invoice_service import InvoiceService
-from invoices.services.ocr_services import InvoiceData, OcrInterface
 from invoices.services.purchase_invoice_payment import resolve_purchase_invoice_payment_method
+from invoices.tests.factories import OcrTestMixin
 from materials.models import Provider
 
 MEDIA_ROOT = tempfile.mkdtemp()
-
-
-class FakeOcr(OcrInterface):
-    def __init__(self, **overrides):
-        defaults = dict(
-            document_type="invoice",
-            vendor_name="Proveedor SA",
-            vendor_tax_id="B12345678",
-            company_tax_id="A87654321",
-            invoice_number="F-001",
-            date_issued="2026-01-15",
-            due_date=None,
-            net_amount=Decimal("100.00"),
-            total_amount=Decimal("100.00"),
-            currency="EUR",
-            payment_method="card",
-            line_items=[],
-            taxes=[],
-        )
-        defaults.update(overrides)
-        self.data = InvoiceData(**defaults)
-
-    def extract_data(self, file_path: str) -> InvoiceData:
-        return self.data
 
 
 class ResolvePurchaseInvoicePaymentMethodTests(TestCase):
@@ -74,8 +48,12 @@ class ResolvePurchaseInvoicePaymentMethodTests(TestCase):
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)
-class InvoiceOcrPaymentMethodTests(TestCase):
+class InvoiceOcrPaymentMethodTests(OcrTestMixin, TestCase):
+    ocr_defaults = {"payment_method": "card"}
+    refresh_new_invoice = True
+
     def setUp(self):
+        super().setUp()
         self.company = Company.objects.create(name="Test Co", tax_identifier="A87654321")
         self.provider = Provider.objects.create(
             company=self.company,
@@ -83,27 +61,6 @@ class InvoiceOcrPaymentMethodTests(TestCase):
             tax_identifier="B12345678",
             payment_method=PaymentMethod.SEPA_DIRECT_DEBIT,
         )
-
-        self._file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        self._file.write(b"%PDF-1.4 fake invoice")
-        self._file.close()
-        self.file_path = self._file.name
-
-    def _process_new(self, **ocr_overrides):
-        service = InvoiceService(ocr_processor=FakeOcr(**ocr_overrides))
-        result = service.process_invoice(self.file_path)
-        self.assertTrue(result.success, result.messages)
-        result.invoice.refresh_from_db()
-        return result.invoice
-
-    def _process_existing(self, invoice, **ocr_overrides):
-        service = InvoiceService(ocr_processor=FakeOcr(**ocr_overrides))
-        invoice.file.name = "invoices/uploads/existing.pdf"
-        invoice.save(update_fields=["file"])
-        result = service.process_existing_invoice(invoice, file_path=self.file_path)
-        self.assertTrue(result.success, result.messages)
-        result.invoice.refresh_from_db()
-        return result.invoice
 
     # Pipeline A — invoice created by OCR (email inbox)
 

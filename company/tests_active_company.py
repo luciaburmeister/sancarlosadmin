@@ -37,6 +37,10 @@ class BaseActiveCompanyTestCase(TestCase):
         self.company_a = make_company(name="Alpha")
         self.company_b = make_company(name="Beta")
 
+    def make_superuser(self):
+        """Create the superuser these tests log in as."""
+        return User.objects.create_superuser("super", "s@example.com", "x")
+
     def make_member(self, username, *companies, staff=False):
         user = make_user(username=username)
         if staff:
@@ -104,7 +108,7 @@ class ActiveCompanyServiceTests(BaseActiveCompanyTestCase):
             ActiveCompany.clear_current()
 
     def test_switchable_for_superuser_active_only(self):
-        superuser = User.objects.create_superuser("super", "s@example.com", "x")
+        superuser = self.make_superuser()
         inactive = make_company(name="Closed")
         inactive.is_active = False
         inactive.save(update_fields=["is_active"])
@@ -127,7 +131,7 @@ class ActiveCompanyMiddlewareTests(BaseActiveCompanyTestCase):
         self.assertEqual(self.active_ids(), [self.company_a.pk])
 
     def test_superuser_defaults_to_first_active_company(self):
-        superuser = User.objects.create_superuser("super", "s@example.com", "x")
+        superuser = self.make_superuser()
         self.client.force_login(superuser)
         self.client.get(reverse("admin:index"))
         self.assertEqual(self.active_ids(), [self.company_a.pk])
@@ -206,6 +210,12 @@ class ActiveCompanyMiddlewareTests(BaseActiveCompanyTestCase):
 
 
 class SwitchActiveCompanyViewTests(BaseActiveCompanyTestCase):
+    """The toggle view (one company in or out) and the dropdown's "Apply"
+    view share the same mixin; the checks common to both run as subTests."""
+
+    def both_views(self):
+        return (("toggle", self.toggle), ("apply", self.apply))
+
     def test_clicking_inactive_company_adds_it(self):
         user = self.make_member("multi", self.company_a, self.company_b, staff=True)
         self.client.force_login(user)
@@ -230,16 +240,18 @@ class SwitchActiveCompanyViewTests(BaseActiveCompanyTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.active_ids(), [self.company_a.pk])
 
-    def test_cannot_add_foreign_company(self):
+    def test_cannot_select_foreign_company(self):
         user = self.make_member("solo", self.company_a, staff=True)
         self.client.force_login(user)
         self.client.get(reverse("admin:index"))  # establish default (A)
-        response = self.toggle(self.company_b)
-        self.assertEqual(response.status_code, 302)  # form_invalid -> admin index
-        self.assertEqual(self.active_ids(), [self.company_a.pk])
+        for view, post in self.both_views():
+            with self.subTest(view=view):
+                response = post(self.company_b)  # not a member
+                self.assertEqual(response.status_code, 302)  # form_invalid -> admin index
+                self.assertEqual(self.active_ids(), [self.company_a.pk])
 
     def test_superuser_can_add_any_active_company(self):
-        superuser = User.objects.create_superuser("super", "s@example.com", "x")
+        superuser = self.make_superuser()
         self.client.force_login(superuser)
         self.client.get(reverse("admin:index"))
         response = self.toggle(self.company_b)
@@ -249,20 +261,26 @@ class SwitchActiveCompanyViewTests(BaseActiveCompanyTestCase):
     def test_safe_next_redirect(self):
         user = self.make_member("multi", self.company_a, self.company_b, staff=True)
         self.client.force_login(user)
-        response = self.toggle(self.company_b, next_url="/admin/company/company/")
-        self.assertEqual(response["Location"], "/admin/company/company/")
+        for view, post in self.both_views():
+            with self.subTest(view=view):
+                response = post(self.company_b, next_url="/admin/company/company/")
+                self.assertEqual(response["Location"], "/admin/company/company/")
 
     def test_unsafe_next_falls_back_to_admin_index(self):
         user = self.make_member("multi", self.company_a, self.company_b, staff=True)
         self.client.force_login(user)
-        response = self.toggle(self.company_b, next_url="https://evil.example.com/")
-        self.assertEqual(response["Location"], reverse("admin:index"))
+        for view, post in self.both_views():
+            with self.subTest(view=view):
+                response = post(self.company_b, next_url="https://evil.example.com/")
+                self.assertEqual(response["Location"], reverse("admin:index"))
 
     def test_get_not_allowed(self):
         user = self.make_member("solo", self.company_a, staff=True)
         self.client.force_login(user)
-        response = self.client.get(reverse(SWITCH_URL_NAME))
-        self.assertEqual(response.status_code, 405)
+        for url_name in (SWITCH_URL_NAME, APPLY_URL_NAME):
+            with self.subTest(url_name=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertEqual(response.status_code, 405)
 
     def test_non_staff_redirected_to_login(self):
         user = self.make_member("plain", self.company_a, self.company_b)  # not staff
@@ -276,7 +294,8 @@ class SwitchActiveCompanyViewTests(BaseActiveCompanyTestCase):
 
 
 class SetActiveCompaniesViewTests(BaseActiveCompanyTestCase):
-    """The dropdown's "Apply" button: replaces the active set in one request."""
+    """The dropdown's "Apply" button: replaces the active set in one request.
+    Checks it shares with the toggle view live in SwitchActiveCompanyViewTests."""
 
     def test_apply_replaces_active_set(self):
         user = self.make_member("multi", self.company_a, self.company_b, staff=True)
@@ -309,37 +328,6 @@ class SetActiveCompaniesViewTests(BaseActiveCompanyTestCase):
         response = self.client.post(reverse(APPLY_URL_NAME), {})
         self.assertEqual(response.status_code, 302)  # form_invalid -> admin index
         self.assertEqual(self.active_ids(), [self.company_a.pk])  # untouched
-
-    def test_apply_cannot_select_foreign_company(self):
-        user = self.make_member("solo", self.company_a, staff=True)
-        self.client.force_login(user)
-        self.client.get(reverse("admin:index"))  # establish default (A)
-
-        response = self.apply(self.company_b)  # not a member
-        self.assertEqual(response.status_code, 302)  # form_invalid -> admin index
-        self.assertEqual(self.active_ids(), [self.company_a.pk])
-
-    def test_apply_safe_next_redirect(self):
-        user = self.make_member("multi", self.company_a, self.company_b, staff=True)
-        self.client.force_login(user)
-        response = self.apply(
-            self.company_b, next_url="/admin/company/company/"
-        )
-        self.assertEqual(response["Location"], "/admin/company/company/")
-
-    def test_apply_unsafe_next_falls_back_to_admin_index(self):
-        user = self.make_member("multi", self.company_a, self.company_b, staff=True)
-        self.client.force_login(user)
-        response = self.apply(
-            self.company_b, next_url="https://evil.example.com/"
-        )
-        self.assertEqual(response["Location"], reverse("admin:index"))
-
-    def test_apply_get_not_allowed(self):
-        user = self.make_member("solo", self.company_a, staff=True)
-        self.client.force_login(user)
-        response = self.client.get(reverse(APPLY_URL_NAME))
-        self.assertEqual(response.status_code, 405)
 
 
 class ChangelistScopingTests(BaseActiveCompanyTestCase):
@@ -409,7 +397,7 @@ class ChangelistScopingTests(BaseActiveCompanyTestCase):
         self.assertEqual(list(self.changelist().list_display).count("company"), 1)
 
     def test_superuser_scoped_but_sees_null_company_rows(self):
-        superuser = User.objects.create_superuser("super", "s@example.com", "x")
+        superuser = self.make_superuser()
         self.client.force_login(superuser)
 
         objects = self.changelist_objects()  # default: Alpha
@@ -420,7 +408,7 @@ class ChangelistScopingTests(BaseActiveCompanyTestCase):
     def test_company_admin_follows_active_set_for_superuser(self):
         """The Company changelist follows the switcher too, even for
         superusers. Other companies become visible by adding them."""
-        superuser = User.objects.create_superuser("super", "s@example.com", "x")
+        superuser = self.make_superuser()
         self.client.force_login(superuser)
 
         def listed_companies():

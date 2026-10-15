@@ -2,9 +2,7 @@ from django.test import TestCase
 from accounting.models import Journal, JournalEntry, EntryStatus, CompanyAccount, JournalType, FiscalYear, CompanyChartOfAccounts, ChartOfAccountsTemplate, JournalEntryLine, AccountType, BalanceSide, TemplateAccount
 from company.models import Company
 from datetime import date
-from django.db.utils import IntegrityError
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.utils.translation import gettext_lazy as _, activate
 
 
@@ -121,16 +119,12 @@ class JournalEntryNumberingTest(TestCase):
         entry.refresh_from_db()
         # We need another company to test this, sticking to Journal/Date/Status is enough coverage for now.
         
-        # Test CLEAN check
+        # clean() alone, without save(), must refuse the change too
         entry.refresh_from_db()
         entry.date = date(2026, 1, 2)
-        try:
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot modify a posted entry."))):
             entry.clean()
-        except ValidationError as e:
-            self.assertIn(str(_("Cannot modify a posted entry.")), str(e))
-             
 
-        
     def test_delete_protection(self):
         entry = self.create_balanced_entry(self.journal_gen, date(2026, 1, 1))
         entry.post()

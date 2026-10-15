@@ -1,14 +1,11 @@
-from datetime import date, time
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from djmoney.money import Money
 
-from company.models import Company, CompanyScheduleSlot, Machine
-from configurator.models import Configuration, ConfigurationItem, ProductTemplate
-from materials.models import Component
 from production.models import SchedulingRun
 from production.tasks import run_schedule_optimization
+from production.tests.factories import make_machine, make_priced_configuration, make_scheduling_world
 
 # 2026-08-10 is a Monday
 MONDAY = date(2026, 8, 10)
@@ -18,53 +15,20 @@ class RunScheduleOptimizationResyncTest(TestCase):
     STAGE = "corte"
 
     def setUp(self):
-        self.company = Company.objects.create(
-            name="Test Co",
-            production_stages=[self.STAGE],
-        )
-        CompanyScheduleSlot.objects.create(
-            company=self.company,
-            weekday=0,  # Monday
-            start_time=time(8, 0),
-            end_time=time(10, 0),
-        )
-        self.product = ProductTemplate.objects.create(
-            name="Ventana",
-            company=self.company,
-            production_stages=[self.STAGE],
-        )
-        self.component = Component.objects.create(
-            company=self.company,
-            name="Perfil",
-            unit_price_expression="0",
-        )
+        self.company, self.product, self.component = make_scheduling_world(stage=self.STAGE)
         # The post_save signal on Machine auto-creates the ProductionResource
-        Machine.objects.create(
-            company=self.company,
-            name="Sierra",
-            code="SIE-1",
-            production_stages=[self.STAGE],
-            daily_capacity_minutes=480,
-            is_active=True,
-        )
-        self.configuration = Configuration.objects.create(
-            company=self.company,
-            product=self.product,
-            name="Puerta",
-            total_price=Money(1000, "EUR"),
-            total_cost=Money(400, "EUR"),
+        make_machine(
+            self.company, name="Sierra", code="SIE-1", stages=[self.STAGE],
+            daily_capacity_minutes=480, is_active=True,
         )
         # Stale snapshot: the item knows its stages but carries no resource
         # data, as happens when the template was configured after the
         # configuration was created.
-        self.item = ConfigurationItem.objects.create(
-            configuration=self.configuration,
-            component=self.component,
-            unit_price=Money(0, "EUR"),
-            is_template_item=True,
-            production_stages=[self.STAGE],
-            stage_resources={self.STAGE: {}},
+        self.configuration = make_priced_configuration(
+            product=self.product, component=self.component, name="Puerta",
+            price=1000, cost=400, stages=[self.STAGE], stage_resources={self.STAGE: {}},
         )
+        self.item = self.configuration.items.get()
         self.user = get_user_model().objects.create(username="planner")
 
     def test_run_resyncs_planning_snapshot_from_template(self):

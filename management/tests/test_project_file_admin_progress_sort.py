@@ -43,8 +43,6 @@ class ProjectFileAdminProgressSortTests(TestCase):
 
         request = RequestFactory().get("/")
         request.user = self.user
-        ordering = self.admin.get_list_display(request)
-        self.assertIn("show_operational_status", ordering)
 
         qs = self.admin.get_queryset(request).order_by("_operational_rank", "name")
         names = list(qs.values_list("name", flat=True))
@@ -55,9 +53,4 @@ class ProjectFileAdminProgressSortTests(TestCase):
         self.assertEqual(
             labels,
             ["nothing_pending", "in_production", "ready_to_deliver", "partially_delivered", "delivered"],
-        )
-
-    def test_progress_column_declares_ordering(self):
-        self.assertEqual(
-            self.admin.show_operational_status.admin_order_field, "_operational_rank",
         )

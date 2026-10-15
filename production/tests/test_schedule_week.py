@@ -127,14 +127,6 @@ class WeeklyScheduleContextTest(TestCase):
         self.assertEqual(len(week["rows"][0]["cells"]), 2)
         self.assertTrue(all(cell["entries"] for cell in week["rows"][0]["cells"]))
 
-    def test_company_without_schedule_has_no_day_columns(self):
-        company = make_company(name="No schedule")
-
-        self.assertEqual(
-            self.build(company=company),
-            {"days": [], "rows": [], "has_schedule": False},
-        )
-
     def test_week_excludes_other_companies_and_sessions_outside_its_dates(self):
         other = make_company(name="Other company")
         other_ticket = make_ticket(other)

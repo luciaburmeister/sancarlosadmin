@@ -10,28 +10,31 @@ from decimal import Decimal
 from django.test import TestCase
 from djmoney.money import Money
 
-from company.models import Company
 from inventory.models import InventoryItem
 from invoices.forms.wizard_forms import WizardItemForm
 from invoices.services.delivery_order_service import DeliveryOrderService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile
-from sales.models import Client, Quote, QuoteInventoryItem, QuoteStatus
+from invoices.tests.factories import (
+    create_invoice,
+    make_client,
+    make_company,
+    make_delivery_order,
+    make_project_file,
+    make_quote,
+)
+from sales.models import QuoteInventoryItem
 
 PINNED = Decimal("16933.80")
 
 
 class PinnedLineTotalTest(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Termos SL")
-        self.client_obj = Client.objects.create(name="Cliente SA", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="Obra", company=self.company, client=self.client_obj,
+        self.company = make_company(name="Termos SL")
+        self.client_obj = make_client(company=self.company, name="Cliente SA")
+        self.project_file = make_project_file(
+            company=self.company, client=self.client_obj, name="Obra",
         )
-        self.quote = Quote.objects.create(
-            project_name="Obra", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.ACCEPTED,
-        )
+        self.quote = make_quote(project_file=self.project_file, project_name="Obra")
         self.inv_item = QuoteInventoryItem.objects.create(
             quote=self.quote,
             inventory_item=InventoryItem.objects.create(
@@ -48,16 +51,16 @@ class PinnedLineTotalTest(TestCase):
         return ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
 
     def _create_invoice(self, items_data):
-        return ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 10, 14), due_date=None, items_data=items_data,
+        return create_invoice(
+            project_file=self.project_file, items=items_data,
+            date_issued=date(2026, 10, 14),
         )
 
     def _deliver(self, quantity):
         (entry,) = DeliveryOrderService.get_deliverable_items(self.project_file)
-        return DeliveryOrderService.create_delivery_order(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            items_data=[{
+        return make_delivery_order(
+            project_file=self.project_file,
+            items=[{
                 "source_content_type_id": entry["source_content_type_id"],
                 "source_object_id": entry["source_object_id"],
                 "description": entry["description"],

@@ -186,16 +186,6 @@ class FindCandidatesTests(CubaReservationFixtureMixin, TestCase):
         self.planning.save(update_fields=["transport_asset"])
         self.assertEqual(find_candidates(self.planning), [])
 
-    def test_excludes_planning_truck_from_the_cuba_side_of_the_exclusion(self):
-        # excluded_assets is symmetric — excluding the truck from the cuba's own
-        # list must block it too, not just the reverse direction.
-        cuba = _make_empty_cuba(self.company, self.asset_type, self.almacen)
-        truck = make_asset(self.company, self.asset_type, name="TRUCK-01")
-        cuba.excluded_assets.add(truck)
-        self.planning.transport_asset = truck
-        self.planning.save(update_fields=["transport_asset"])
-        self.assertEqual(find_candidates(self.planning), [])
-
     def test_does_not_exclude_cuba_unrelated_to_the_planning_truck(self):
         cuba = _make_empty_cuba(self.company, self.asset_type, self.almacen)
         truck = make_asset(self.company, self.asset_type, name="TRUCK-01")

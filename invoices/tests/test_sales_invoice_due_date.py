@@ -38,10 +38,7 @@ class SalesInvoiceDueDateTests(TestCase):
         self.assertEqual(invoice.due_date, date(2026, 2, 14))
         self.assertEqual(invoice.payment_terms_days, 30)
 
-    def test_derived_due_date_is_persisted(self):
-        invoice = self._create()
         invoice.refresh_from_db()
-
         self.assertEqual(invoice.due_date, date(2026, 2, 14))
         self.assertEqual(invoice.payment_terms_days, 30)
 

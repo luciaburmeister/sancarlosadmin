@@ -10,7 +10,7 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_employee, make_planning, make_user, make_zone
-from assets.models import AssetTransaction, CubaTransactionKey, PlanningStatus, PlanningType, TransactionTypeChoices
+from assets.models import AssetTransaction, CubaFillState, CubaTransactionKey, PlanningStatus, PlanningType, TransactionTypeChoices
 from assets.services.manual_transaction import create_manual_transaction
 from company.models import WorkingZone
 from management.models import ProjectFile
@@ -67,17 +67,17 @@ class CreateManualTransactionMovementTests(TestCase):
         delay.assert_called_once()
         self.assertEqual(delay.call_args.kwargs["to_email"], "vertedero@example.com")
 
-    def test_movement_syncs_planning_status(self):
-        # sync_cuba_operation_status must be called and not raise -- the
-        # exact status transition is PlanningAbandoner/status-sync's own
-        # responsibility and is covered by its own tests; this just proves
-        # the manual path actually calls it (the whole point of the service).
+    def test_movement_of_a_full_cuba_puts_the_planning_in_transit(self):
+        # Proves the manual path calls sync_cuba_operation_status like the
+        # mobile flow does. A full-cuba pickup is only resolved once its verteo
+        # is registered, so the planning leaves PENDING for IN_TRANSIT (an
+        # empty pickup would resolve itself straight to DELIVERED).
         create_manual_transaction(
             planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+            data={CubaTransactionKey.ESTADO: CubaFillState.FULL},
         )
         self.planning.refresh_from_db()
-        # Should not still be untouched-PENDING once a movement is recorded.
-        self.assertIsNotNone(self.planning.status)
+        self.assertEqual(self.planning.status, PlanningStatus.IN_TRANSIT)
 
     def test_movement_without_asset_raises(self):
         self.planning.asset = None

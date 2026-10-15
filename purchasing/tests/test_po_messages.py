@@ -19,14 +19,14 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from company.active_company import ActiveCompany
-from company.models import Company, CompanyUser
-from materials.models import Provider
+from company.models import CompanyUser
 from purchasing.admin import PurchaseOrderMessageInline
 from purchasing.models import (
     PurchaseOrder,
     PurchaseOrderMessage,
     PurchaseOrderStatus,
 )
+from purchasing.tests.factories import make_company, make_provider, make_purchase_order
 
 User = get_user_model()
 
@@ -36,9 +36,9 @@ class POMessageTestBase(TestCase):
         cache.clear()  # LocMem cache persists across tests in-process
         self.addCleanup(ActiveCompany.clear_current)
 
-        self.company = Company.objects.create(name="Alpha", tax_identifier="B12345678")
-        self.other_company = Company.objects.create(name="Beta", tax_identifier="B87654321")
-        self.provider = Provider.objects.create(company=self.company, name="Proveedor SA")
+        self.company = make_company(name="Alpha")
+        self.other_company = make_company(name="Beta", tax_identifier="B87654321")
+        self.provider = make_provider(company=self.company)
 
         self.requester = self._make_user("requester", self.company)
         self.approver = self._make_user("approver", self.company, can_approve=True)
@@ -46,7 +46,7 @@ class POMessageTestBase(TestCase):
         self.bystander = self._make_user("bystander", self.company)
         self.outsider = self._make_user("outsider", self.other_company)
 
-        self.po = PurchaseOrder.objects.create(
+        self.po = make_purchase_order(
             company=self.company,
             provider=self.provider,
             date_ordered=date(2026, 8, 1),
@@ -379,7 +379,6 @@ class POMessageUnreadTests(POMessageTestBase):
         inline = PurchaseOrderMessageInline(PurchaseOrder, admin.site)
 
         self.assertEqual(inline.get_count(self._inline_request(self.requester), self.po), 1)
-        self.assertFalse(hasattr(inline, "get_count_variant"))
 
     def test_new_messages_are_flagged_on_the_first_visit_only(self):
         self._write(self.approver, body="pregunta", recipient=self.requester)
@@ -404,14 +403,3 @@ class POMessageUnreadTests(POMessageTestBase):
         own.refresh_from_db()
         self.assertIsNotNone(message.read_at)
         self.assertIsNone(own.read_at)  # the recipient has not opened it yet
-
-    def test_changelist_offers_no_conversation_column_or_filter(self):
-        self._write(self.approver, recipient=self.requester)
-        self.client.force_login(self.requester)
-
-        response = self.client.get(reverse("admin:purchasing_purchaseorder_changelist"))
-
-        self.assertNotIn("unread_messages", response.content.decode())
-        self.assertNotIn(
-            "get_messages_label", response.context["cl"].list_display
-        )

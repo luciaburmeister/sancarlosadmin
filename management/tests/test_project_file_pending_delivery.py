@@ -4,22 +4,24 @@ read-only block that renders them on the ProjectFile admin page."""
 from decimal import Decimal
 
 from django.contrib.admin.sites import AdminSite
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
+from configurator.models import ProductTemplate
 from inventory.choices import MovementType
 from inventory.models import InventoryItem, ItemTransaction, Warehouse
 from management.admin.project_file import ProjectFileAdmin
 from management.models import ProjectFile
 from management.services.project_file_status import get_pending_delivery_lines
+from management.tests.factories import (
+    make_configuration,
+    make_delivery_line,
+    make_delivery_order,
+    make_quote,
+)
 from sales.models import (
     Client,
-    DeliveryOrder,
-    DeliveryOrderItem,
     DeliveryOrderStatus,
-    Quote,
     QuoteInventoryItem,
     QuoteStatus,
 )
@@ -34,21 +36,16 @@ class _PendingDeliveryBase(TestCase):
         self.project_file = ProjectFile.objects.create(
             name="PF", company=self.company, client=self.client_obj,
         )
-        self.config_ct = ContentType.objects.get_for_model(Configuration)
-        self.inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
     def _quote(self, status=QuoteStatus.ACCEPTED):
-        return Quote.objects.create(
-            project_name="Quote", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=status,
+        return make_quote(
+            company=self.company, client=self.client_obj, project_file=self.project_file, status=status,
         )
 
     def _config(self, quote, units="2", name="Config"):
-        return Configuration.objects.create(
-            name=name, company=self.company, product=self.product,
-            client=self.client_obj, quote=quote,
-            project_file=self.project_file if quote is None else None,
-            status=ConfigurationStatus.COMPLETED, units=Decimal(units),
+        return make_configuration(
+            company=self.company, product=self.product, client=self.client_obj, quote=quote,
+            project_file=self.project_file if quote is None else None, units=units, name=name,
         )
 
     def _inventory_line(self, quote, quantity="5"):
@@ -59,19 +56,20 @@ class _PendingDeliveryBase(TestCase):
             quote=quote, inventory_item=item, quantity=Decimal(quantity),
         )
 
-    def _delivery_order(self, status=DeliveryOrderStatus.DISPATCHED):
-        return DeliveryOrder.objects.create(
-            company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=status,
+    def _stock(self, item, quantity):
+        warehouse = Warehouse.objects.create(code="WH1", name="Main", company=self.company)
+        ItemTransaction.objects.create(
+            item=item, warehouse=warehouse, movement_type=MovementType.IN,
+            quantity_change=quantity, note="Initial stock",
         )
 
-    def _line(self, do, source, quantity, content_type=None):
-        return DeliveryOrderItem.objects.create(
-            delivery_order=do, description=str(source), quantity=Decimal(quantity),
-            unit_price=Decimal("10.00"),
-            source_content_type=content_type or self.config_ct,
-            source_object_id=source.pk,
+    def _delivery_order(self, status=DeliveryOrderStatus.DISPATCHED):
+        return make_delivery_order(
+            company=self.company, client=self.client_obj, project_file=self.project_file, status=status,
         )
+
+    def _line(self, do, source, quantity):
+        return make_delivery_line(delivery_order=do, source=source, quantity=quantity)
 
     def _rows(self):
         return {row["reference"]: row for row in get_pending_delivery_lines(self.project_file)}
@@ -126,7 +124,7 @@ class PendingDeliveryLinesTests(_PendingDeliveryBase):
     def test_quote_inventory_lines_are_included(self):
         quote = self._quote()
         inv_line = self._inventory_line(quote, quantity="5")
-        self._line(self._delivery_order(), inv_line, "2", content_type=self.inv_item_ct)
+        self._line(self._delivery_order(), inv_line, "2")
         row = self._rows()["HNG-1"]
         self.assertEqual(row["ordered"], Decimal("5"))
         self.assertEqual(row["pending"], Decimal("3"))
@@ -141,14 +139,6 @@ class PendingDeliveryLinesTests(_PendingDeliveryBase):
         row = self._rows()[f"CFG-{config.pk}"]
         self.assertEqual(row["pending"], Decimal("1"))
         self.assertEqual(row["description"], "Direct")
-
-
-    def _stock(self, item, quantity):
-        warehouse = Warehouse.objects.create(code="WH1", name="Main", company=self.company)
-        ItemTransaction.objects.create(
-            item=item, warehouse=warehouse, movement_type=MovementType.IN,
-            quantity_change=quantity, note="Initial stock",
-        )
 
     def test_inventory_line_reports_stock_and_incoming(self):
         inv_line = self._inventory_line(self._quote(), quantity="5")
@@ -204,11 +194,10 @@ class PendingDeliveryAdminDisplayTests(_PendingDeliveryBase):
         self.assertNotIn("<table", html)
 
     def test_quantities_drop_trailing_zeros(self):
-        config = self._config(self._quote(), units="2.500")
+        self._config(self._quote(), units="2.500")
         html = self.model_admin.pending_delivery_display(self.project_file)
         self.assertIn(">2.5</td>", html)
         self.assertNotIn("2.500", html)
-        self.assertEqual(config.units, Decimal("2.500"))
 
     def test_shows_stock_and_incoming_and_flags_shortfall(self):
         inv_line = self._inventory_line(self._quote(), quantity="10")

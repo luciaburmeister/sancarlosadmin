@@ -64,7 +64,6 @@ class SalesInvoiceTest(TestCase):
         SalesInvoiceService.finalize_invoice(invoice)
         
         self.assertEqual(invoice.status, SalesInvoiceStatus.FINAL)
-        self.assertEqual(invoice.invoice_number, f"INV-{timezone.now().year}-00001")
         self.assertEqual(invoice.incremental_id, 1)
         
         # Check Delivery Order
@@ -271,35 +270,6 @@ class SalesInvoiceTest(TestCase):
         self.assertEqual(new_item.discount_amount.amount, Decimal('20.00'))
         self.assertEqual(new_item.line_total.amount, Decimal('80.00'))
 
-    def test_wizard_item_creation(self):
-        # Simulating what the wizard's done method does
-        invoice = SalesInvoice.objects.create(
-            company=self.company,
-            client=self.client,
-            status=SalesInvoiceStatus.PROFORMA
-        )
-        
-        # Simulating items data from wizard form
-        item_qty = Decimal('2.000')
-        item_price = Decimal('50.00')
-        item_discount_pct = Decimal('10.00')
-        
-        SalesInvoiceItem.objects.create(
-            invoice=invoice,
-            description="Wizard Item",
-            quantity=item_qty,
-            unit_price=item_price,
-            discount_percentage=item_discount_pct,
-        )
-        
-        invoice.recalculate_totals()
-        
-        item = invoice.items.first()
-        # 10% of (2 * 50) = 10
-        self.assertEqual(item.discount_amount.amount, Decimal('10.00'))
-        self.assertEqual(item.line_total.amount, Decimal('90.00'))
-        self.assertEqual(invoice.total_amount.amount, Decimal('90.00'))
-
 
 @override_settings(AEAT_SUBMISSIONS_ENABLED=False)
 class InvoiceNumberFormatTest(TestCase):
@@ -345,53 +315,28 @@ class InvoiceNumberFormatTest(TestCase):
         )
         return config
 
-    def test_default_format(self):
-        """When no custom format is set, uses INV-{year}-{number}."""
-        config = self._make_config()
-        invoice = SalesInvoiceService.create_from_configuration(config)
-        SalesInvoiceService.finalize_invoice(invoice)
-
+    def test_number_follows_company_format_and_keeps_counting(self):
+        """The company format only renders the number; the per-company
+        sequence keeps counting whatever the format, and no format or an
+        empty one falls back to INV-{year}-{number}."""
         year = timezone.now().year
-        self.assertEqual(invoice.invoice_number, f"INV-{year}-00001")
+        cases = [
+            (None, f"INV-{year}-00001"),
+            ("FC-{year}/{number}", f"FC-{year}/00002"),
+            ("", f"INV-{year}-00003"),
+            ("{year}-FX-{number}", f"{year}-FX-00004"),
+            ("{year}-FX-{number}", f"{year}-FX-00005"),
+        ]
+        for fmt, expected in cases:
+            with self.subTest(format=fmt):
+                if fmt is not None:
+                    self.company.invoice_number_format = fmt
+                    self.company.save(update_fields=["invoice_number_format"])
 
-    def test_custom_format(self):
-        """Company can set a custom format like 'FC-{year}/{number}'."""
-        self.company.invoice_number_format = "FC-{year}/{number}"
-        self.company.save(update_fields=["invoice_number_format"])
+                invoice = SalesInvoiceService.create_from_configuration(self._make_config())
+                SalesInvoiceService.finalize_invoice(invoice)
 
-        config = self._make_config()
-        invoice = SalesInvoiceService.create_from_configuration(config)
-        SalesInvoiceService.finalize_invoice(invoice)
-
-        year = timezone.now().year
-        self.assertEqual(invoice.invoice_number, f"FC-{year}/00001")
-
-    def test_empty_format_falls_back_to_default(self):
-        """An empty invoice_number_format falls back to INV-{year}-{number}."""
-        self.company.invoice_number_format = ""
-        self.company.save(update_fields=["invoice_number_format"])
-
-        config = self._make_config()
-        invoice = SalesInvoiceService.create_from_configuration(config)
-        SalesInvoiceService.finalize_invoice(invoice)
-
-        year = timezone.now().year
-        self.assertEqual(invoice.invoice_number, f"INV-{year}-00001")
-
-    def test_sequential_with_custom_format(self):
-        """Sequential numbering works correctly with a custom format."""
-        self.company.invoice_number_format = "{year}-FX-{number}"
-        self.company.save(update_fields=["invoice_number_format"])
-
-        inv1 = SalesInvoiceService.create_from_configuration(self._make_config())
-        SalesInvoiceService.finalize_invoice(inv1)
-
-        inv2 = SalesInvoiceService.create_from_configuration(self._make_config())
-        SalesInvoiceService.finalize_invoice(inv2)
-
-        year = timezone.now().year
-        self.assertEqual(inv1.invoice_number, f"{year}-FX-00001")
-        self.assertEqual(inv2.invoice_number, f"{year}-FX-00002")
+                self.assertEqual(invoice.invoice_number, expected)
 
 
 @override_settings(AEAT_SUBMISSIONS_ENABLED=False)

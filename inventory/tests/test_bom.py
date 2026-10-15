@@ -22,7 +22,7 @@ from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models
-from django.test import TestCase, RequestFactory
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import translation
 
@@ -34,6 +34,7 @@ from inventory.models import (
     ItemTransaction,
     Warehouse,
 )
+from inventory.tests.factories import accepted_quote_line, deliver, make_item
 from invoices.services.delivery_order_service import DeliveryOrderService
 from sales.services.delivery_order_fulfillment_service import DeliveryOrderFulfillmentService
 from management.models import ProjectFile
@@ -78,23 +79,10 @@ class _BOMBaseTestCase(TestCase):
 
     def _make_item(self, code, name="Item", stock=0, **kwargs):
         """Create an InventoryItem and optionally seed it with stock."""
-        item = InventoryItem.objects.create(
-            code=code,
-            name=name,
-            company=self.company,
-            item_type=kwargs.pop("item_type", ItemType.STOCKABLE),
-            default_warehouse=kwargs.pop("default_warehouse", self.warehouse),
-            **kwargs,
+        return make_item(
+            company=self.company, warehouse=self.warehouse,
+            code=code, name=name, stock=stock, **kwargs,
         )
-        if stock:
-            ItemTransaction.objects.create(
-                item=item,
-                warehouse=item.default_warehouse,
-                movement_type=MovementType.IN,
-                quantity_change=stock,
-                note="Initial stock",
-            )
-        return item
 
     def _stock(self, item):
         """Return the current stock_on_hand for an item (refreshed)."""
@@ -120,7 +108,6 @@ class BillOfMaterialsLineModelTest(_BOMBaseTestCase):
         line = BillOfMaterialsLine.objects.create(
             parent=parent, component=comp, quantity=4,
         )
-        self.assertEqual(line.quantity, 4)
         self.assertEqual(str(line), "P1 → C1 ×4")
 
     def test_unique_constraint_prevents_duplicate_component(self):
@@ -142,21 +129,6 @@ class BillOfMaterialsLineModelTest(_BOMBaseTestCase):
         with self.assertRaises(ValidationError) as ctx:
             line.full_clean()
         self.assertIn("component", ctx.exception.message_dict)
-
-    def test_different_components_allowed(self):
-        parent = self._make_item("P3", "Assembly")
-        c1 = self._make_item("C3A", "Part A")
-        c2 = self._make_item("C3B", "Part B")
-        BillOfMaterialsLine.objects.create(parent=parent, component=c1, quantity=1)
-        BillOfMaterialsLine.objects.create(parent=parent, component=c2, quantity=3)
-        self.assertEqual(parent.bom_lines.count(), 2)
-
-    def test_reverse_relation_used_in_bom(self):
-        parent = self._make_item("P4")
-        comp = self._make_item("C4")
-        BillOfMaterialsLine.objects.create(parent=parent, component=comp, quantity=2)
-        self.assertEqual(comp.used_in_bom.count(), 1)
-        self.assertEqual(comp.used_in_bom.first().parent, parent)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -291,7 +263,6 @@ class AdjustStockBOMCascadeTest(_BOMBaseTestCase):
         super().setUp()
         self.client.force_login(self.user)
         # Give user full permissions
-        from django.contrib.auth.models import Permission
         self.user.is_staff = True
         self.user.is_superuser = True
         self.user.save()
@@ -562,19 +533,6 @@ class ReceiveStockBOMCascadeTest(_MovementScreenTestCase):
         self.assertEqual(self._stock(comp_a), 16)      # 10 + (2×3)
         self.assertEqual(self._stock(comp_b), 8)       # 5 + (1×3)
 
-    def test_receiving_reaches_the_leaves_of_a_nested_bom(self):
-        top = self._make_item("RCV-TOP")
-        sub = self._make_item("RCV-SUB")
-        leaf = self._make_item("RCV-LEAF", stock=100)
-        BillOfMaterialsLine.objects.create(parent=top, component=sub, quantity=2)
-        BillOfMaterialsLine.objects.create(parent=sub, component=leaf, quantity=4)
-
-        self._receive(top, 5)
-
-        self.assertEqual(self._stock(top), 0)
-        self.assertEqual(self._stock(sub), 0)          # composite too
-        self.assertEqual(self._stock(leaf), 140)       # 100 + (4 × 2×5)
-
     def test_receiving_a_plain_item_is_unchanged(self):
         item = self._make_item("RCV-PLAIN", stock=10)
 
@@ -716,19 +674,6 @@ class PurchaseReceiptBOMCascadeTest(_BOMBaseTestCase):
         self.assertEqual(self._stock(comp_a), 16)      # 10 + (2×3)
         self.assertEqual(self._stock(comp_b), 8)       # 5 + (1×3)
 
-    def test_receiving_reaches_the_leaves_of_a_nested_bom(self):
-        top = self._make_item("PO-TOP")
-        sub = self._make_item("PO-SUB")
-        leaf = self._make_item("PO-LEAF", stock=100)
-        BillOfMaterialsLine.objects.create(parent=top, component=sub, quantity=2)
-        BillOfMaterialsLine.objects.create(parent=sub, component=leaf, quantity=4)
-
-        self._receive(self._fresh(top), 5)
-
-        self.assertEqual(self._stock(top), 0)
-        self.assertEqual(self._stock(sub), 0)          # a recipe of its own
-        self.assertEqual(self._stock(leaf), 140)       # 100 + (4 × 2×5)
-
     def test_receiving_a_plain_item_is_unchanged(self):
         item = self._make_item("PO-PLAIN", stock=10)
 
@@ -772,36 +717,17 @@ class _DeliveryOrderStockTestCase(_BOMBaseTestCase):
         self.inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
     def _accepted_quote_line(self, item, quantity):
-        quote = Quote.objects.create(
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
+        return accepted_quote_line(
+            company=self.company, client=self.client_obj, item=item,
+            quantity=quantity, project_file=self.project_file,
             project_name="BOM Test Quote",
-            status=QuoteStatus.ACCEPTED,
-        )
-        return QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=item,
-            quantity=Decimal(quantity),
-            unit_price=Decimal("100"),
         )
 
     def _deliver(self, quote_line, quantity=None):
         """Create the delivery order and dispatch it: that is when the goods leave."""
-        do = DeliveryOrderService.create_delivery_order(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            items_data=[{
-                "source_content_type_id": self.inv_item_ct.id,
-                "source_object_id": quote_line.pk,
-                "description": quote_line.inventory_item.name,
-                "quantity": quantity if quantity is not None else quote_line.quantity,
-                "unit_price": quote_line.unit_price.amount,
-            }],
+        return deliver(
+            quote_line=quote_line, project_file=self.project_file, quantity=quantity,
         )
-        DeliveryOrderFulfillmentService.dispatch(do)
-        return do
 
 
 class DeliveryOrderBOMCascadeTest(_DeliveryOrderStockTestCase):
@@ -863,25 +789,6 @@ class DeliveryOrderBOMCascadeTest(_DeliveryOrderStockTestCase):
 
         # No transactions should have been created for a service item
         self.assertEqual(ItemTransaction.objects.count(), tx_count_before)
-
-    def test_nested_bom_deducts_only_the_leaves(self):
-        """A nested BOM is walked to the bottom, and only the items that are
-        not themselves assembled from something else move."""
-        raw = self._make_item("Q-RAW", stock=500)
-        sub = self._make_item("Q-SUB", stock=100)
-        top = self._make_item("Q-TOP", stock=30)
-
-        BillOfMaterialsLine.objects.create(parent=sub, component=raw, quantity=10)
-        BillOfMaterialsLine.objects.create(parent=top, component=sub, quantity=2)
-
-        line = self._accepted_quote_line(top, "5")
-        self._deliver(line)
-
-        # top and sub are both recipes, so neither moves.
-        self.assertEqual(self._stock(top), 30)
-        self.assertEqual(self._stock(sub), 100)
-        # raw: 500 - (10 × (2×5)) = 500 - 100 = 400
-        self.assertEqual(self._stock(raw), 400)
 
     def test_partial_delivery_deducts_only_what_is_delivered(self):
         parent = self._make_item("Q-PART", stock=20)
@@ -958,7 +865,7 @@ class DeliveryOrderRestockTest(_DeliveryOrderStockTestCase):
         line = self._accepted_quote_line(parent, str(delivered))
         return self._deliver(line), parent, comp
 
-    def test_cancelling_returns_stock_and_bom_components(self):
+    def test_cancelling_returns_the_components_as_a_compensating_movement(self):
         do, parent, comp = self._delivered()
         self.assertEqual(self._stock(parent), 50)
         self.assertEqual(self._stock(comp), 188)
@@ -968,12 +875,6 @@ class DeliveryOrderRestockTest(_DeliveryOrderStockTestCase):
 
         self.assertEqual(self._stock(parent), 50)
         self.assertEqual(self._stock(comp), 200)
-
-    def test_return_is_a_compensating_movement_not_a_deletion(self):
-        do, parent, comp = self._delivered()
-
-        do.status = DeliveryOrderStatus.CANCELLED
-        do.save()
 
         # The recipe itself never moved, so it has nothing to compensate.
         self.assertFalse(

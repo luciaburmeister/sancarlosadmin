@@ -11,31 +11,28 @@ from datetime import date
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from company.active_company import ActiveCompany
-from company.models import Company
-from materials.models import Provider
 from purchasing.admin import PurchaseOrderAdmin
 from purchasing.models import PurchaseOrder, PurchaseOrderStatus
+from purchasing.tests.factories import make_admin_request, make_company, make_provider, make_purchase_order
 
 User = get_user_model()
 
 
 class PODecisionEmailTestBase(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
-        self.provider = Provider.objects.create(company=self.company, name="Proveedor SA")
+        self.company = make_company()
+        self.provider = make_provider(company=self.company)
         self.requester = User.objects.create_user(
             username="requester", password="x", email="requester@example.com",
             first_name="Rita", last_name="Requester",
         )
         self.reviewer = User.objects.create_superuser(username="reviewer", password="x", email="rev@example.com")
-        self.po = PurchaseOrder.objects.create(
+        self.po = make_purchase_order(
             company=self.company,
             provider=self.provider,
             date_ordered=date(2026, 8, 1),
@@ -43,20 +40,12 @@ class PODecisionEmailTestBase(TestCase):
             requested_by=self.requester,
         )
 
-    def _admin_request(self):
-        req = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(req)
-        req.session.save()
-        MessageMiddleware(lambda r: None).process_request(req)
-        req.user = self.reviewer
-        return req
-
 
 class ApprovePOEmailTests(PODecisionEmailTestBase):
     def _approve(self, po):
         po_admin = PurchaseOrderAdmin(PurchaseOrder, admin.site)
         with self.captureOnCommitCallbacks(execute=True):
-            po_admin._approve_po(self._admin_request(), po)
+            po_admin._approve_po(make_admin_request(user=self.reviewer), po)
 
     def test_approve_sets_fields_and_emails_requester(self):
         self._approve(self.po)
@@ -85,7 +74,7 @@ class ApprovePOEmailTests(PODecisionEmailTestBase):
         # Several active companies make the admin queryset select_related
         # the nullable company FK; locking that outer join used to raise
         # NotSupportedError on PostgreSQL.
-        other = Company.objects.create(name="Other Company", tax_identifier="B87654321")
+        other = make_company(name="Other Company", tax_identifier="B87654321")
         ActiveCompany.set_current_ids([self.company.pk, other.pk])
         self.addCleanup(ActiveCompany.clear_current)
         self._approve(self.po)

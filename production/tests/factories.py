@@ -10,13 +10,20 @@ from __future__ import annotations
 
 from datetime import date, time
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
+from djmoney.money import Money
 
-from company.models import Company, CompanyScheduleSlot, Employee, Machine, WeekdayChoices
+from company.models import Company, CompanyScheduleSlot, CompanyUser, Employee, Machine, WeekdayChoices
 from configurator.models import Configuration, ConfigurationItem, ProductTemplate
 from materials.models import Component
 from production.models import (
     PlannedProductionSession,
+    ProductionItem,
+    ProductionItemSession,
+    ProductionItemSessionStatus,
+    ProductionItemStatus,
     ProductionResource,
     ProductionTicket,
 )
@@ -100,14 +107,26 @@ def resource_for(target) -> ProductionResource:
     return resource
 
 
+def make_product(company: Company, *, name=None, stages=None) -> ProductTemplate:
+    """A ProductTemplate declaring *stages* (defaults to DEFAULT_STAGES)."""
+    return ProductTemplate.objects.create(
+        name=name or f"Producto {ProductTemplate.objects.count() + 1}",
+        company=company,
+        production_stages=list(stages if stages is not None else DEFAULT_STAGES),
+    )
+
+
 def make_ticket(
     company: Company,
     *,
     stages=None,
     product=None,
+    configuration=None,
+    bom=True,
     stage_minutes=None,
     machine_qty=0,
     employee_qty=1,
+    **ticket_kwargs,
 ) -> ProductionTicket:
     """A ticket whose configuration carries per-stage durations and quantities.
 
@@ -115,15 +134,26 @@ def make_ticket(
     template ConfigurationItem is created holding the ``stage_resources``
     snapshot the planner reads. Quantities go in the nested machine_types /
     employee_types arrays, which is the shape production code actually stores.
+    ``bom=False`` skips that item (shop-floor tests that never plan), and
+    ``configuration`` reuses an existing one instead of creating it.
     """
     stage_list = list(stages if stages is not None else DEFAULT_STAGES)
-    product = product or ProductTemplate.objects.create(
-        name=f"Producto {ProductTemplate.objects.count() + 1}",
-        company=company,
-        production_stages=stage_list,
-    )
-    configuration = Configuration.objects.create(company=company, product=product)
+    if configuration is None:
+        product = product or make_product(company, stages=stage_list)
+        configuration = Configuration.objects.create(company=company, product=product)
+    if bom:
+        _add_bom_item(configuration, stage_list, stage_minutes, machine_qty, employee_qty)
 
+    return ProductionTicket.objects.create(
+        company=company,
+        content_type=ContentType.objects.get_for_model(Configuration),
+        object_id=configuration.pk,
+        **ticket_kwargs,
+    )
+
+
+def _add_bom_item(configuration, stage_list, stage_minutes, machine_qty, employee_qty):
+    """The template ConfigurationItem carrying the planner's stage snapshot."""
     # Always a BOM item declaring the stages: a ticket's plannable stages come
     # from its items, not from the product, so a configuration without one is
     # unplannable everywhere -- generate_bom() never leaves one that way.
@@ -151,12 +181,6 @@ def make_ticket(
         },
     )
 
-    return ProductionTicket.objects.create(
-        company=company,
-        content_type=ContentType.objects.get_for_model(Configuration),
-        object_id=configuration.pk,
-    )
-
 
 def make_session(
     ticket: ProductionTicket,
@@ -182,3 +206,100 @@ def make_session(
         sync_session_resources(session, [r.pk for r in resources])
         session.refresh_from_db()
     return session
+
+
+def make_item(ticket: ProductionTicket, *, stages=None, status=ProductionItemStatus.PENDING, planning=None, **kwargs) -> ProductionItem:
+    """A ProductionItem with every stage at *status* (or the explicit *planning*)."""
+    stage_list = list(stages if stages is not None else DEFAULT_STAGES)
+    if planning is None:
+        planning = {
+            stage: {"status": status, "started_at": None, "completed_at": None}
+            for stage in stage_list
+        }
+    return ProductionItem.objects.create(
+        ticket=ticket,
+        company=ticket.company,
+        planning=planning,
+        production_stages_order=kwargs.pop("production_stages_order", stage_list),
+        **kwargs,
+    )
+
+
+def make_item_session(item: ProductionItem, *, employee, start, end=None, stage=STAGE_CUT, status=ProductionItemSessionStatus.DONE, **kwargs) -> ProductionItemSession:
+    """A worked (shop-floor) session on *item*, created by *employee*."""
+    return ProductionItemSession.objects.create(
+        production_item=item,
+        company=item.company,
+        production_stage=stage,
+        status=status,
+        start_time=start,
+        end_time=end,
+        created_by=employee,
+        **kwargs,
+    )
+
+
+def make_staff_user(*, username, companies=(), perms=()):
+    """A staff user in *companies* holding the given production permission codenames."""
+    user = get_user_model().objects.create_user(username=username, password="x", is_staff=True)
+    for company in companies:
+        CompanyUser.objects.create(user=user, company=company, is_active=True)
+    if perms:
+        found = list(Permission.objects.filter(codename__in=perms, content_type__app_label="production"))
+        missing = set(perms) - {p.codename for p in found}
+        if missing:
+            raise ValueError(f"Unknown production permission codenames: {sorted(missing)}")
+        user.user_permissions.set(found)
+    return user
+
+
+def make_staff_employee(company: Company, *, username, perms=(), stages=None, **kwargs) -> Employee:
+    """A production Employee whose staff user belongs to *company* with *perms*."""
+    user = make_staff_user(username=username, companies=[company], perms=perms)
+    return make_employee(company, user=user, first_name=username, last_name="Test", stages=stages, **kwargs)
+
+
+def make_scheduling_world(*, stage=STAGE_CUT, slot_end=time(10, 0)):
+    """Company + one Monday 08:00-*slot_end* slot + product + component, for scheduler runs.
+
+    Returns ``(company, product, component)``; add machines with make_machine.
+    """
+    company = make_company(stages=[stage])
+    add_schedule(company, weekdays=[WeekdayChoices.MONDAY], ranges=((time(8, 0), slot_end),))
+    product = make_product(company, name="Ventana", stages=[stage])
+    component = Component.objects.create(company=company, name="Perfil", unit_price_expression="0")
+    return company, product, component
+
+
+def machine_stage_resources(stages, *, work_time_min=60, **machine_type):
+    """A stage_resources snapshot needing one machine (of *machine_type*) per stage."""
+    return {
+        stage: {
+            "machine_types": [{"quantity": 1, **machine_type}],
+            "employee_types": [],
+            "prep_time_min": 0,
+            "work_time_min": work_time_min,
+            "post_time_min": 0,
+        }
+        for stage in stages
+    }
+
+
+def make_priced_configuration(*, product, component, name, price, cost, stages, stage_resources) -> Configuration:
+    """A priced Configuration with one template BOM item holding *stage_resources*."""
+    configuration = Configuration.objects.create(
+        company=product.company,
+        product=product,
+        name=name,
+        total_price=Money(price, "EUR"),
+        total_cost=Money(cost, "EUR"),
+    )
+    ConfigurationItem.objects.create(
+        configuration=configuration,
+        component=component,
+        unit_price=Money(0, "EUR"),
+        is_template_item=True,
+        production_stages=list(stages),
+        stage_resources=stage_resources,
+    )
+    return configuration

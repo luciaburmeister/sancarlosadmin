@@ -1,28 +1,19 @@
 import unicodedata
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ProductTemplate
-from production.models import ProductionItem, ProductionTicket
+from production.models import ProductionItem
+from production.tests.factories import make_company, make_item, make_product, make_ticket
 
 
 class ProductionItemGetStagePlanningTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Test Co")
-        product = ProductTemplate.objects.create(
-            name="Ventana", company=cls.company, production_stages=["corte"],
-        )
-        config = Configuration.objects.create(company=cls.company, product=product)
-        ct = ContentType.objects.get_for_model(Configuration)
-        ticket = ProductionTicket.objects.create(
-            company=cls.company, content_type=ct, object_id=config.id,
-        )
-        cls.item = ProductionItem.objects.create(
-            ticket=ticket, company=cls.company,
-            planning={"corte": {"status": "pending"}},
+        cls.company = make_company(stages=[])
+        product = make_product(cls.company, name="Ventana", stages=["corte"])
+        ticket = make_ticket(cls.company, stages=["corte"], product=product, bom=False)
+        cls.item = make_item(
+            ticket, stages=["corte"], planning={"corte": {"status": "pending"}}, production_stages_order=[],
         )
 
     def test_returns_planning_dict_for_matching_stage(self):

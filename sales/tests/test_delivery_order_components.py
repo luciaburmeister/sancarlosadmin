@@ -167,10 +167,15 @@ class ExplosionTests(_ComponentLinesBase):
         b_line = self._component(self._parent_line(do), b)
         self.assertFalse(b_line.component_lines.exists())
 
-    def test_item_without_bom_gets_no_component_lines(self):
+    def test_item_without_bom_gets_one_line_that_moves_its_own_stock(self):
         plain = self._item("PLAIN", stock=5)
         do = self._deliver(self._accepted_quote_line(plain, "2"))
+
         self.assertEqual(do.items.count(), 1)
+        line = do.items.get()
+        self.assertEqual(line.inventory_item, plain)
+        self.assertEqual(DeliveryOrderItem.objects.get(pk=line.pk).inventory_item_id, plain.pk)
+        self.assertEqual(self._stock(plain), 3)
 
     def test_configuration_lines_get_no_component_lines(self):
         from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
@@ -214,11 +219,6 @@ class StockAndTotalsTests(_ComponentLinesBase):
         for line in do.items.components():
             self.assertFalse(line.stock_deducted)
 
-    def test_an_item_without_a_bom_still_moves_its_own_stock(self):
-        plain = self._item("PLAIN", stock=5)
-        self._deliver(self._accepted_quote_line(plain, "2"))
-        self.assertEqual(self._stock(plain), 3)
-
     def test_a_composite_of_a_non_stockable_type_still_moves_its_components(self):
         kit = self._item("KIT", stock=10, item_type=ItemType.FINISHED_PRODUCT)
         part = self._item("PART", stock=40)
@@ -235,18 +235,6 @@ class StockAndTotalsTests(_ComponentLinesBase):
         self.assertEqual(do.subtotal_amount.amount, Decimal("300.00"))
         self.assertEqual(do.total_amount.amount, Decimal("300.00"))
 
-    def test_cancelling_returns_stock_exactly_once(self):
-        window, frame, handle, profile = self._kit()
-        do = self._deliver(self._accepted_quote_line(window, "3"))
-
-        do.status = DeliveryOrderStatus.CANCELLED
-        do.save()
-
-        self.assertEqual(self._stock(window), 10)
-        self.assertEqual(self._stock(frame), 100)
-        self.assertEqual(self._stock(handle), 50)
-        self.assertEqual(self._stock(profile), 1000)
-
     def test_deleting_the_parent_line_removes_components_and_returns_stock_once(self):
         window, frame, handle, profile = self._kit()
         do = self._deliver(self._accepted_quote_line(window, "3"))
@@ -256,6 +244,17 @@ class StockAndTotalsTests(_ComponentLinesBase):
         self.assertEqual(do.items.count(), 0)
         self.assertEqual(self._stock(window), 10)
         self.assertEqual(self._stock(frame), 100)
+        self.assertEqual(self._stock(profile), 1000)
+
+    def test_cancelling_through_the_service_returns_component_stock_exactly_once(self):
+        window, frame, handle, profile = self._kit()
+        do = self._deliver(self._accepted_quote_line(window, "3"))
+
+        DeliveryOrderFulfillmentService.cancel(do)
+
+        self.assertEqual(self._stock(window), 10)
+        self.assertEqual(self._stock(frame), 100)
+        self.assertEqual(self._stock(handle), 50)
         self.assertEqual(self._stock(profile), 1000)
 
     def test_deleting_the_order_returns_stock_once(self):
@@ -353,13 +352,6 @@ class ManualProductLineTests(_ComponentLinesBase):
         )
         self.assertEqual(line.unit_price.amount, Decimal("180.00"))
         self.assertEqual(line.description, "Special window")
-
-    def test_quote_sourced_line_resolves_its_inventory_item(self):
-        plain = self._item("PLAIN", stock=5)
-        do = self._deliver(self._accepted_quote_line(plain, "2"))
-        line = do.items.get()
-        self.assertEqual(line.inventory_item, plain)
-        self.assertEqual(DeliveryOrderItem.objects.get(pk=line.pk).inventory_item_id, plain.pk)
 
 
 class LinkCodesPageTests(_ComponentLinesBase):

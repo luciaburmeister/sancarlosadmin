@@ -26,7 +26,6 @@ from invoices.models import (
     SalesInvoiceDocumentType,
     SalesInvoiceStatus,
 )
-from invoices.services.advances import AdvanceDeductionService
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
 
 
@@ -46,12 +45,6 @@ class _AdvanceAdminTestBase(AdvanceExpedienteMixin, TestCase):
         self.request = RequestFactory().get("/")
         self.request.user = self.user
         self.model_admin = SalesInvoiceAdmin(SalesInvoice, admin.site)
-
-    def rest_invoice(self):
-        """A pro forma billing all the expediente's goods, deducting its advances."""
-        invoice = self.invoice_goods()
-        AdvanceDeductionService.apply(invoice)
-        return invoice
 
     def fresh(self, invoice):
         """The invoice as the admin loads it (nothing cached on the instance)."""

@@ -35,32 +35,23 @@ from sales.admin.quote import (
 )
 from sales.admin.filters import HasProductionFilter, ProductionSchedulingFilter
 from sales.models import Quote, QuoteProductionStatus, QuoteStatus
+from sales.tests.factories import make_company, make_configuration, make_quote
 
 
 class _PlanningBase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Planning Co")
+        cls.company = make_company(name="Planning Co")
         cls.product = ProductTemplate.objects.create(
             name="Planned Product",
             company=cls.company,
         )
 
     def _make_quote(self, status=QuoteStatus.DRAFT):
-        return Quote.objects.create(
-            company=self.company,
-            project_name=f"Quote {status}",
-            status=status,
-        )
+        return make_quote(company=self.company, project_name=f"Quote {status}", status=status)
 
     def _make_config(self, quote, status=ConfigurationStatus.DRAFT):
-        return Configuration.objects.create(
-            company=self.company,
-            quote=quote,
-            product=self.product,
-            name=f"Config {status}",
-            status=status,
-        )
+        return make_configuration(quote=quote, product=self.product, name=f"Config {status}", status=status)
 
     def _make_ticket(self, config):
         return ProductionTicket.objects.create(
@@ -229,38 +220,18 @@ class QuoteProductionFilterTests(_PlanningBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.quote_no_production = Quote.objects.create(
-            company=cls.company, project_name="No production"
+        cls.quote_no_production = make_quote(company=cls.company, project_name="No production")
+        cls.quote_pending = make_quote(company=cls.company, project_name="Pending", status=QuoteStatus.ACCEPTED)
+        make_configuration(
+            quote=cls.quote_pending, product=cls.product, name="unconverted", status=ConfigurationStatus.COMPLETED,
         )
-        cls.quote_pending = Quote.objects.create(
-            company=cls.company, project_name="Pending", status=QuoteStatus.ACCEPTED
+        cls.quote_unscheduled = make_quote(company=cls.company, project_name="Unscheduled", status=QuoteStatus.ACCEPTED)
+        make_configuration(
+            quote=cls.quote_unscheduled, product=cls.product, name="converted-unplanned", status=ConfigurationStatus.CONVERTED,
         )
-        Configuration.objects.create(
-            company=cls.company,
-            quote=cls.quote_pending,
-            product=cls.product,
-            name="unconverted",
-            status=ConfigurationStatus.COMPLETED,
-        )
-        cls.quote_unscheduled = Quote.objects.create(
-            company=cls.company, project_name="Unscheduled", status=QuoteStatus.ACCEPTED
-        )
-        Configuration.objects.create(
-            company=cls.company,
-            quote=cls.quote_unscheduled,
-            product=cls.product,
-            name="converted-unplanned",
-            status=ConfigurationStatus.CONVERTED,
-        )
-        cls.quote_scheduled = Quote.objects.create(
-            company=cls.company, project_name="Scheduled", status=QuoteStatus.ACCEPTED
-        )
-        Configuration.objects.create(
-            company=cls.company,
-            quote=cls.quote_scheduled,
-            product=cls.product,
-            name="planned",
-            status=ConfigurationStatus.CONVERTED,
+        cls.quote_scheduled = make_quote(company=cls.company, project_name="Scheduled", status=QuoteStatus.ACCEPTED)
+        make_configuration(
+            quote=cls.quote_scheduled, product=cls.product, name="planned", status=ConfigurationStatus.CONVERTED,
             planning_status=ConfigurationPlanningStatus.PLANNED,
         )
 

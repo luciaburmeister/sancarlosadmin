@@ -26,17 +26,6 @@ class RuleKeyTestCase(TestCase):
         with self.assertRaises(ValidationError):
             validate_rule_key("has space") # Contains space
             
-    def test_material_creation_with_rule_key(self):
-        material = Material.objects.create(
-            name="Test Material",
-            reference_code="REF123",
-            rule_key="mat_ref123",
-            category=self.category,
-            cost_per_unit=10.0,
-            company=self.company
-        )
-        self.assertEqual(material.rule_key, "mat_ref123")
-        
     def test_pricing_uses_rule_key(self):
         material = Material.objects.create(
             name="Test Material",

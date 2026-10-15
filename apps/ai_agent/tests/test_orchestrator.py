@@ -8,6 +8,7 @@ from django.test import SimpleTestCase, TestCase
 from apps.ai_agent.models import AIConversation, AIMessage
 from apps.ai_agent.orchestrator import (
     AGENT_EFFORT,
+    MAX_HISTORY_MESSAGES,
     PROMPT_CACHE_CONTROL,
     THINKING_BETWEEN_TOOLS,
     ConversationService,
@@ -167,7 +168,9 @@ class ConversationServiceStreamTests(TestCase):
         sent = mock_anthropic_cls.return_value.messages.stream.call_args.kwargs[
             "messages"
         ]
-        self.assertEqual(sent[0]["content"][0]["text"], "q4")
+        # Only the trimmed window plus the new question goes to the model;
+        # which turns survive is HistoryTrimTests' business.
+        self.assertEqual(len(sent), MAX_HISTORY_MESSAGES + 1)
         self.assertEqual(sent[-1]["content"][0]["text"], "última")
         self.assertEqual(self.conversation.messages.count(), 26)
 

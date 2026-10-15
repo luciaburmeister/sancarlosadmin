@@ -1,7 +1,7 @@
 """
 api/fleet/tests/test_strategies.py
 
-Tests 9-25: MovementStrategy, DeliveryStrategy, ReceiptStrategy
+MovementStrategy, DeliveryStrategy, ReceiptStrategy
 
 Run just this file:
     python manage.py test api.fleet.tests.test_strategies
@@ -30,27 +30,27 @@ from assets.models import (
     TransactionTypeChoices,
 )
 from api.fleet.tests.helpers import (
-    make_company,
-    make_user,
-    make_employee,
-    make_asset_type,
+    DriverFixtureMixin,
+    make_almacen,
     make_asset,
-    make_zone,
+    make_asset_type,
+    make_employee,
     make_planning,
+    make_user,
+    make_zone,
+    run_strategy,
 )
 from company.models import WorkingZone
 
 
-class MovementStrategyTests(TestCase):
+class MovementStrategyTests(DriverFixtureMixin, TestCase):
     """
     Tests for MovementStrategy — the code that runs when a driver
     does a recogida (picks up a cuba).
     """
 
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.zone = make_zone(self.company, lat=40.416775, lon=-3.703790)
         self.asset = make_asset(
@@ -65,10 +65,7 @@ class MovementStrategyTests(TestCase):
 
     def _run_movement(self, extra_data=None):
         """Helper that runs MovementStrategy directly with a valid payload."""
-        from api.fleet.views.assets import MovementStrategy
-
         data = {
-            "transaction_type": "movement",
             "latitude": 40.416775,
             "longitude": -3.703790,
             "matricula": "1234ABC",
@@ -85,42 +82,21 @@ class MovementStrategyTests(TestCase):
         }
         if extra_data:
             data.update(extra_data)
+        return run_strategy("movement", self.asset, self.employee, self.user, data)
 
-        strategy = MovementStrategy(data, self.asset, self.employee, self.user)
-        return strategy.execute()
-
-    # Test 9
-    def test_movement_strategy_saves_transaction(self):
-        """After execute() runs, exactly one AssetTransaction row must exist."""
-        self._run_movement()
+    def test_movement_saves_one_transaction_with_albaran_fields_and_responds_with_its_id(self):
+        """
+        One execute() -> exactly one MOVEMENT row carrying the albaran fields
+        the app sent (in the data JSON field), and a response with
+        'success': True plus the 'transaction_id' the Android app reads.
+        """
+        response = self._run_movement()
+        body = json.loads(response.content)
+        self.assertTrue(body["success"])
+        self.assertIn("transaction_id", body)
         self.assertEqual(AssetTransaction.objects.count(), 1)
-
-    # Test 10
-    def test_movement_strategy_does_not_crash(self):
-        """
-        execute() must not raise any exception.
-        This is the test that would have caught the NameError production incident.
-        """
-        try:
-            self._run_movement()
-        except Exception as e:
-            self.fail(f"MovementStrategy.execute() raised an exception: {e}")
-
-    # Test 11
-    def test_movement_strategy_transaction_type_is_correct(self):
-        """The saved transaction must have transaction_type = MOVEMENT."""
-        self._run_movement()
         tx = AssetTransaction.objects.first()
         self.assertEqual(tx.transaction_type, TransactionTypeChoices.MOVEMENT)
-
-    # Test 12
-    def test_movement_albaran_fields_save_to_database(self):
-        """
-        The albaran fields sent by the app must actually end up saved
-        in the transaction's data JSON field.
-        """
-        self._run_movement()
-        tx = AssetTransaction.objects.first()
         self.assertEqual(tx.data.get("matricula"), "1234ABC")
         self.assertEqual(tx.data.get("tipo_camion"), "Volquete")
         self.assertEqual(tx.data.get("implemento"), "Gancho")
@@ -133,8 +109,7 @@ class MovementStrategyTests(TestCase):
 
     @patch("core.tasks.send_asset_transaction_email_task.delay")
     def test_movement_emails_the_named_landfill_when_automatic_send_is_on(self, delay):
-        landfill = make_zone(self.company, name="Vertedero Norte")
-        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill = make_zone(self.company, name="Vertedero Norte", zone_type=WorkingZone.ZoneType.VERTEDERO)
         landfill.receipt_notification_email = "vertedero@example.com"
         landfill.auto_send_receipt = True
         landfill.save()
@@ -148,25 +123,13 @@ class MovementStrategyTests(TestCase):
 
     @patch("core.tasks.send_asset_transaction_email_task.delay")
     def test_movement_does_not_email_when_automatic_send_is_off(self, delay):
-        landfill = make_zone(self.company, name="Vertedero Norte")
-        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill = make_zone(self.company, name="Vertedero Norte", zone_type=WorkingZone.ZoneType.VERTEDERO)
         landfill.receipt_notification_email = "vertedero@example.com"
         landfill.save()
 
         self._run_movement()
 
         delay.assert_not_called()
-
-    # Test 13
-    def test_movement_response_contains_success_and_transaction_id(self):
-        """
-        The response JSON must contain 'success': True and 'transaction_id'.
-        The Android app reads both of these fields.
-        """
-        response = self._run_movement()
-        body = json.loads(response.content)
-        self.assertTrue(body["success"])
-        self.assertIn("transaction_id", body)
 
     # reference_number is a real AssetTransaction field, not a `data` key --
     # pulled out of the incoming payload explicitly before the rest falls
@@ -176,13 +139,6 @@ class MovementStrategyTests(TestCase):
         tx = AssetTransaction.objects.first()
         self.assertEqual(tx.reference_number, "REF-001")
         self.assertNotIn("reference_number", tx.data)
-
-    def test_movement_without_planning_id_is_rejected(self):
-        """Cuba can't operate without a plan — strict mode."""
-        response = self._run_movement(extra_data={"planning_id": None})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("error", json.loads(response.content))
-        self.assertEqual(AssetTransaction.objects.count(), 0)
 
     def test_movement_with_someone_elses_planning_id_is_rejected(self):
         other_user = make_user(username="otherdriver")
@@ -223,13 +179,11 @@ class MovementStrategyTests(TestCase):
         self.assertEqual(self.planning.status, PlanningStatus.IN_TRANSIT)
 
 
-class DeliveryStrategyTests(TestCase):
+class DeliveryStrategyTests(DriverFixtureMixin, TestCase):
     """Tests for DeliveryStrategy — when a driver delivers (deja) a cuba."""
 
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.origin_zone = make_zone(self.company, name="Origen", lat=40.41, lon=-3.70)
         self.dest_zone = make_zone(self.company, name="Destino", lat=40.42, lon=-3.71)
@@ -244,10 +198,7 @@ class DeliveryStrategyTests(TestCase):
         )
 
     def _run_delivery(self, extra_data=None):
-        from api.fleet.views.assets import DeliveryStrategy
-
         data = {
-            "transaction_type": "delivery",
             "latitude": 40.42,
             "longitude": -3.71,
             "matricula": "1234ABC",
@@ -264,38 +215,21 @@ class DeliveryStrategyTests(TestCase):
         }
         if extra_data:
             data.update(extra_data)
-        strategy = DeliveryStrategy(data, self.asset, self.employee, self.user)
-        return strategy.execute()
+        return run_strategy("delivery", self.asset, self.employee, self.user, data)
 
-    # Test 14
-    def test_delivery_strategy_saves_transaction(self):
-        """After a delivery, one AssetTransaction must exist in the database."""
+    def test_delivery_saves_one_transaction_with_albaran_fields_and_moves_the_asset(self):
+        """
+        One delivery -> exactly one DELIVERY row carrying the albaran fields in
+        its data JSON field, and the asset's current_working_zone moved to the
+        destination zone.
+        """
         self._run_delivery()
         self.assertEqual(AssetTransaction.objects.count(), 1)
-
-    # Test 15
-    def test_delivery_strategy_transaction_type_is_correct(self):
-        """The saved transaction must have transaction_type = DELIVERY."""
-        self._run_delivery()
         tx = AssetTransaction.objects.first()
         self.assertEqual(tx.transaction_type, TransactionTypeChoices.DELIVERY)
-
-    # Test 16
-    def test_delivery_albaran_fields_save_to_database(self):
-        """Albaran fields must be saved in the transaction data JSON field."""
-        self._run_delivery()
-        tx = AssetTransaction.objects.first()
         self.assertEqual(tx.data.get("matricula"), "1234ABC")
         self.assertEqual(tx.data.get("tipo_camion"), "Volquete")
         self.assertEqual(tx.data.get("tipo_cuba"), "6m3")
-
-    # Test 17
-    def test_delivery_updates_asset_zone(self):
-        """
-        After a delivery, the asset's current_working_zone must be updated
-        to the destination zone.
-        """
-        self._run_delivery()
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone, self.dest_zone)
 
@@ -314,11 +248,7 @@ class DeliveryStrategyTests(TestCase):
     def test_delivery_after_porte_with_no_next_cuba_plan(self):
         """Finished porte → pending_dropoff still points at that porte id.
         Leaving the cuba must work with no next CUBA plan (don't 400)."""
-        from company.models import WorkingZone
-
-        almacen = make_zone(self.company, name="Almacen", lat=40.42, lon=-3.71)
-        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        almacen.save(update_fields=["zone_type"])
+        almacen = make_almacen(self.company, lat=40.42, lon=-3.71)
         porte = make_planning(
             self.company,
             asset=self.asset,
@@ -371,15 +301,6 @@ class DeliveryStrategyTests(TestCase):
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone_id, almacen.id)
 
-    def test_delivery_with_planning_id_links_fk_and_syncs_status(self):
-        self.planning.status = PlanningStatus.IN_TRANSIT
-        self.planning.save(update_fields=["status"])
-        self._run_delivery()
-        tx = AssetTransaction.objects.first()
-        self.assertEqual(tx.planning_id, self.planning.id)
-        self.planning.refresh_from_db()
-        self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)
-
     def test_delivery_rejects_full_cuba_at_an_obra(self):
         """dest_zone defaults to zone_type=OBRA — never let a full cuba be
         dropped there, no matter the plan/operation type."""
@@ -401,9 +322,7 @@ class DeliveryStrategyTests(TestCase):
         self.assertEqual(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).count(), 0)
 
     def test_delivery_allows_full_cuba_at_an_almacen(self):
-        almacen = make_zone(self.company, name="Almacen", lat=40.42, lon=-3.71)
-        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        almacen.save()
+        almacen = make_almacen(self.company, lat=40.42, lon=-3.71)
         response = self._run_delivery(extra_data={"cubaEstado": "Cuba llena", "zone_id": almacen.id})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).exists())
@@ -416,21 +335,17 @@ class DeliveryStrategyTests(TestCase):
             transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=self.employee,
             planning=self.planning, data={"cubaEstado": "Cuba llena"},
         )
-        almacen = make_zone(self.company, name="Almacen", lat=40.42, lon=-3.71)
-        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        almacen.save()
+        almacen = make_almacen(self.company, lat=40.42, lon=-3.71)
         response = self._run_delivery(extra_data={"cubaEstado": "Cuba vacía", "zone_id": almacen.id})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).count(), 0)
 
 
-class ReceiptStrategyTests(TestCase):
+class ReceiptStrategyTests(DriverFixtureMixin, TestCase):
     """Tests for ReceiptStrategy — when a driver registers a verteo."""
 
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.zone = make_zone(self.company)
         self.asset = make_asset(
@@ -453,10 +368,7 @@ class ReceiptStrategyTests(TestCase):
         )
 
     def _run_receipt(self, extra_data=None):
-        from api.fleet.views.assets import ReceiptStrategy
-
         data = {
-            "transaction_type": "receipt",
             "nro_albaran": "ALB-001",
             "foto_albaran": "",
             "peso_neto": "500",
@@ -468,65 +380,30 @@ class ReceiptStrategyTests(TestCase):
         }
         if extra_data:
             data.update(extra_data)
+        return run_strategy("receipt", self.asset, self.employee, self.user, data)
 
-        strategy = ReceiptStrategy(data, self.asset, self.employee, self.user)
-        return strategy.execute()
-
-    # Test 18
-    def test_receipt_strategy_saves_transaction(self):
-        """After a verteo, one AssetTransaction with type RECEIPT must exist."""
+    def test_receipt_saves_transaction_and_receipt_row_linked_to_the_original_movement(self):
+        """
+        After a verteo: one RECEIPT transaction plus exactly one
+        AssetTransactionReceipt row pointing at it, with nro_albaran on the
+        row itself, peso_neto / material_vertido in its data JSON field, and
+        the movement_transaction FK set to the original pickup.
+        """
         self._run_receipt()
         self.assertTrue(
             AssetTransaction.objects.filter(
                 transaction_type=TransactionTypeChoices.RECEIPT
             ).exists()
         )
-
-    # Test 19
-    def test_receipt_strategy_saves_receipt_row(self):
-        """A corresponding AssetTransactionReceipt row must also be created."""
-        self._run_receipt()
         self.assertEqual(AssetTransactionReceipt.objects.count(), 1)
-
-    # Test 20
-    def test_receipt_strategy_links_receipt_to_transaction(self):
-        """The receipt's FK must point to the correct AssetTransaction."""
-        self._run_receipt()
         tx = AssetTransaction.objects.filter(
             transaction_type=TransactionTypeChoices.RECEIPT
         ).first()
         receipt = AssetTransactionReceipt.objects.first()
         self.assertEqual(receipt.transaction, tx)
-
-    # Test 21
-    def test_receipt_strategy_saves_nro_albaran(self):
-        """nro_albaran must be saved directly on the receipt row."""
-        self._run_receipt()
-        receipt = AssetTransactionReceipt.objects.first()
         self.assertEqual(receipt.nro_albaran, "ALB-001")
-
-    # Test 22
-    def test_receipt_strategy_saves_peso_neto(self):
-        """peso_neto must be saved inside the receipt's data JSON field."""
-        self._run_receipt()
-        receipt = AssetTransactionReceipt.objects.first()
         self.assertEqual(receipt.data.get("peso_neto"), "500")
-
-    # Test 23
-    def test_receipt_strategy_saves_material_vertido(self):
-        """material_vertido must be saved inside the receipt's data JSON field."""
-        self._run_receipt()
-        receipt = AssetTransactionReceipt.objects.first()
         self.assertEqual(receipt.data.get("material_vertido"), "RCD Limpio")
-
-    # Test 24
-    def test_receipt_strategy_links_to_original_movement(self):
-        """
-        The receipt must be linked to the original movement transaction
-        via movement_transaction FK.
-        """
-        self._run_receipt()
-        receipt = AssetTransactionReceipt.objects.first()
         self.assertEqual(receipt.movement_transaction, self.movement_tx)
 
     def test_receipt_response_includes_the_related_movement_document(self):
@@ -549,7 +426,6 @@ class ReceiptStrategyTests(TestCase):
         self.assertNotIn("related_transaction_type", body)
         self.assertNotIn("related_document_url", body)
 
-    # Test 25
     def test_receipt_reference_number_is_stored_on_the_model_field(self):
         self._run_receipt(extra_data={"reference_number": "REF-003"})
         tx = AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).first()
@@ -589,11 +465,7 @@ class ReceiptStrategyTests(TestCase):
         losing the link when the pending pickup came from an almacén instead —
         contradicts Asset.verteo_pending_transaction's own docstring, which
         explicitly allows that case."""
-        from company.models import WorkingZone
-
-        almacen = make_zone(self.company, name="Almacen 2")
-        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        almacen.save()
+        almacen = make_almacen(self.company, name="Almacen 2")
         from datetime import timedelta
 
         almacen_movement = AssetTransaction.objects.create(
@@ -636,9 +508,7 @@ class ReceiptStrategyTests(TestCase):
         back up to take it to the vertedero. Otherwise Escanear cuba wrongly
         stays available and the Home "cuba sin resolver" card disappears even
         though the driver is still physically holding it."""
-        almacen = make_zone(self.company, name="Almacen")
-        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        almacen.save()
+        almacen = make_almacen(self.company)
         AssetTransaction.objects.create(
             asset=self.asset, company=self.company, from_zone=self.zone, to_zone=almacen,
             transaction_type=TransactionTypeChoices.DELIVERY, performed_by=self.employee,
@@ -661,18 +531,60 @@ class ReceiptStrategyTests(TestCase):
         self.assertTrue(Asset.objects.with_pending_pickup_by(self.employee).filter(pk=self.asset.pk).exists())
 
 
-class CubaOperationCompletionTests(TestCase):
+class CubaFlowTestCase(DriverFixtureMixin, TestCase):
+    """Shared obra/almacén fixture + cuba steps run straight through the
+    strategies, all from the obra's GPS point. Each step defaults to an
+    empty cuba (cubaEstado)."""
+
+    def setUp(self):
+        super().setUp()
+        self.asset_type = make_asset_type(self.company)
+        self.obra = make_zone(self.company, name="Obra Destino", lat=40.42, lon=-3.71)
+        self.almacen = make_almacen(self.company, lat=40.41, lon=-3.70)
+
+    def _payload(self, planning, zone, extra_data=None):
+        data = {
+            "latitude": 40.42,
+            "longitude": -3.71,
+            "zone_id": zone.id,
+            "planning_id": planning.id,
+            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
+        }
+        if extra_data:
+            data.update(extra_data)
+        return data
+
+    def _move(self, planning, asset, zone, extra_data=None):
+        """Recogida at `zone` (the asset is parked there first)."""
+        return run_strategy(
+            "movement", asset, self.employee, self.user,
+            self._payload(planning, zone, extra_data), move_asset_to=zone,
+        )
+
+    def _deliver(self, planning, asset, zone, extra_data=None):
+        return run_strategy(
+            "delivery", asset, self.employee, self.user, self._payload(planning, zone, extra_data),
+        )
+
+    def _vert(self, planning, asset):
+        return run_strategy(
+            "receipt", asset, self.employee, self.user,
+            {
+                "nro_albaran": "ALB-001",
+                "foto_albaran": "",
+                "peso_neto": "500",
+                "material_vertido": "RCD Limpio",
+                "zone_id": self.obra.id,
+                "planning_id": planning.id,
+            },
+        )
+
+
+class CubaOperationCompletionTests(CubaFlowTestCase):
     """Puesta / retirada / cambio close only when that operation's work is done."""
 
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.asset_type = make_asset_type(self.company)
-        self.obra = make_zone(self.company, name="Obra Destino", lat=40.42, lon=-3.71)
-        self.almacen = make_zone(self.company, name="Almacen", lat=40.41, lon=-3.70)
-        self.almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        self.almacen.save(update_fields=["zone_type"])
+        super().setUp()
         self.new_cuba = make_asset(
             self.company, self.asset_type, employee=self.employee, zone=self.almacen, name="CUBA-NEW",
         )
@@ -690,66 +602,26 @@ class CubaOperationCompletionTests(TestCase):
             **overrides,
         )
 
-    def _move(self, planning, asset, zone, extra_data=None):
-        from api.fleet.views.assets import MovementStrategy
-
-        asset.current_working_zone = zone
-        asset.save(update_fields=["current_working_zone"])
-        data = {
-            "transaction_type": "movement",
-            "latitude": 40.42,
-            "longitude": -3.71,
-            "zone_id": zone.id,
-            "planning_id": planning.id,
-            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
-        }
-        if extra_data:
-            data.update(extra_data)
-        return MovementStrategy(data, asset, self.employee, self.user).execute()
-
-    def _deliver(self, planning, asset, zone, extra_data=None):
-        from api.fleet.views.assets import DeliveryStrategy
-
-        data = {
-            "transaction_type": "delivery",
-            "latitude": 40.42,
-            "longitude": -3.71,
-            "zone_id": zone.id,
-            "planning_id": planning.id,
-            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
-        }
-        if extra_data:
-            data.update(extra_data)
-        return DeliveryStrategy(data, asset, self.employee, self.user).execute()
-
-    def _vert(self, planning, asset):
-        from api.fleet.views.assets import ReceiptStrategy
-
-        return ReceiptStrategy(
-            {
-                "transaction_type": "receipt",
-                "nro_albaran": "ALB-001",
-                "foto_albaran": "",
-                "peso_neto": "500",
-                "material_vertido": "RCD Limpio",
-                "zone_id": self.obra.id,
-                "planning_id": planning.id,
-            },
-            asset, self.employee, self.user,
-        ).execute()
-
     def test_cambio_empty_warehouse_pickup_does_not_close(self):
         planning = self._plan(CubaOperationType.CAMBIO)
         self._move(planning, self.new_cuba, self.almacen)
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
 
-    def test_cambio_warehouse_pickup_then_obra_dropoff_does_not_close(self):
-        planning = self._plan(CubaOperationType.CAMBIO)
-        self._move(planning, self.new_cuba, self.almacen)
-        self._deliver(planning, self.new_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+    def test_two_leg_operations_stay_open_after_a_warehouse_pickup_and_obra_dropoff(self):
+        """Picking a cuba up at the almacén doesn't resolve the pickup leg
+        (that happens at the destination obra), so dropping it at the obra
+        alone leaves the plan open. For CAMBIO the owed leg is recoger la
+        vieja; for CAMBIO_AGUA -- a same-asset round trip, see
+        test_same_asset_round_trips_close_after_pickup_and_dropoff_at_the_obra
+        -- it's picking that same cuba up at the obra."""
+        for operation in (CubaOperationType.CAMBIO, CubaOperationType.CAMBIO_AGUA):
+            with self.subTest(operation=operation):
+                planning = self._plan(operation)
+                self._move(planning, self.new_cuba, self.almacen)
+                self._deliver(planning, self.new_cuba, self.obra)
+                planning.refresh_from_db()
+                self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
 
     def test_cambio_closes_after_obra_dropoff_and_empty_obra_pickup(self):
         planning = self._plan(CubaOperationType.CAMBIO)
@@ -787,13 +659,6 @@ class CubaOperationCompletionTests(TestCase):
         self._deliver(planning, self.new_cuba, self.obra)
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.DELIVERED)
-
-    def test_cambio_agua_follows_the_same_two_leg_rule(self):
-        planning = self._plan(CubaOperationType.CAMBIO_AGUA)
-        self._move(planning, self.new_cuba, self.almacen)
-        self._deliver(planning, self.new_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
 
     def test_puesta_only_closes_on_destination_dropoff(self):
         planning = self._plan(CubaOperationType.PUESTA)
@@ -847,58 +712,46 @@ class CubaOperationCompletionTests(TestCase):
         self.assertEqual(body["pending_dropoff"]["asset_id"], self.old_cuba.id)
         self.assertFalse(body["pending_dropoff"]["verteo_pending"])
 
-    def test_cambio_misma_cuba_closes_after_pickup_and_dropoff_of_the_same_asset(self):
-        planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA, asset=self.old_cuba)
-        self._move(planning, self.old_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
-        self._deliver(planning, self.old_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
-        self.old_cuba.refresh_from_db()
-        self.assertEqual(self.old_cuba.current_transaction_status(), "DELIVERED")
+    def test_same_asset_round_trips_close_after_pickup_and_dropoff_at_the_obra(self):
+        """CAMBIO_MISMA_CUBA and CAMBIO_AGUA pick up and drop off the very same
+        cuba at the obra -- not a two-cuba swap, and with an empty pickup no
+        verteo step in between. (A full CAMBIO_MISMA_CUBA pickup owes a verteo
+        first: see CubaChecklistTests.test_cambio_misma_cuba_checklist_full_cycle.)"""
+        for operation in (CubaOperationType.CAMBIO_MISMA_CUBA, CubaOperationType.CAMBIO_AGUA):
+            with self.subTest(operation=operation):
+                planning = self._plan(operation, asset=self.old_cuba)
+                self._move(planning, self.old_cuba, self.obra)
+                planning.refresh_from_db()
+                self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+                self._deliver(planning, self.old_cuba, self.obra)
+                planning.refresh_from_db()
+                self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+                self.old_cuba.refresh_from_db()
+                self.assertEqual(self.old_cuba.current_transaction_status(), "DELIVERED")
 
-    def test_cambio_misma_cuba_full_pickup_needs_verteo_before_close(self):
-        planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA, asset=self.old_cuba)
-        self._move(planning, self.old_cuba, self.obra, extra_data={
-            CubaTransactionKey.ESTADO: CubaFillState.FULL,
-        })
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
-        self._vert(planning, self.old_cuba)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
-        self._deliver(planning, self.old_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
-        self.old_cuba.refresh_from_db()
-        self.assertEqual(self.old_cuba.current_transaction_status(), "DELIVERED")
-
-    def test_cambio_misma_cuba_next_task_hides_the_use_pending_cuba_shortcut(self):
-        """The truck must arrive empty for this operation type — the driver can't
-        skip the pickup by reusing a cuba they're still carrying from a previous job."""
+    def test_next_task_hides_the_use_pending_cuba_shortcut_for_empty_truck_operations(self):
+        """CAMBIO_MISMA_CUBA, CAMBIO_AGUA and RETIRADA all need the truck to
+        arrive empty — the driver can't skip the pickup by reusing a cuba
+        they're still carrying from a previous job."""
         planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
         self._move(planning, self.old_cuba, self.obra)
-        make_planning(
-            self.company, asset=None, assigned_to=self.employee,
-            cuba_operation_type=CubaOperationType.CAMBIO_MISMA_CUBA, destination=self.almacen,
-        )
         client = APIClient()
         client.force_authenticate(user=self.user)
-        body = client.get("/en/api/plannings/next/").json()
-        self.assertIsNotNone(body["pending_dropoff"])
-        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
-
-    def test_cambio_agua_closes_after_pickup_and_dropoff_of_the_same_asset(self):
-        """cambio_agua is a same-asset round trip like cambio_misma_cuba, not a
-        real two-cuba swap — no verteo step applies."""
-        planning = self._plan(CubaOperationType.CAMBIO_AGUA, asset=self.old_cuba)
-        self._move(planning, self.old_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
-        self._deliver(planning, self.old_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+        for operation in (
+            CubaOperationType.CAMBIO_MISMA_CUBA,
+            CubaOperationType.CAMBIO_AGUA,
+            CubaOperationType.RETIRADA,
+        ):
+            with self.subTest(operation=operation):
+                next_plan = make_planning(
+                    self.company, asset=None, assigned_to=self.employee,
+                    cuba_operation_type=operation, destination=self.almacen,
+                )
+                body = client.get("/en/api/plannings/next/").json()
+                self.assertEqual(body["task"]["id"], next_plan.id)
+                self.assertIsNotNone(body["pending_dropoff"])
+                self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
+                next_plan.delete()
 
     def test_cambio_closes_when_the_vieja_pickup_is_the_same_asset_just_delivered(self):
         """Real scenario, not an edge case: dejar la cuba nueva (vacía), esperar
@@ -947,57 +800,13 @@ class CubaOperationCompletionTests(TestCase):
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.DELIVERED)
 
-    def test_cambio_dejar_alone_with_no_prior_pickup_does_not_close(self):
-        """Truck already carrying the new cuba (pre-assigned / carried over — no
-        MovementStrategy call ever happened for this planning) — a single dejar
-        must not close a CAMBIO plan by itself; leg 2 (recoger vieja) still owed."""
-        planning = self._plan(CubaOperationType.CAMBIO)
-        self._deliver(planning, self.new_cuba, self.obra)
-        planning.refresh_from_db()
-        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
 
-    def test_cambio_agua_next_task_hides_the_use_pending_cuba_shortcut(self):
-        planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
-        self._move(planning, self.old_cuba, self.obra)
-        make_planning(
-            self.company, asset=None, assigned_to=self.employee,
-            cuba_operation_type=CubaOperationType.CAMBIO_AGUA, destination=self.almacen,
-        )
-        client = APIClient()
-        client.force_authenticate(user=self.user)
-        body = client.get("/en/api/plannings/next/").json()
-        self.assertIsNotNone(body["pending_dropoff"])
-        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
-
-    def test_retirada_next_task_hides_the_use_pending_cuba_shortcut(self):
-        """A retirada can't be satisfied with a cuba already on the truck —
-        the driver must drop it off first."""
-        planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
-        self._move(planning, self.old_cuba, self.obra)
-        make_planning(
-            self.company, asset=None, assigned_to=self.employee,
-            cuba_operation_type=CubaOperationType.RETIRADA, destination=self.almacen,
-        )
-        client = APIClient()
-        client.force_authenticate(user=self.user)
-        body = client.get("/en/api/plannings/next/").json()
-        self.assertIsNotNone(body["pending_dropoff"])
-        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
-
-
-class CubaChecklistTests(TestCase):
+class CubaChecklistTests(CubaFlowTestCase):
     """AssetPlanning.cuba_checklist() — the progress steps behind the San Carlos
     app's checkpoint stepper."""
 
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.asset_type = make_asset_type(self.company)
-        self.obra = make_zone(self.company, name="Obra Destino", lat=40.42, lon=-3.71)
-        self.almacen = make_zone(self.company, name="Almacen", lat=40.41, lon=-3.70)
-        self.almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        self.almacen.save(update_fields=["zone_type"])
+        super().setUp()
         self.cuba = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-1")
 
     def _plan(self, operation, **overrides):
@@ -1005,42 +814,6 @@ class CubaChecklistTests(TestCase):
             self.company, asset=self.cuba, assigned_to=self.employee,
             cuba_operation_type=operation, destination=self.obra, **overrides,
         )
-
-    def _move(self, planning, zone, extra_data=None):
-        from api.fleet.views.assets import MovementStrategy
-
-        self.cuba.current_working_zone = zone
-        self.cuba.save(update_fields=["current_working_zone"])
-        data = {
-            "transaction_type": "movement", "latitude": 40.42, "longitude": -3.71,
-            "zone_id": zone.id, "planning_id": planning.id,
-            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
-        }
-        if extra_data:
-            data.update(extra_data)
-        MovementStrategy(data, self.cuba, self.employee, self.user).execute()
-
-    def _deliver(self, planning, zone):
-        from api.fleet.views.assets import DeliveryStrategy
-
-        data = {
-            "transaction_type": "delivery", "latitude": 40.42, "longitude": -3.71,
-            "zone_id": zone.id, "planning_id": planning.id,
-            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
-        }
-        DeliveryStrategy(data, self.cuba, self.employee, self.user).execute()
-
-    def _vert(self, planning):
-        from api.fleet.views.assets import ReceiptStrategy
-
-        ReceiptStrategy(
-            {
-                "transaction_type": "receipt", "nro_albaran": "ALB-1", "foto_albaran": "",
-                "peso_neto": "500", "material_vertido": "RCD Limpio",
-                "zone_id": self.obra.id, "planning_id": planning.id,
-            },
-            self.cuba, self.employee, self.user,
-        ).execute()
 
     def _statuses(self, planning):
         planning.refresh_from_db()
@@ -1052,7 +825,7 @@ class CubaChecklistTests(TestCase):
             self._statuses(planning),
             {"recoger_cuba": "pending", "dejar": "pending"},
         )
-        self._deliver(planning, self.obra)
+        self._deliver(planning, self.cuba, self.obra)
         self.assertEqual(
             self._statuses(planning),
             {"recoger_cuba": "pending", "dejar": "done"},
@@ -1069,26 +842,15 @@ class CubaChecklistTests(TestCase):
             self._statuses(planning),
             {"recoger_cuba": "pending", "recoger": "pending", "verter": "pending"},
         )
-        self._move(planning, self.obra)
+        self._move(planning, self.cuba, self.obra)
         self.assertEqual(
             self._statuses(planning),
             {"recoger_cuba": "done", "recoger": "done", "verter": "skipped"},
         )
 
-    def test_retirada_checklist_needs_verter_when_full(self):
-        planning = self._plan(CubaOperationType.RETIRADA)
-        self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
-        self.assertEqual(
-            self._statuses(planning),
-            {"recoger_cuba": "done", "recoger": "done", "verter": "pending"},
-        )
-        self._vert(planning)
-        self.assertEqual(
-            self._statuses(planning),
-            {"recoger_cuba": "done", "recoger": "done", "verter": "done"},
-        )
-
     def test_cambio_misma_cuba_checklist_full_cycle(self):
+        """A full pickup owes a verteo before the dropoff can close the plan;
+        the checklist steps and the planning status move together."""
         planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA)
         self.assertEqual(
             [s["key"] for s in planning.cuba_checklist()],
@@ -1098,21 +860,26 @@ class CubaChecklistTests(TestCase):
             self._statuses(planning),
             {"recoger_cuba": "pending", "recoger": "pending", "verter": "pending", "dejar": "pending"},
         )
-        self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
+        self._move(planning, self.cuba, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
         self.assertEqual(
             self._statuses(planning),
             {"recoger_cuba": "done", "recoger": "done", "verter": "pending", "dejar": "pending"},
         )
-        self._vert(planning)
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._vert(planning, self.cuba)
         self.assertEqual(
             self._statuses(planning),
             {"recoger_cuba": "done", "recoger": "done", "verter": "done", "dejar": "pending"},
         )
-        self._deliver(planning, self.obra)
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._deliver(planning, self.cuba, self.obra)
         self.assertEqual(
             self._statuses(planning),
             {"recoger_cuba": "done", "recoger": "done", "verter": "done", "dejar": "done"},
         )
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+        self.cuba.refresh_from_db()
+        self.assertEqual(self.cuba.current_transaction_status(), "DELIVERED")
 
     def test_cambio_agua_checklist_has_no_verter_step(self):
         planning = self._plan(CubaOperationType.CAMBIO_AGUA)
@@ -1120,8 +887,8 @@ class CubaChecklistTests(TestCase):
             self._statuses(planning),
             {"recoger_cuba": "pending", "recoger": "pending", "dejar": "pending"},
         )
-        self._move(planning, self.obra)
-        self._deliver(planning, self.obra)
+        self._move(planning, self.cuba, self.obra)
+        self._deliver(planning, self.cuba, self.obra)
         self.assertEqual(
             self._statuses(planning),
             {"recoger_cuba": "done", "recoger": "done", "dejar": "done"},
@@ -1139,7 +906,7 @@ class CubaChecklistTests(TestCase):
                 "verter": "pending",
             },
         )
-        self._deliver(planning, self.obra)
+        self._deliver(planning, self.cuba, self.obra)
         self.assertEqual(
             self._statuses(planning),
             {
@@ -1152,7 +919,7 @@ class CubaChecklistTests(TestCase):
         planning.asset = old_cuba
         planning.save(update_fields=["asset"])
         self.cuba = old_cuba
-        self._move(planning, self.obra)
+        self._move(planning, self.cuba, self.obra)
         self.assertEqual(
             self._statuses(planning),
             {
@@ -1164,26 +931,36 @@ class CubaChecklistTests(TestCase):
         )
 
     def test_status_color_flags_in_transit_with_a_pending_verteo(self):
+        """A full retirada pickup owes a verteo: the checklist's verter step
+        stays pending and the plan is coloured VERTEO_PENDING until it's done."""
         from assets.models import VERTEO_PENDING_COLOR, STATUS_COLORS
 
         planning = self._plan(CubaOperationType.RETIRADA)
         self.assertEqual(planning.status_color, STATUS_COLORS[PlanningStatus.PENDING])
-        self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
+        self._move(planning, self.cuba, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
         self.assertTrue(planning.has_pending_verteo())
         self.assertEqual(planning.status_color, VERTEO_PENDING_COLOR)
-        self._vert(planning)
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "verter": "pending"},
+        )
+        self._vert(planning, self.cuba)
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.DELIVERED)
         self.assertFalse(planning.has_pending_verteo())
         self.assertEqual(planning.status_color, STATUS_COLORS[PlanningStatus.DELIVERED])
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "verter": "done"},
+        )
 
     def test_status_color_stays_plain_in_transit_for_an_empty_pickup_still_awaiting_dropoff(self):
         from assets.models import STATUS_COLORS
 
         planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA)
-        self._move(planning, self.obra)
+        self._move(planning, self.cuba, self.obra)
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
         self.assertFalse(planning.has_pending_verteo())

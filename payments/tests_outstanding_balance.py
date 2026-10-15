@@ -6,7 +6,6 @@ changelists that show them (`payments.admin_mixins`).
 from datetime import timedelta
 from decimal import Decimal
 
-from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -14,7 +13,6 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import (
     Invoice,
     InvoicePaymentStatus,
@@ -31,16 +29,15 @@ from payments.mixins import (
     pending_invoices_queryset,
 )
 from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod
+from payments.testing import CompanyAdminTestMixin
 from sales.models import Client
 
-User = get_user_model()
 
-
-class SplitOutstandingBalanceTest(TestCase):
+class SplitOutstandingBalanceTest(CompanyAdminTestMixin, TestCase):
     """The split is driven by due_date; the two halves must reconstruct the total."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.today = timezone.localdate()
         self.provider = Provider.objects.create(company=self.company, name="Perfiles SA")
 
@@ -124,11 +121,11 @@ class SplitOutstandingBalanceTest(TestCase):
         )
 
 
-class ClientBalanceFiltersTest(TestCase):
+class ClientBalanceFiltersTest(CompanyAdminTestMixin, TestCase):
     """Sales invoices only count once they are final, on both sides of the split."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.today = timezone.localdate()
         self.client_obj = Client.objects.create(company=self.company, name="Cliente SA")
 
@@ -208,16 +205,13 @@ class ClientBalanceFiltersTest(TestCase):
         )
 
 
-class CounterpartyChangelistTest(TestCase):
+class CounterpartyChangelistTest(CompanyAdminTestMixin, TestCase):
     """The columns and the dropdown both render on the two admin screens."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.today = timezone.localdate()
-        self.user = User.objects.create_superuser(
-            username="finance", password="pw", email="fin@example.com"
-        )
-        self.client.force_login(self.user)
+        self.user = self.login_superuser()
 
     def test_provider_changelist_shows_split_and_pending_invoice(self):
         provider = Provider.objects.create(company=self.company, name="Perfiles SA")
@@ -320,11 +314,11 @@ class CurrencySymbolTest(TestCase):
         self.assertEqual(currency_symbol("JPY"), "JPY")
 
 
-class AnnotateBalanceCurrencyTest(TestCase):
+class AnnotateBalanceCurrencyTest(CompanyAdminTestMixin, TestCase):
     """The label on a summed balance should reflect what it was actually summed from."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.today = timezone.localdate()
 
     def test_reads_currency_off_the_outstanding_invoice(self):

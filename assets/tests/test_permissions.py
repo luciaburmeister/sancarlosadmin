@@ -16,22 +16,18 @@ from datetime import date, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
-from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestStatus, AssetType, AssetTypeCategory
-from management.models import ProjectFile
-from sales.models import Client
+from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestStatus
+from assets.tests.factories import make_admin_post_request, make_project_file, make_scheduled_planning, make_truck
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user, make_zone
 
 User = get_user_model()
 TODAY = date(2026, 8, 10)
-SCHEDULE_TODAY = timezone.localdate()
 
 
 def _grant(user, *codenames):
@@ -45,8 +41,7 @@ class ApprovePermissionTests(TestCase):
         self.company = make_company()
         self.to_zone = make_zone(self.company, name="To Zone")
         self.asset = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Machine 1")
-        client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
+        self.project_file = make_project_file(self.company)
 
         self.request_obj = AssetPlanningRequest.objects.create(
             company=self.company, service_type="servicio_grua", to_zone=self.to_zone,
@@ -56,12 +51,7 @@ class ApprovePermissionTests(TestCase):
         self.admin = AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None)
 
     def _request(self, user):
-        req = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(req)
-        req.session.save()
-        MessageMiddleware(lambda r: None).process_request(req)
-        req.user = user
-        return req
+        return make_admin_post_request(user)
 
     def test_approve_without_permission_is_denied(self):
         user = User.objects.create_user(username="creator", password="x", is_staff=True)
@@ -119,14 +109,6 @@ class ApprovePermissionTests(TestCase):
         self.assertEqual(self.request_obj.status, AssetPlanningRequestStatus.PENDING_REVIEW)
         self.assertIsNone(self.request_obj.resulting_planning_id)
 
-    def test_a_plain_creator_can_still_create_a_request(self):
-        # Sanity check: add permission alone is genuinely enough to create one —
-        # this is what "can create but not approve" means in practice.
-        user = User.objects.create_user(username="creator3", password="x", is_staff=True)
-        _grant(user, "add_assetplanningrequest", "view_assetplanningrequest")
-        self.assertTrue(user.has_perm("assets.add_assetplanningrequest"))
-        self.assertFalse(user.has_perm("assets.approve_assetplanningrequest"))
-
 
 class ScheduleReadOnlyPermissionTests(TestCase):
     def setUp(self):
@@ -143,19 +125,17 @@ class ScheduleReadOnlyPermissionTests(TestCase):
         _grant(self.editor, "view_asset", "change_assetplanning")
         make_employee(self.company, self.editor)
 
-        truck_type = AssetType.objects.create(company=self.company, name="CAMIONES", category=AssetTypeCategory.TRUCK)
-        self.truck = Asset.objects.create(company=self.company, asset_type=truck_type, name="Truck 1")
+        self.truck = make_truck(self.company)
 
         self.driver = make_employee(self.company, make_user(username="driver1"))
-        self.planning = AssetPlanning.objects.create(
-            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            assigned_to=self.driver, transport_asset=self.truck,
-            scheduled_date=SCHEDULE_TODAY, scheduled_time=time(8, 0), estimated_duration=timedelta(hours=1),
+        self.planning = make_scheduled_planning(
+            self.company, driver=self.driver, truck=self.truck,
+            asset=self.cargo, origin=self.origin, destination=self.destination,
         )
         # A pending/unassigned one too, so the backlog would show something *if* allowed to.
         AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=SCHEDULE_TODAY,
+            scheduled_date=timezone.localdate(),
         )
         self.url = reverse("admin:assets_asset_schedule")
 

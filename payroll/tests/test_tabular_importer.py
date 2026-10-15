@@ -7,17 +7,16 @@ from io import BytesIO
 import openpyxl
 from django.test import TestCase
 
-from company.models import Company, Employee
 from payroll.models import (
     EmployeePayroll,
     PayrollImportPendingRow,
-    PayrollPeriod,
     PayrollSSBreakdown,
 )
 from payroll.services.a3_importer import (
     A3PayrollImportService,
     resolve_pending_row,
 )
+from payroll.tests.factories import make_company, make_employee, make_importer_employees
 
 # Column headers, in order. Concept columns carry a leading A3 code; the
 # rest are totals/summary columns identified by their (normalized) label.
@@ -90,25 +89,17 @@ def build_tabular_workbook(*, nif="B12345678", employees=None):
 
 class TabularImporterTestBase(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
-        self.emp1 = Employee.objects.create(
-            company=self.company, first_name="JUAN", last_name="GARCIA LOPEZ",
-            identification_number="12345678Z", hired_at=date(2020, 1, 1),
-        )
-        self.emp2 = Employee.objects.create(
-            company=self.company, first_name="ANA", last_name="PEREZ SANZ",
-            identification_number="87654321X", hired_at=date(2020, 1, 1),
+        self.company = make_company()
+        self.emp1, self.emp2 = make_importer_employees(
+            company=self.company, dnis=("12345678Z", "87654321X"),
         )
 
 
 class TabularValidateTests(TabularImporterTestBase):
-    def test_layout_is_detected_as_tabular(self):
+    def test_layout_is_detected_as_tabular_and_matched_by_dni(self):
         report = A3PayrollImportService(build_tabular_workbook()).validate()
         self.assertEqual(report.layout, "tabular")
         self.assertFalse(report.has_blocking_errors, report.errors)
-
-    def test_matches_by_dni(self):
-        report = A3PayrollImportService(build_tabular_workbook()).validate()
         self.assertEqual(report.matched_count, 2)
         self.assertEqual(report.unmatched_count, 0)
         row = next(r for r in report.rows if r.dni == "12345678Z")
@@ -179,31 +170,20 @@ class TabularPendingTests(TabularImporterTestBase):
         self.assertEqual(pending.a3_code, "")
         self.assertEqual(pending.reason, PayrollImportPendingRow.Reason.UNMATCHED)
 
-    def test_resolve_pending_backfills_dni(self):
+    def test_resolving_backfills_the_dni_and_matches_on_reimport(self):
         emps = [dict(MATCHED, dni="99999999R", name="NUEVO EMPLEADO, PEPE")]
         period = A3PayrollImportService(build_tabular_workbook(employees=emps)).commit()
         pending = period.pending_rows.get()
-        new_emp = Employee.objects.create(
+        new_emp = make_employee(
             company=self.company, first_name="PEPE", last_name="NUEVO EMPLEADO",
             hired_at=date(2021, 1, 1),
         )
-
         resolve_pending_row(pending, new_emp)
 
         new_emp.refresh_from_db()
         self.assertEqual(new_emp.identification_number, "99999999R")
         self.assertEqual(period.pending_rows.count(), 0)
         self.assertEqual(period.payrolls.count(), 1)
-
-    def test_resolved_dni_matches_on_reimport(self):
-        emps = [dict(MATCHED, dni="99999999R", name="NUEVO EMPLEADO, PEPE")]
-        period = A3PayrollImportService(build_tabular_workbook(employees=emps)).commit()
-        pending = period.pending_rows.get()
-        new_emp = Employee.objects.create(
-            company=self.company, first_name="PEPE", last_name="NUEVO EMPLEADO",
-            hired_at=date(2021, 1, 1),
-        )
-        resolve_pending_row(pending, new_emp)
 
         period = A3PayrollImportService(build_tabular_workbook(employees=emps)).commit()
         self.assertEqual(period.pending_rows.count(), 0)

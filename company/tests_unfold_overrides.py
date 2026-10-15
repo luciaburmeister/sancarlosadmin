@@ -36,12 +36,11 @@ import unfold
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
-from django.core.cache import cache
 from django.templatetags.static import static
 from django.test import TestCase
 from django.urls import reverse
 
-from api.fleet.tests.helpers import make_company
+from company.tests_active_company import BaseActiveCompanyTestCase
 
 User = get_user_model()
 
@@ -74,12 +73,10 @@ def read_static(path):
     return pathlib.Path(location).read_text(encoding="utf-8")
 
 
-class UnfoldOverrideTestCase(TestCase):
+class UnfoldOverrideTestCase(BaseActiveCompanyTestCase):
     def setUp(self):
-        cache.clear()  # LocMem cache persists across tests in-process
-        self.company_a = make_company(name="Alpha")
-        self.company_b = make_company(name="Beta")
-        self.superuser = User.objects.create_superuser("super", "s@example.com", "x")
+        super().setUp()
+        self.superuser = self.make_superuser()
         self.client.force_login(self.superuser)
 
 

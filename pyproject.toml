@@ -66,5 +66,6 @@ build-backend = "poetry.core.masonry.api"
 package-mode=false
 [dependency-groups]
 dev = [
-    "tblib (>=3.0)"
+    "tblib (>=3.0)",
+    "coverage (>=7.6)"
 ]

@@ -14,92 +14,32 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
 from configurator.services.export.delivery_order import DeliveryOrderExportStrategy
 from configurator.services.export.sales_invoice import SalesInvoiceExportStrategy
 from inventory.models import InventoryItem, ItemIdentityCode
-from invoices.models import AppliedTax, SalesInvoiceItem, TaxType
+from invoices.models import AppliedTax, SalesInvoiceItem
 from invoices.services.delivery_order_service import DeliveryOrderService
-from management.models import ProjectFile
+from invoices.tests.factories import (
+    ExpedienteMixin,
+    discounted_quote,
+    do_line,
+    financed_quote,
+    get_irpf,
+)
 from sales.models import (
-    Client,
     DeliveryOrder,
     DeliveryOrderItem,
     DeliveryOrderStatus,
     Quote,
-    QuoteStatus,
 )
 
 
-class _DeliveryOrderTestBase(TestCase):
+class _DeliveryOrderTestBase(ExpedienteMixin, TestCase):
+    project_file_name = "PF DO Totals"
 
     def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF DO Totals",
-            company=self.company,
-            client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
-        self.config_ct = ContentType.objects.get_for_model(Configuration)
+        super().setUp()
         self.quote_ct = ContentType.objects.get_for_model(Quote)
-
-    def _make_quote(self, **kwargs):
-        defaults = dict(
-            project_name="Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-        )
-        defaults.update(kwargs)
-        return Quote.objects.create(**defaults)
-
-    def _make_config(self, quote, subtotal, total, with_tax=True):
-        config = Configuration.objects.create(
-            name="Config",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=subtotal,
-            total_price=total,
-        )
-        if with_tax:
-            AppliedTax.objects.create(
-                content_type=self.config_ct,
-                object_id=config.pk,
-                tax_type=self.iva21,
-                selected_percentage=Decimal("21"),
-                base_amount=subtotal,
-                calculated_amount=(subtotal * Decimal("0.21")).quantize(Decimal("0.01")),
-            )
-        return config
-
-    def _config_item_data(self, config, unit_price, quantity=Decimal("1")):
-        return {
-            "source_content_type_id": self.config_ct.id,
-            "source_object_id": config.pk,
-            "description": config.name,
-            "quantity": quantity,
-            "unit_price": unit_price,
-            "discount_percentage": Decimal("0.00"),
-        }
-
-    def _create_do(self, items_data):
-        return DeliveryOrderService.create_delivery_order(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            items_data=items_data,
-        )
 
 
 class RecalculateTotalsTests(_DeliveryOrderTestBase):
@@ -107,9 +47,7 @@ class RecalculateTotalsTests(_DeliveryOrderTestBase):
 
     def setUp(self):
         super().setUp()
-        self.irpf, _ = TaxType.objects.get_or_create(
-            tax_name="IRPF", country="ES", defaults={"behavior": "subtract"}
-        )
+        self.irpf = get_irpf()
         self.do = DeliveryOrder.objects.create(
             company=self.company,
             client=self.client_obj,
@@ -157,21 +95,8 @@ class CreateDeliveryOrderWithBasketDiscountTests(_DeliveryOrderTestBase):
     def setUp(self):
         super().setUp()
         # 1000 subtotal, 100 basket discount, taxable 900, IVA 189, total 1089
-        self.quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-            ],
-        )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.quote = discounted_quote(project_file=self.project_file)
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
 
     def test_deliverable_items_use_gross_prices(self):
         items = DeliveryOrderService.get_deliverable_items(self.project_file)
@@ -179,7 +104,7 @@ class CreateDeliveryOrderWithBasketDiscountTests(_DeliveryOrderTestBase):
         self.assertEqual(items[0]["unit_price"], Decimal("1000.00"))
 
     def test_do_carries_discount_and_taxes(self):
-        do = self._create_do([self._config_item_data(self.config, Decimal("1000.00"))])
+        do = self._create_do([do_line(self.config, unit_price=Decimal("1000.00"))])
         self.assertEqual(do.subtotal_amount.amount, Decimal("1000.00"))
         self.assertEqual(do.discount_amount.amount, Decimal("100.00"))
         self.assertEqual(len(do.discount_breakdown), 1)
@@ -190,7 +115,7 @@ class CreateDeliveryOrderWithBasketDiscountTests(_DeliveryOrderTestBase):
         self.assertEqual(applied.calculated_amount.amount, Decimal("189.00"))
 
     def test_partial_delivery_scales_discount(self):
-        do = self._create_do([self._config_item_data(self.config, Decimal("500.00"))])
+        do = self._create_do([do_line(self.config, unit_price=Decimal("500.00"))])
         self.assertEqual(do.subtotal_amount.amount, Decimal("500.00"))
         self.assertEqual(do.discount_amount.amount, Decimal("50.00"))
         applied = do.applied_taxes.get()
@@ -210,27 +135,16 @@ class ClientTaxModeDeliveryOrderTests(_DeliveryOrderTestBase):
         super().setUp()
         # 820 taxed config + 180 bare config = 1000; 10% basket discount;
         # taxable 900; quote taxes everything at 21% → 189; total 1089.
-        self.quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-            ],
-        )
+        self.quote = discounted_quote(project_file=self.project_file)
         self.taxed_config = self._make_config(
-            self.quote, Decimal("820.00"), Decimal("992.20")
+            self.quote, "820.00", total=Decimal("992.20"),
         )
         self.bare_config = self._make_config(
-            self.quote, Decimal("180.00"), Decimal("180.00"), with_tax=False
+            self.quote, Decimal("180.00"), total=Decimal("180.00"), tax_pct=None,
         )
         self.items = [
-            self._config_item_data(self.taxed_config, Decimal("820.00")),
-            self._config_item_data(self.bare_config, Decimal("180.00")),
+            do_line(self.taxed_config, unit_price=Decimal("820.00")),
+            do_line(self.bare_config, unit_price=Decimal("180.00")),
         ]
 
     def _enable_client_tax_mode(self, with_header_taxes=True):
@@ -287,24 +201,11 @@ class FinancingDiscountOnDeliveryOrderTests(_DeliveryOrderTestBase):
 
     def setUp(self):
         super().setUp()
-        self.quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "Financiación 10%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-            ],
-        )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.quote = discounted_quote(project_file=self.project_file, kind="financing")
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
 
     def test_financing_goes_to_header_discount(self):
-        do = self._create_do([self._config_item_data(self.config, Decimal("1000.00"))])
+        do = self._create_do([do_line(self.config, unit_price=Decimal("1000.00"))])
         self.assertEqual(do.items.count(), 1)
         self.assertFalse(do.items.filter(source_content_type=self.quote_ct).exists())
         self.assertEqual(do.discount_amount.amount, Decimal("100.00"))
@@ -319,7 +220,7 @@ class FinancingDiscountOnDeliveryOrderTests(_DeliveryOrderTestBase):
         self.assertEqual(applied.base_amount.amount, Decimal("900.00"))
 
     def test_financing_does_not_affect_delivered_quantities(self):
-        self._create_do([self._config_item_data(self.config, Decimal("1000.00"))])
+        self._create_do([do_line(self.config, unit_price=Decimal("1000.00"))])
         items = DeliveryOrderService.get_deliverable_items(self.project_file)
         self.assertEqual(items, [])  # config fully delivered, no phantom rows
 
@@ -330,26 +231,10 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
 
     def setUp(self):
         super().setUp()
-        self.quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("150.00"),
-            discounted_subtotal=Decimal("850.00"),
-            tax_amount=Decimal("178.50"),
-            total_price=Decimal("1028.50"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-                {"rule_name": "Financiación 5%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "5.00",
-                 "base": "1000.00", "amount": "50.00"},
-            ],
-        )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.quote = financed_quote(project_file=self.project_file)
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
         self.do = self._create_do(
-            [self._config_item_data(self.config, Decimal("1000.00"))]
+            [do_line(self.config, unit_price=Decimal("1000.00"))]
         )
 
     def _invoice(self, delivery_orders):
@@ -431,7 +316,7 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
         self.quote.discount_amount = Decimal("100.00")
         self.quote.save()
         do = self._create_do(
-            [self._config_item_data(self.config, Decimal("1000.00"))]
+            [do_line(self.config, unit_price=Decimal("1000.00"))]
         )
         context = SalesInvoiceExportStrategy(self._invoice([do])).get_context()
 
@@ -446,27 +331,10 @@ class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
 
     def setUp(self):
         super().setUp()
-        # 1000 gross, 10% standard + 5% financing, 21% IVA
-        self.quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("150.00"),
-            discounted_subtotal=Decimal("850.00"),
-            tax_amount=Decimal("178.50"),
-            total_price=Decimal("1028.50"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-                {"rule_name": "Financiación 5%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "5.00",
-                 "base": "1000.00", "amount": "50.00"},
-            ],
-        )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.quote = financed_quote(project_file=self.project_file)
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
         self.do = self._create_do(
-            [self._config_item_data(self.config, Decimal("1000.00"))]
+            [do_line(self.config, unit_price=Decimal("1000.00"))]
         )
 
     def _goods_line(self):
@@ -558,16 +426,10 @@ class LegacyDeliveryOrderInvoiceTests(_DeliveryOrderTestBase):
 
     def setUp(self):
         super().setUp()
-        self.quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
+        self.quote = discounted_quote(
+            project_file=self.project_file, discount_breakdown=[],
         )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
         # Hand-built legacy DO: net-priced line, no AppliedTax on the DO
         self.do = DeliveryOrder.objects.create(
             company=self.company,
@@ -601,23 +463,9 @@ class LegacyDeliveryOrderInvoiceTests(_DeliveryOrderTestBase):
 class DeliveryOrderExportContextTests(_DeliveryOrderTestBase):
 
     def _financed_do(self):
-        quote = self._make_quote(
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("150.00"),
-            discounted_subtotal=Decimal("850.00"),
-            tax_amount=Decimal("178.50"),
-            total_price=Decimal("1028.50"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-                {"rule_name": "Financiación 5%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "5.00",
-                 "base": "1000.00", "amount": "50.00"},
-            ],
-        )
-        config = self._make_config(quote, Decimal("1000.00"), Decimal("1210.00"))
-        return self._create_do([self._config_item_data(config, Decimal("1000.00"))])
+        quote = financed_quote(project_file=self.project_file)
+        config = self._make_config(quote, "1000.00", total=Decimal("1210.00"))
+        return self._create_do([do_line(config, unit_price=Decimal("1000.00"))])
 
     def test_context_exposes_discount_taxes_and_total(self):
         do = self._financed_do()

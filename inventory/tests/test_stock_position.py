@@ -16,20 +16,18 @@ from django.test import TestCase
 from djmoney.money import Money
 
 from company.models import Company
-from inventory.choices import ItemType, MovementType
 from inventory.models import (
     BillOfMaterialsLine,
     InventoryItem,
     InventoryItemQuerySet,
-    ItemTransaction,
     Warehouse,
 )
+from inventory.tests.factories import accepted_quote_line, deliver, make_item
 from inventory.services.stock_position import (
     find_drift,
     refresh_all,
     refresh_stock_position,
 )
-from invoices.services.delivery_order_service import DeliveryOrderService
 from sales.services.delivery_order_fulfillment_service import DeliveryOrderFulfillmentService
 from management.models import ProjectFile, ProjectFileStatus
 from materials.models import Provider
@@ -45,7 +43,6 @@ from sales.models import (
     Client,
     DeliveryOrder,
     DeliveryOrderStatus,
-    Quote,
     QuoteInventoryItem,
     QuoteStatus,
 )
@@ -68,22 +65,9 @@ class _StockPositionTestCase(TestCase):
         cls.quote_line_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
     def _make_item(self, code, stock=0):
-        item = InventoryItem.objects.create(
-            code=code,
-            name=code,
-            company=self.company,
-            item_type=ItemType.STOCKABLE,
-            default_warehouse=self.warehouse,
+        return make_item(
+            company=self.company, warehouse=self.warehouse, code=code, stock=stock,
         )
-        if stock:
-            ItemTransaction.objects.create(
-                item=item,
-                warehouse=self.warehouse,
-                movement_type=MovementType.IN,
-                quantity_change=stock,
-                note="Initial stock",
-            )
-        return item
 
     # ── Purchasing side ──────────────────────────────────────────────────
 
@@ -117,36 +101,17 @@ class _StockPositionTestCase(TestCase):
 
     def _accepted_quote_line(self, item, quantity, status=QuoteStatus.ACCEPTED,
                              project_file=None, no_project_file=False):
-        quote = Quote.objects.create(
-            company=self.company,
-            client=self.client_obj,
+        return accepted_quote_line(
+            company=self.company, client=self.client_obj, item=item,
+            quantity=quantity, status=status,
             project_file=None if no_project_file else (project_file or self.project_file),
-            project_name="Q",
-            status=status,
-        )
-        return QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=item,
-            quantity=Decimal(quantity),
-            unit_price=Decimal("100"),
         )
 
     def _deliver(self, quote_line, quantity=None):
         """Create the delivery order and dispatch it: that is when the goods leave."""
-        do = DeliveryOrderService.create_delivery_order(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            items_data=[{
-                "source_content_type_id": self.quote_line_ct.id,
-                "source_object_id": quote_line.pk,
-                "description": quote_line.inventory_item.name,
-                "quantity": quantity if quantity is not None else quote_line.quantity,
-                "unit_price": quote_line.unit_price.amount,
-            }],
+        return deliver(
+            quote_line=quote_line, project_file=self.project_file, quantity=quantity,
         )
-        DeliveryOrderFulfillmentService.dispatch(do)
-        return do
 
     # ── Assertions ───────────────────────────────────────────────────────
 

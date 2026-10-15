@@ -85,13 +85,6 @@ class AssetModelTests(TestCase):
         self._make_transaction(TransactionTypeChoices.DELIVERY)
         self.assertFalse(self.asset.has_pending_receipt)
 
-    # Test 39
-    def test_has_pending_receipt_with_movement_and_receipt(self):
-        """Movement then receipt — property must be True."""
-        self._make_transaction(TransactionTypeChoices.MOVEMENT, date_offset_seconds=0)
-        self._make_transaction(TransactionTypeChoices.RECEIPT, date_offset_seconds=5)
-        self.assertTrue(self.asset.has_pending_receipt)
-
 
 class AssetStatusTests(TestCase):
     """

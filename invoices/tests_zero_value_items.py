@@ -10,59 +10,41 @@ ratio still yields no lines at all.
 from datetime import date
 from decimal import Decimal
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
 from inventory.models import InventoryItem
-from invoices.models import AppliedTax, TaxType
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile
+from invoices.tests.factories import (
+    ExpedienteMixin,
+    build_api_items,
+    build_wizard_items,
+    make_quote,
+)
 from materials.models import Category, Material
-from sales.models import Client, Quote, QuoteInventoryItem, QuoteItem, QuoteStatus
+from sales.models import Quote, QuoteInventoryItem, QuoteItem
 
 
-class _ZeroValueItemsTestBase(TestCase):
+class _ZeroValueItemsTestBase(ExpedienteMixin, TestCase):
     """One accepted quote with a 100 € config plus zero-value sources of
     every kind, and a zero-value direct configuration."""
 
-    def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Zero", company=self.company, client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
+    project_file_name = "PF Zero"
+    invoice_date_issued = date(2026, 7, 14)
+    invoice_due_date = date(2026, 8, 14)
 
-        self.quote = Quote.objects.create(
-            project_name="Q Zero",
-            company=self.company,
-            client=self.client_obj,
+    def setUp(self):
+        super().setUp()
+        self.quote = make_quote(
             project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
+            project_name="Q Zero",
             subtotal_price=Decimal("100.00"),
             tax_amount=Decimal("21.00"),
             total_price=Decimal("121.00"),
         )
 
-        self.config_normal = self._create_config("Puerta", Decimal("100.00"))
-        self.config_zero = self._create_config("Puerta gratis", Decimal("0.00"))
-        for config in (self.config_normal, self.config_zero):
-            AppliedTax.objects.create(
-                content_type=ContentType.objects.get_for_model(Configuration),
-                object_id=config.pk,
-                tax_type=self.iva21,
-                selected_percentage=Decimal("21"),
-                base_amount=config.subtotal_price.amount,
-                calculated_amount=(
-                    config.subtotal_price.amount * Decimal("0.21")
-                ).quantize(Decimal("0.01")),
-            )
+        self.config_normal = self._make_config(self.quote, "100.00", name="Puerta")
+        self.config_zero = self._make_config(self.quote, "0.00", name="Puerta gratis")
 
         category = Category.objects.create(name="Perfiles", company=self.company)
         material = Material.objects.create(
@@ -87,15 +69,8 @@ class _ZeroValueItemsTestBase(TestCase):
         )
 
         # Direct (non-quote) configuration worth 0 €
-        self.direct_zero = Configuration.objects.create(
-            name="Ajuste gratis",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=ConfigurationStatus.SHOP,
-            subtotal_price=Decimal("0.00"),
-            total_price=Decimal("0.00"),
+        self.direct_zero = self._make_config(
+            None, "0.00", name="Ajuste gratis", total=Decimal("0.00"), tax_pct=None,
         )
 
         # Child saves trigger quote recalcs — pin the intended amounts.
@@ -107,19 +82,6 @@ class _ZeroValueItemsTestBase(TestCase):
         )
         self.quote.refresh_from_db()
         self.summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-
-    def _create_config(self, name, subtotal):
-        return Configuration.objects.create(
-            name=name,
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=self.quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=subtotal,
-            total_price=(subtotal * Decimal("1.21")).quantize(Decimal("0.01")),
-        )
 
     def _source_ids(self, items):
         return {i["source_id"] for i in items}
@@ -138,21 +100,7 @@ class WizardZeroValueItemsTests(_ZeroValueItemsTestBase):
     """_build_items_initial in the project-file invoice wizard."""
 
     def _build_items(self, calculated_subtotal=None):
-        from invoices.views.invoice.project_file_wizard_views import (
-            ProjectFileInvoiceWizardView,
-        )
-        if calculated_subtotal is None:
-            calculated_subtotal = self.summary["remaining_subtotal"]
-        # model_admin is required by UnfoldModelAdminViewMixin; None is fine
-        # here because we only exercise _build_items_initial (no admin UI).
-        view = ProjectFileInvoiceWizardView(model_admin=None)
-        view.invoicing_summary = self.summary
-        view.get_cleaned_data_for_step = lambda step: {
-            "invoice_mode": "percentage",
-            "percentage": Decimal("100"),
-            "_calculated_subtotal": calculated_subtotal,
-        }
-        return view._build_items_initial()
+        return build_wizard_items(self.summary, calculated_subtotal=calculated_subtotal)
 
     def test_zero_value_sources_kept_as_zero_lines(self):
         items = self._build_items()
@@ -175,10 +123,7 @@ class ApiBuilderZeroValueItemsTests(_ZeroValueItemsTestBase):
     """build_items_from_summary used by the mobile/API invoicing flow."""
 
     def _build_items(self, summary=None):
-        from api.billing.serializers import build_items_from_summary
-        return build_items_from_summary(
-            summary or self.summary, "percentage", Decimal("100"), None
-        )
+        return build_api_items(summary or self.summary)
 
     def test_zero_value_sources_kept_as_zero_lines(self):
         items = self._build_items()
@@ -242,14 +187,7 @@ class WizardServiceZeroLineTests(_ZeroValueItemsTestBase):
                 "discount_percentage": Decimal("0.00"),
             },
         ]
-        invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 7, 14),
-            due_date=date(2026, 8, 14),
-            items_data=items_data,
-        )
+        invoice = self._create_invoice(items_data)
         self.assertEqual(invoice.items.count(), 3)
         self.assertEqual(invoice.subtotal_amount.amount, Decimal("100.00"))
         self.assertEqual(invoice.tax_amount.amount, Decimal("21.00"))

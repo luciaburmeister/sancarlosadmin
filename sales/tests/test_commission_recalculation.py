@@ -5,7 +5,8 @@ from io import StringIO
 from django.core.management import call_command
 
 from configurator.commission.models import AgentCommissionRule, CommissionRuleType, InvoiceCommission, QuoteCommission
-from sales.models import CommissionistAgent, Quote
+from sales.models import Quote
+from sales.tests.factories import make_agent
 from sales.tests.test_commission_releases import _CommissionReleaseTestCase
 
 
@@ -16,7 +17,7 @@ class CommissionRecalculationTest(_CommissionReleaseTestCase):
         self.assertEqual(self.commission.commission_amount.amount, Decimal("150.00"))
 
     def test_rule_created_later_fills_quotes_calculated_without_one(self):
-        agent = CommissionistAgent.objects.create(name="Nuevo", company=self.company)
+        agent = make_agent(company=self.company, name="Nuevo")
         _pf, quote, _config = self.make_expediente("Otra obra")
         Quote.objects.filter(pk=quote.pk).update(agent=agent)
         quote.refresh_from_db()
@@ -34,7 +35,7 @@ class CommissionRecalculationTest(_CommissionReleaseTestCase):
     def test_changing_the_agent_moves_the_commission(self):
         invoice = self.final_goods_invoice()
         self.pay(invoice, invoice.total_amount.amount)
-        other = CommissionistAgent.objects.create(name="Otro", company=self.company)
+        other = make_agent(company=self.company, name="Otro")
         Quote.objects.filter(pk=self.quote.pk).update(agent=other)
         self.quote.refresh_from_db()
         self.quote.recalc_totals()

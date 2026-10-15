@@ -1,16 +1,18 @@
 from datetime import date, time
 
 from django.test import TestCase
-from djmoney.money import Money
 
-from company.models import Company, CompanyScheduleSlot, Machine
-from configurator.models import Configuration, ConfigurationItem, ProductTemplate
-from materials.models import Component
 from production.services.scheduler.pooling import (
     ResourcePool,
     pool_interchangeable_resources,
 )
 from production.services.scheduler.strategies.margin import MarginScheduler
+from production.tests.factories import (
+    machine_stage_resources,
+    make_machine,
+    make_priced_configuration,
+    make_scheduling_world,
+)
 
 # 2026-08-10 is a Monday
 MONDAY = date(2026, 8, 10)
@@ -152,44 +154,20 @@ class PooledSchedulingEndToEndTest(TestCase):
     STAGE = "corte"
 
     def setUp(self):
-        self.company = Company.objects.create(
-            name="Test Co", production_stages=[self.STAGE],
-        )
-        CompanyScheduleSlot.objects.create(
-            company=self.company, weekday=0,
-            start_time=time(8, 0), end_time=time(9, 0),
-        )
-        self.product = ProductTemplate.objects.create(
-            name="Ventana", company=self.company, production_stages=[self.STAGE],
-        )
-        self.component = Component.objects.create(
-            company=self.company, name="Perfil", unit_price_expression="0",
+        self.company, self.product, self.component = make_scheduling_world(
+            stage=self.STAGE, slot_end=time(9, 0),
         )
         for i in (1, 2):
-            Machine.objects.create(
-                company=self.company, name=f"Sierra {i}", code=f"SIE-{i}",
-                production_stages=[self.STAGE], daily_capacity_minutes=480,
-                is_active=True,
+            make_machine(
+                self.company, name=f"Sierra {i}", code=f"SIE-{i}",
+                stages=[self.STAGE], daily_capacity_minutes=480, is_active=True,
             )
 
     def _create_configuration(self, name, price):
-        configuration = Configuration.objects.create(
-            company=self.company, product=self.product, name=name,
-            total_price=Money(price, "EUR"), total_cost=Money(100, "EUR"),
+        return make_priced_configuration(
+            product=self.product, component=self.component, name=name, price=price, cost=100,
+            stages=[self.STAGE], stage_resources=machine_stage_resources([self.STAGE]),
         )
-        ConfigurationItem.objects.create(
-            configuration=configuration, component=self.component,
-            unit_price=Money(0, "EUR"), is_template_item=True,
-            production_stages=[self.STAGE],
-            stage_resources={
-                self.STAGE: {
-                    "machine_types": [{"quantity": 1}],
-                    "employee_types": [],
-                    "prep_time_min": 0, "work_time_min": 60, "post_time_min": 0,
-                }
-            },
-        )
-        return configuration
 
     def test_both_configurations_share_the_slot_on_distinct_machines(self):
         c1 = self._create_configuration("A", 1000)

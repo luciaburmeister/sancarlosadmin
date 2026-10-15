@@ -19,46 +19,38 @@ from django.core.exceptions import ValidationError
 from django.test import RequestFactory, TestCase
 from djmoney.money import Money
 
-from company.models import Company
 from inventory.models import InventoryItem
-from invoices.models import AppliedTax, TaxType
+from invoices.models import TaxType
 from sales.admin.quote import QuoteInventoryItemAdmin, QuoteInventoryItemInline
-from sales.models import (
-    Client,
-    DiscountLevel,
-    DiscountPolicy,
-    DiscountRule,
-    Quote,
-    QuoteInventoryItem,
+from sales.models import DiscountLevel, Quote, QuoteInventoryItem
+from sales.tests.factories import (
+    apply_taxes,
+    make_client,
+    make_company,
+    make_discount_policy,
+    make_inventory_item,
+    make_quote,
+    make_quote_inventory_line,
 )
 
 
 class _OverrideBase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Override Test Co")
-        cls.client_obj = Client.objects.create(name="Override Client", company=cls.company)
+        cls.company = make_company(name="Override Test Co")
+        cls.client_obj = make_client(company=cls.company, name="Override Client")
 
     def _make_quote(self):
-        return Quote.objects.create(
-            client=self.client_obj,
-            company=self.company,
-            project_name="Override Test",
-        )
+        return make_quote(company=self.company, client=self.client_obj, project_name="Override Test")
 
     def _make_line(self, quote, unit_price, quantity, discount=Decimal("0"), override=None):
-        inv = InventoryItem.objects.create(
-            code=f"OVR-{InventoryItem.objects.count() + 1}",
-            name="Override Item",
-            company=self.company,
-            selling_price=Money(unit_price, "EUR"),
+        item = make_inventory_item(
+            company=self.company, name="Override Item",
+            code=f"OVR-{InventoryItem.objects.count() + 1}", selling_price=Money(unit_price, "EUR"),
         )
-        return QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=inv,
-            quantity=Decimal(str(quantity)),
-            unit_price=Money(unit_price, "EUR"),
-            discount=discount,
+        return make_quote_inventory_line(
+            quote=quote, item=item, quantity=Decimal(str(quantity)),
+            unit_price=Money(unit_price, "EUR"), discount=discount,
             override_line_total=Money(override, "EUR") if override is not None else None,
         )
 
@@ -103,12 +95,9 @@ class TestOverrideLineTotalMath(_OverrideBase):
 
     def test_override_with_zero_unit_price(self):
         quote = self._make_quote()
-        inv = InventoryItem.objects.create(
-            code="OVR-ZERO", name="Free Item", company=self.company,
-        )
-        line = QuoteInventoryItem.objects.create(
-            quote=quote, inventory_item=inv, quantity=Decimal("1"),
-            override_line_total=Money("40", "EUR"),
+        inv = make_inventory_item(company=self.company, name="Free Item", code="OVR-ZERO")
+        line = make_quote_inventory_line(
+            quote=quote, item=inv, quantity=Decimal("1"), override_line_total=Money("40", "EUR"),
         )
         line.refresh_from_db()
         self.assertEqual(line.line_total.amount, Decimal("40.00"))
@@ -142,10 +131,7 @@ class TestOverrideQuoteTotals(_OverrideBase):
             tax_name="IVA", country="ES",
             defaults={"behavior": "add", "percentage_options": [0, 10, 21], "default_percentage": 21},
         )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(QuoteInventoryItem),
-            object_id=line.pk, tax_type=iva, selected_percentage=Decimal("21"), order=0,
-        )
+        apply_taxes(line, taxes=[(iva, Decimal("21"))])
         line.save()
         line.refresh_from_db()
         quote.refresh_from_db()
@@ -168,13 +154,9 @@ class TestOverrideVsDiscountPolicies(_OverrideBase):
         plain = self._make_line(quote, "100", 1)
         pinned = self._make_line(quote, "100", 1, override="80")
 
-        policy = DiscountPolicy.objects.create(
-            name="Line 5%", company=self.company, is_active=True,
-        )
-        DiscountRule.objects.create(
-            policy=policy, name="5% off", percentage=Decimal("5"),
-            level=DiscountLevel.LINE_ITEM, is_active=True, order=0,
-        )
+        policy = make_discount_policy(company=self.company, name="Line 5%", rules=[
+            {"name": "5% off", "percentage": Decimal("5"), "level": DiscountLevel.LINE_ITEM},
+        ])
         quote.discount_policies.add(policy)
         quote.recalc_totals()
 

@@ -30,30 +30,20 @@ from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceStatus
 from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.delivery_order_service import DeliveryOrderService
 from invoices.services.sales_invoice_service import SalesInvoiceService
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
+from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, invoice_taxes
 from sales.admin.delivery_order import DeliveryOrderAdmin
-from sales.models import DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
+from sales.models import DeliveryOrder, DeliveryOrderStatus
 
 
 class CancelledInvoiceDeliveryOrderTests(AdvanceExpedienteMixin, TestCase):
     def setUp(self):
         super().setUp()
-        self.delivery_order = DeliveryOrder.objects.create(
-            company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=DeliveryOrderStatus.DISPATCHED,
-        )
-        DeliveryOrderItem.objects.create(
-            delivery_order=self.delivery_order, description=self.config.name,
-            quantity=Decimal("1"), unit_price=Decimal("1000.00"),
-            source_content_type=ContentType.objects.get_for_model(Configuration),
-            source_object_id=self.config.pk,
+        self.delivery_order = self.make_delivery_order(
+            config=self.config, status=DeliveryOrderStatus.DISPATCHED,
         )
 
     def _invoice(self):
-        return DeliveryOrderService.create_invoice_from_delivery_orders(
-            [self.delivery_order], company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29),
-        )
+        return self.invoice_delivery_orders(self.delivery_order)
 
     def _invoiceable(self):
         return list(DeliveryOrderService.get_invoiceable_delivery_orders(self.project_file))
@@ -136,23 +126,7 @@ class CancelledInvoiceDeliveryOrderTests(AdvanceExpedienteMixin, TestCase):
 
 class DeliveryOrderDeductionTests(AdvanceExpedienteMixin, TestCase):
     def _order(self, config, amount):
-        order = DeliveryOrder.objects.create(
-            company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=DeliveryOrderStatus.DISPATCHED,
-        )
-        DeliveryOrderItem.objects.create(
-            delivery_order=order, description=config.name,
-            quantity=Decimal("1"), unit_price=amount,
-            source_content_type=ContentType.objects.get_for_model(Configuration),
-            source_object_id=config.pk,
-        )
-        return order
-
-    def _invoice(self, order):
-        return DeliveryOrderService.create_invoice_from_delivery_orders(
-            [order], company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29),
-        )
+        return self.make_delivery_order(config=config, amount=amount, status=DeliveryOrderStatus.DISPATCHED)
 
     @staticmethod
     def _snapshot(order):
@@ -169,19 +143,14 @@ class DeliveryOrderDeductionTests(AdvanceExpedienteMixin, TestCase):
 
     @staticmethod
     def _taxes(invoice):
-        return {
-            tax.selected_percentage: tax.base_amount.amount
-            for tax in AppliedTax.objects.filter(
-                content_type=ContentType.objects.get_for_model(SalesInvoice), object_id=invoice.pk,
-            )
-        }
+        return {percentage: base for (_name, percentage), (base, _amount) in invoice_taxes(invoice).items()}
 
     def test_invoice_deducts_the_advance_and_leaves_the_order_alone(self):
         _, line = self.make_advance(Decimal("300.00"), "30")
         order = self._order(self.config, Decimal("1000.00"))
         before = self._snapshot(order)
 
-        invoice = self._invoice(order)
+        invoice = self.invoice_delivery_orders(order)
 
         [goods] = invoice.items.filter(advance_line__isnull=True)
         self.assertEqual((goods.description, goods.line_total.amount), (self.config.name, Decimal("1000.00")))
@@ -206,7 +175,7 @@ class DeliveryOrderDeductionTests(AdvanceExpedienteMixin, TestCase):
         self.set_status(advance, SalesInvoiceStatus.FINAL)
         line_10 = advance.items.get(unit_price=Decimal("30.00"))
 
-        invoice = self._invoice(self._order(config_10, Decimal("100.00")))
+        invoice = self.invoice_delivery_orders(self._order(config_10, Decimal("100.00")))
 
         [deduction] = AdvanceDeductionService.deduction_lines(invoice)
         self.assertEqual((deduction.advance_line, deduction.line_total.amount), (line_10, Decimal("-30.00")))
@@ -217,13 +186,13 @@ class DeliveryOrderDeductionTests(AdvanceExpedienteMixin, TestCase):
     def test_re_invoicing_after_a_cancelled_invoice_deducts_again(self):
         _, line = self.make_advance(Decimal("300.00"), "30")
         order = self._order(self.config, Decimal("1000.00"))
-        first = self._invoice(order)
+        first = self.invoice_delivery_orders(order)
         for status in (SalesInvoiceStatus.FINAL, SalesInvoiceStatus.CANCELLED):
             first.status = status
             first.save(update_fields=["status"])
         order.refresh_from_db()
 
-        second = self._invoice(order)
+        second = self.invoice_delivery_orders(order)
 
         [deduction] = AdvanceDeductionService.deduction_lines(second)
         self.assertEqual((deduction.advance_line, deduction.line_total.amount), (line, Decimal("-300.00")))

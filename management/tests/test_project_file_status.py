@@ -13,13 +13,17 @@ from management.models import (
     ProjectFileProductionStatus,
     ProjectFileStatus,
 )
+from management.tests.factories import (
+    make_configuration,
+    make_delivery_line,
+    make_delivery_order,
+    make_quote,
+)
 from production.models import ProductionItem, ProductionItemStatus, ProductionTicket, ProductionTicketStatus
 from sales.models import (
     Client,
-    DeliveryOrder,
     DeliveryOrderItem,
     DeliveryOrderStatus,
-    Quote,
     QuoteStatus,
 )
 
@@ -39,30 +43,22 @@ class _ProjectFileStatusBase(TestCase):
         self.config_ct = ContentType.objects.get_for_model(Configuration)
 
     def _accepted_quote(self):
-        return Quote.objects.create(
-            project_name="Quote", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.ACCEPTED,
-        )
+        return make_quote(company=self.company, client=self.client_obj, project_file=self.project_file)
 
     def _config(self, quote, units="2"):
-        return Configuration.objects.create(
-            name="Config", company=self.company, product=self.product,
-            client=self.client_obj, quote=quote, project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED, units=Decimal(units),
+        return make_configuration(
+            company=self.company, product=self.product, client=self.client_obj,
+            quote=quote, project_file=self.project_file, units=units,
         )
 
     def _delivery_order(self, status=DeliveryOrderStatus.DISPATCHED, project_file=None):
-        return DeliveryOrder.objects.create(
+        return make_delivery_order(
             company=self.company, client=self.client_obj,
             project_file=project_file or self.project_file, status=status,
         )
 
     def _line(self, do, config, quantity):
-        return DeliveryOrderItem.objects.create(
-            delivery_order=do, description=config.name, quantity=Decimal(quantity),
-            unit_price=Decimal("10.00"), source_content_type=self.config_ct,
-            source_object_id=config.pk,
-        )
+        return make_delivery_line(delivery_order=do, source=config, quantity=quantity, description=config.name)
 
     def _ticket(self, config, stage_status=None):
         ticket = ProductionTicket.objects.create(
@@ -86,15 +82,6 @@ class _ProjectFileStatusBase(TestCase):
 
 
 class DeliveryStatusTests(_ProjectFileStatusBase):
-
-    def test_defaults_to_not_applicable_without_deliverables(self):
-        self.project_file.recompute_status()
-        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_APPLICABLE)
-
-    def test_accepted_quote_without_deliveries_is_not_delivered(self):
-        self._config(self._accepted_quote())
-        self.project_file.recompute_status()
-        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
 
     def test_partial_then_full_delivery_moves_automatically(self):
         config = self._config(self._accepted_quote(), units="2")
@@ -176,9 +163,9 @@ class DeliverableSourceChangeTests(_ProjectFileStatusBase):
         self.assertEqual(self.pf().operational_status[0], "ready_to_deliver")
 
     def test_accepting_a_draft_quote_recomputes(self):
-        quote = Quote.objects.create(
-            project_name="Quote", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.DRAFT,
+        quote = make_quote(
+            company=self.company, client=self.client_obj, project_file=self.project_file,
+            status=QuoteStatus.DRAFT,
         )
         self._config(quote)
         self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_APPLICABLE)

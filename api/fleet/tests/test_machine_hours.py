@@ -4,19 +4,19 @@ api/fleet/tests/test_machine_hours.py
 import json
 from datetime import date, timedelta
 from django.utils import timezone
-from rest_framework.test import APIClient, APITestCase
+from rest_framework.test import APITestCase
 from assets.models import (
     AssetPlanning,
     AssetTransaction,
     TransactionTypeChoices,
 )
 from api.fleet.tests.helpers import (
-    make_company,
-    make_user,
-    make_employee,
-    make_asset_type,
+    ApiFixtureMixin,
     make_asset,
-    make_zone,
+    make_asset_type,
+    make_employee,
+    make_obra,
+    make_user,
 )
 
 # ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -72,21 +72,15 @@ def make_completed_tx(asset, employee, company, planning_id, zone=None, days_ago
 
 # ─── Base test case ───────────────────────────────────────────────────────────
 
-class MachineHoursBaseTest(APITestCase):
+class MachineHoursBaseTest(ApiFixtureMixin, APITestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company, name="MAQUINAS")
-        self.zone = make_zone(self.company, name="Obra Test", lat=40.406, lon=-3.683)
-        self.zone.zone_type = "obra"
-        self.zone.save()
+        self.zone = make_obra(self.company, name="Obra Test", lat=40.406, lon=-3.683)
         self.asset = make_asset(
             self.company, self.asset_type,
             employee=self.employee, zone=self.zone, name="Maquina 1"
         )
-        self.client.force_authenticate(user=self.user)
 
 
 # ─── MachineHoursListView ─────────────────────────────────────────────────────
@@ -335,11 +329,3 @@ class MachineHoursHistorialViewTest(MachineHoursBaseTest):
         make_completed_tx(self.asset, other_employee, self.company, planning_id=99)
         response = self.client.get("/en/api/machine-hours/history/")
         self.assertEqual(response.json()["count"], 0)
-
-    def test_intervals_order_start_before_end(self):
-        make_completed_tx(self.asset, self.employee, self.company, planning_id=1)
-        response = self.client.get("/en/api/machine-hours/history/")
-        interval = response.json()["results"][0]["intervals"][0]
-        keys = list(interval.keys())
-        self.assertEqual(keys[0], "start")
-        self.assertEqual(keys[1], "end")

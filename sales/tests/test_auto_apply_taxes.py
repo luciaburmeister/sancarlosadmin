@@ -1,8 +1,6 @@
 """
 Tests for auto-apply client taxes feature.
 
-- Company.auto_apply_client_taxes flag defaults to False
-- Client can have AppliedTax records via GenericFK
 - Configuration.copy_taxes_from_client() replaces product taxes when flag ON
 - copy_taxes_from_client() is a no-op when flag is OFF
 - copy_taxes_from_client() is a no-op when client has no taxes
@@ -13,11 +11,17 @@ from decimal import Decimal
 from django.test import TestCase
 from django.contrib.contenttypes.models import ContentType
 
-from company.models import Company
-from sales.models import Client, Quote, QuoteInventoryItem
-from configurator.models import ProductTemplate, Configuration
-from invoices.models import TaxType, AppliedTax
-from inventory.models import InventoryItem
+from configurator.models import ProductTemplate
+from invoices.models import AppliedTax, TaxType
+from sales.tests.factories import (
+    apply_taxes,
+    make_client,
+    make_company,
+    make_configuration,
+    make_inventory_item,
+    make_quote,
+    make_quote_inventory_line,
+)
 
 
 class _BaseTestCase(TestCase):
@@ -25,7 +29,7 @@ class _BaseTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Tax Co")
+        cls.company = make_company(name="Tax Co")
 
         cls.vat_21, _ = TaxType.objects.get_or_create(
             tax_name="IVA 21",
@@ -61,66 +65,7 @@ class _BaseTestCase(TestCase):
         )
 
         # Attach IVA 21% as default tax on the product
-        product_ct = ContentType.objects.get_for_model(cls.product)
-        AppliedTax.objects.create(
-            content_type=product_ct,
-            object_id=cls.product.pk,
-            tax_type=cls.vat_21,
-            selected_percentage=Decimal("21.00"),
-            order=0,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Company Flag
-# ---------------------------------------------------------------------------
-
-class CompanyAutoTaxFlagTest(_BaseTestCase):
-    """Test Company.auto_apply_client_taxes flag."""
-
-    def test_flag_defaults_to_false(self):
-        company = Company.objects.create(name="New Co")
-        self.assertFalse(company.auto_apply_client_taxes)
-
-    def test_flag_can_be_enabled(self):
-        self.company.auto_apply_client_taxes = True
-        self.company.save()
-        self.company.refresh_from_db()
-        self.assertTrue(self.company.auto_apply_client_taxes)
-
-
-# ---------------------------------------------------------------------------
-# Client AppliedTax via GenericFK
-# ---------------------------------------------------------------------------
-
-class ClientAppliedTaxTest(_BaseTestCase):
-    """Test that AppliedTax can be attached to a Client via GenericFK."""
-
-    def test_add_tax_to_client(self):
-        client = Client.objects.create(name="Taxable Client", company=self.company)
-        ct = ContentType.objects.get_for_model(client)
-        tax = AppliedTax.objects.create(
-            content_type=ct,
-            object_id=client.pk,
-            tax_type=self.vat_21,
-            selected_percentage=Decimal("21.00"),
-            order=0,
-        )
-        self.assertEqual(tax.content_object, client)
-
-    def test_client_can_have_multiple_taxes(self):
-        client = Client.objects.create(name="Multi-Tax Client", company=self.company)
-        ct = ContentType.objects.get_for_model(client)
-        AppliedTax.objects.create(
-            content_type=ct, object_id=client.pk,
-            tax_type=self.vat_21, selected_percentage=Decimal("21.00"), order=0,
-        )
-        AppliedTax.objects.create(
-            content_type=ct, object_id=client.pk,
-            tax_type=self.irpf, selected_percentage=Decimal("15.00"), order=1,
-        )
-        taxes = AppliedTax.objects.filter(content_type=ct, object_id=client.pk)
-        self.assertEqual(taxes.count(), 2)
+        apply_taxes(cls.product, taxes=[(cls.vat_21, Decimal("21.00"))])
 
 
 # ---------------------------------------------------------------------------
@@ -132,27 +77,18 @@ class ConfigurationCopyTaxesFromClientTest(_BaseTestCase):
 
     def _attach_client_taxes(self, client):
         """Add IVA 10% + IRPF 15% as default taxes on a client."""
-        ct = ContentType.objects.get_for_model(client)
-        AppliedTax.objects.create(
-            content_type=ct, object_id=client.pk,
-            tax_type=self.vat_10, selected_percentage=Decimal("10.00"), order=0,
-        )
-        AppliedTax.objects.create(
-            content_type=ct, object_id=client.pk,
-            tax_type=self.irpf, selected_percentage=Decimal("15.00"), order=1,
-        )
+        apply_taxes(client, taxes=[(self.vat_10, Decimal("10.00")), (self.irpf, Decimal("15.00"))])
 
     def test_flag_off_does_nothing(self):
         """When auto_apply_client_taxes is OFF, copy_taxes_from_client is a no-op."""
         self.company.auto_apply_client_taxes = False
         self.company.save()
 
-        client = Client.objects.create(name="Client A", company=self.company)
+        client = make_client(company=self.company, name="Client A")
         self._attach_client_taxes(client)
 
-        config = Configuration.objects.create(
-            company=self.company, client=client,
-            product=self.product, name="Config A",
+        config = make_configuration(
+            company=self.company, client=client, product=self.product, name="Config A",
         )
         config.copy_default_taxes_from_product()
         config.copy_taxes_from_client()
@@ -168,12 +104,11 @@ class ConfigurationCopyTaxesFromClientTest(_BaseTestCase):
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
-        client = Client.objects.create(name="Client B", company=self.company)
+        client = make_client(company=self.company, name="Client B")
         self._attach_client_taxes(client)
 
-        config = Configuration.objects.create(
-            company=self.company, client=client,
-            product=self.product, name="Config B",
+        config = make_configuration(
+            company=self.company, client=client, product=self.product, name="Config B",
         )
         config.copy_default_taxes_from_product()
         config.copy_taxes_from_client()
@@ -191,11 +126,10 @@ class ConfigurationCopyTaxesFromClientTest(_BaseTestCase):
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
-        client = Client.objects.create(name="Client C", company=self.company)
+        client = make_client(company=self.company, name="Client C")
 
-        config = Configuration.objects.create(
-            company=self.company, client=client,
-            product=self.product, name="Config C",
+        config = make_configuration(
+            company=self.company, client=client, product=self.product, name="Config C",
         )
         config.copy_default_taxes_from_product()
         config.copy_taxes_from_client()
@@ -209,9 +143,8 @@ class ConfigurationCopyTaxesFromClientTest(_BaseTestCase):
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
-        config = Configuration.objects.create(
-            company=self.company, client=None,
-            product=self.product, name="Config No Client",
+        config = make_configuration(
+            company=self.company, client=None, product=self.product, name="Config No Client",
         )
         config.copy_default_taxes_from_product()
         config.copy_taxes_from_client()
@@ -225,7 +158,7 @@ class ConfigurationCopyTaxesFromClientTest(_BaseTestCase):
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
-        client = Client.objects.create(name="Client D", company=self.company)
+        client = make_client(company=self.company, name="Client D")
         ct = ContentType.objects.get_for_model(client)
         AppliedTax.objects.create(
             content_type=ct, object_id=client.pk,
@@ -236,9 +169,8 @@ class ConfigurationCopyTaxesFromClientTest(_BaseTestCase):
             tax_type=self.vat_10, selected_percentage=Decimal("10.00"), order=10,
         )
 
-        config = Configuration.objects.create(
-            company=self.company, client=client,
-            product=self.product, name="Config D",
+        config = make_configuration(
+            company=self.company, client=client, product=self.product, name="Config D",
         )
         config.copy_default_taxes_from_product()
         config.copy_taxes_from_client()
@@ -256,43 +188,21 @@ class QuoteInventoryItemClientTaxTest(_BaseTestCase):
     """Test QuoteInventoryItem uses client taxes when company flag is ON."""
 
     def setUp(self):
-        self.client = Client.objects.create(
-            name="Quote Client",
-            company=self.company,
-        )
-        self.quote = Quote.objects.create(
-            client=self.client,
-            company=self.company,
-            project_name="Tax Test Quote",
-        )
-        self.inv_item = InventoryItem.objects.create(
-            name="Widget",
-            company=self.company,
-        )
-        # Attach IVA 21% to the inventory item
-        inv_ct = ContentType.objects.get_for_model(self.inv_item)
-        AppliedTax.objects.create(
-            content_type=inv_ct, object_id=self.inv_item.pk,
-            tax_type=self.vat_21, selected_percentage=Decimal("21.00"), order=0,
-        )
+        self.client = make_client(company=self.company, name="Quote Client")
+        self.quote = make_quote(company=self.company, client=self.client, project_name="Tax Test Quote")
+        # The inventory item carries IVA 21%
+        self.inv_item = make_inventory_item(company=self.company, taxes=[(self.vat_21, Decimal("21.00"))])
 
     def _attach_client_taxes(self):
-        ct = ContentType.objects.get_for_model(self.client)
-        AppliedTax.objects.create(
-            content_type=ct, object_id=self.client.pk,
-            tax_type=self.vat_10, selected_percentage=Decimal("10.00"), order=0,
-        )
+        apply_taxes(self.client, taxes=[(self.vat_10, Decimal("10.00"))])
 
     def test_flag_off_uses_item_taxes(self):
         """When flag is OFF, QuoteInventoryItem gets the item's own taxes."""
         self.company.auto_apply_client_taxes = False
         self.company.save()
 
-        qii = QuoteInventoryItem.objects.create(
-            quote=self.quote,
-            inventory_item=self.inv_item,
-            quantity=Decimal("2"),
-            unit_price=Decimal("100.00"),
+        qii = make_quote_inventory_line(
+            quote=self.quote, item=self.inv_item, quantity=Decimal("2"), unit_price=Decimal("100.00"),
         )
         taxes = list(qii.get_taxes())
         self.assertEqual(len(taxes), 1)
@@ -304,11 +214,8 @@ class QuoteInventoryItemClientTaxTest(_BaseTestCase):
         self.company.save()
         self._attach_client_taxes()
 
-        qii = QuoteInventoryItem.objects.create(
-            quote=self.quote,
-            inventory_item=self.inv_item,
-            quantity=Decimal("2"),
-            unit_price=Decimal("100.00"),
+        qii = make_quote_inventory_line(
+            quote=self.quote, item=self.inv_item, quantity=Decimal("2"), unit_price=Decimal("100.00"),
         )
         taxes = list(qii.get_taxes())
         self.assertEqual(len(taxes), 1)
@@ -320,11 +227,8 @@ class QuoteInventoryItemClientTaxTest(_BaseTestCase):
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
-        qii = QuoteInventoryItem.objects.create(
-            quote=self.quote,
-            inventory_item=self.inv_item,
-            quantity=Decimal("2"),
-            unit_price=Decimal("100.00"),
+        qii = make_quote_inventory_line(
+            quote=self.quote, item=self.inv_item, quantity=Decimal("2"), unit_price=Decimal("100.00"),
         )
         taxes = list(qii.get_taxes())
         self.assertEqual(len(taxes), 1)
@@ -335,15 +239,9 @@ class QuoteInventoryItemClientTaxTest(_BaseTestCase):
         self.company.auto_apply_client_taxes = True
         self.company.save()
 
-        quote_no_client = Quote.objects.create(
-            company=self.company,
-            project_name="No Client Quote",
-        )
-        qii = QuoteInventoryItem.objects.create(
-            quote=quote_no_client,
-            inventory_item=self.inv_item,
-            quantity=Decimal("1"),
-            unit_price=Decimal("100.00"),
+        quote_no_client = make_quote(company=self.company, project_name="No Client Quote")
+        qii = make_quote_inventory_line(
+            quote=quote_no_client, item=self.inv_item, quantity=Decimal("1"), unit_price=Decimal("100.00"),
         )
         taxes = list(qii.get_taxes())
         self.assertEqual(len(taxes), 1)

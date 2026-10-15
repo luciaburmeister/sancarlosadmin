@@ -3,18 +3,16 @@ from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
+from sales.tests.factories import make_company, make_quote
+
 
 class QuotePdfDownloadViewTest(TestCase):
     def test_view_queues_the_render_and_sends_the_user_to_the_status_page(self):
-        from sales.models import Quote
-        from company.models import Company
-
         User = get_user_model()
         admin = User.objects.create_superuser(
             username="quote_pdf_admin", email="s@s.com", password="x"
         )
-        company = Company.objects.create(name="PDF Test Co")
-        quote = Quote.objects.create(company=company, project_name="PDF Test")
+        quote = make_quote(company=make_company(name="PDF Test Co"), project_name="PDF Test")
 
         self.client.force_login(admin)
         url = reverse("admin:sales_quote_download_pdf", args=[quote.pk])
@@ -33,11 +31,8 @@ class QuotePdfDownloadViewTest(TestCase):
 
     def test_renderer_uses_the_consolidated_quotation_template(self):
         from sales.documents import render_quote_pdf
-        from sales.models import Quote
-        from company.models import Company
 
-        company = Company.objects.create(name="PDF Test Co 2")
-        quote = Quote.objects.create(company=company, project_name="PDF Test 2")
+        quote = make_quote(company=make_company(name="PDF Test Co 2"), project_name="PDF Test 2")
 
         with patch(
             "sales.documents.PDFService.render_object_pdf", return_value=b"%PDF-1.4 fake",
@@ -47,15 +42,11 @@ class QuotePdfDownloadViewTest(TestCase):
         self.assertEqual(mocked.call_args.args[1], "consolidated_quotation")
 
     def test_changeform_renders_actions_dropdown(self):
-        from sales.models import Quote
-        from company.models import Company
-
         User = get_user_model()
         admin = User.objects.create_superuser(
             username="quote_pdf_admin3", email="s3@s.com", password="x"
         )
-        company = Company.objects.create(name="PDF Test Co 3")
-        quote = Quote.objects.create(company=company, project_name="PDF Test 3")
+        quote = make_quote(company=make_company(name="PDF Test Co 3"), project_name="PDF Test 3")
 
         self.client.force_login(admin)
         resp = self.client.get(

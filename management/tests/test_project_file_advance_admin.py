@@ -12,7 +12,6 @@ The expediente admin with advance invoices:
 - the form refuses to complete or cancel it while an advance is pending.
 """
 import re
-from datetime import date
 from decimal import Decimal
 
 from django.contrib import admin
@@ -22,8 +21,6 @@ from django.urls import reverse
 from django.utils.translation import gettext
 
 from invoices.models import SalesInvoice, SalesInvoiceStatus
-from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
-from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, UserExpedienteMixin
 from management.admin.project_file import ProjectFileAdmin, SalesInvoicesInline
 from management.forms import ProjectFileAdminForm
@@ -38,21 +35,7 @@ class SalesInvoicesInlineTests(UserExpedienteMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        self.advance = AdvanceInvoiceService.create(
-            self.project_file, date_issued=date(2026, 9, 3), percentage=Decimal("30"),
-        )
-        self.advance.status = SalesInvoiceStatus.FINAL
-        self.advance.invoice_number = "INV-2026-00012"
-        self.advance.save(update_fields=["status", "invoice_number"])
-
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-        ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(summary, "percentage", Decimal("100"))
-        self.rest = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29), due_date=None,
-            items_data=ProjectFileInvoiceService.build_items_for_ratio(summary, ratio),
-        )
-        AdvanceDeductionService.apply(self.rest)
+        self.advance, self.rest = self.advance_and_rest()
         self.inline = SalesInvoicesInline(ProjectFile, admin.site)
 
     def _listed(self):
@@ -83,11 +66,6 @@ class _ProjectFileAdminTestBase(AdvanceExpedienteMixin, TestCase):
 
     def refreshed(self):
         return ProjectFile.objects.get(pk=self.project_file.pk)
-
-    def rest_invoice(self, ratio=Decimal("1")):
-        invoice = self.invoice_goods(ratio)
-        AdvanceDeductionService.apply(invoice)
-        return invoice
 
     @staticmethod
     def advance_text(percentage):

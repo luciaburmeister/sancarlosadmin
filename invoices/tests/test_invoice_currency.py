@@ -12,71 +12,54 @@ from decimal import Decimal
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
-from djmoney.money import Money
 
 from company.models import Company
-from invoices.models import Invoice, InvoiceItem, AppliedTax, TaxType
+from invoices.models import Invoice
 from invoices.services.invoice.invoice_service import InvoiceService
-from invoices.services.ocr_services import InvoiceData, OcrInterface, LineItem, TaxItem
+from invoices.services.ocr_services import LineItem, TaxItem
 from invoices.services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
+from invoices.tests.factories import OcrTestMixin
 from materials.models import Provider
 
 MEDIA_ROOT = tempfile.mkdtemp()
 
 
-class FakeOcr(OcrInterface):
-    def __init__(self, **overrides):
-        defaults = dict(
-            document_type="invoice",
-            vendor_name="Jinan Bcamcnc Machinery",
-            vendor_tax_id="CHINA9999",
-            company_tax_id="B22681316",
-            invoice_number="BCWMJ260224",
-            date_issued="2026-08-06",
-            due_date="2026-08-06",
-            net_amount=Decimal("27900.00"),
-            total_amount=Decimal("27900.00"),
-            currency="USD",
-            payment_method="transfer",
-            line_items=[
-                LineItem(
-                    description="CNC ROUTER 2150C",
-                    quantity=Decimal("1"),
-                    unit_price=Decimal("22700.00"),
-                    discount_percentage=Decimal("0"),
-                    gross_total=Decimal("22700.00"),
-                    net_total=Decimal("22700.00"),
-                    tax_rate=Decimal("0"),
-                ),
-                LineItem(
-                    description="BCJ1325",
-                    quantity=Decimal("1"),
-                    unit_price=Decimal("5200.00"),
-                    discount_percentage=Decimal("0"),
-                    gross_total=Decimal("5200.00"),
-                    net_total=Decimal("5200.00"),
-                    tax_rate=Decimal("0"),
-                ),
-            ],
-            taxes=[],
-        )
-        defaults.update(overrides)
-        self.data = InvoiceData(**defaults)
-
-    def extract_data(self, file_path: str) -> InvoiceData:
-        return self.data
+def _machine(description, price):
+    return LineItem(
+        description=description,
+        quantity=Decimal("1"),
+        unit_price=price,
+        discount_percentage=Decimal("0"),
+        gross_total=price,
+        net_total=price,
+        tax_rate=Decimal("0"),
+    )
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)
-class InvoiceCurrencyTests(TestCase):
+class InvoiceCurrencyTests(OcrTestMixin, TestCase):
+    ocr_defaults = dict(
+        vendor_name="Jinan Bcamcnc Machinery",
+        vendor_tax_id="CHINA9999",
+        company_tax_id="B22681316",
+        invoice_number="BCWMJ260224",
+        date_issued="2026-08-06",
+        due_date="2026-08-06",
+        net_amount=Decimal("27900.00"),
+        total_amount=Decimal("27900.00"),
+        currency="USD",
+        line_items=[
+            _machine("CNC ROUTER 2150C", Decimal("22700.00")),
+            _machine("BCJ1325", Decimal("5200.00")),
+        ],
+    )
+
     def setUp(self):
+        super().setUp()
         self.company = Company.objects.create(name="Fistex Energy", tax_identifier="B22681316")
         self.provider = Provider.objects.create(
             company=self.company, name="Jinan Bcamcnc Machinery", tax_identifier="CHINA9999"
         )
-        self._file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        self._file.write(b"%PDF-1.4 test invoice")
-        self._file.close()
 
     def test_normalize_currency(self):
         processor = GeminiInvoiceProcessor(api_key="fake")
@@ -91,10 +74,7 @@ class InvoiceCurrencyTests(TestCase):
         self.assertIsNone(processor._normalize_currency(None))
 
     def test_invoice_creation_stores_usd(self):
-        service = InvoiceService(ocr_processor=FakeOcr())
-        result = service.process_invoice(self._file.name)
-        self.assertTrue(result.success)
-        invoice = result.invoice
+        invoice = self._process_new()
 
         # Verify Invoice currency fields
         self.assertEqual(invoice.currency, "USD")
@@ -129,8 +109,8 @@ class InvoiceCurrencyTests(TestCase):
         )
         self.assertEqual(invoice.currency, "EUR")
 
-        service = InvoiceService(ocr_processor=FakeOcr())
-        result = service.process_existing_invoice(invoice, file_path=self._file.name)
+        service = InvoiceService(ocr_processor=self.fake_ocr())
+        result = service.process_existing_invoice(invoice, file_path=self.file_path)
         self.assertTrue(result.success)
 
         invoice.refresh_from_db()
@@ -145,7 +125,7 @@ class InvoiceCurrencyTests(TestCase):
             self.assertEqual(str(item.line_total.currency), "USD")
 
     def test_invoice_with_taxes_in_usd(self):
-        ocr = FakeOcr(
+        invoice = self._process_new(
             net_amount=Decimal("100.00"),
             total_amount=Decimal("121.00"),
             currency="USD",
@@ -158,10 +138,6 @@ class InvoiceCurrencyTests(TestCase):
                 )
             ]
         )
-        service = InvoiceService(ocr_processor=ocr)
-        result = service.process_invoice(self._file.name)
-        self.assertTrue(result.success)
-        invoice = result.invoice
 
         taxes = list(invoice.get_taxes())
         self.assertEqual(len(taxes), 1)

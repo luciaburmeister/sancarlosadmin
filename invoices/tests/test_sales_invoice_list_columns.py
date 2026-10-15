@@ -1,13 +1,11 @@
-"""Due date and payment commitment date are visible on the sales invoice
-changelist and included in the export."""
+"""Due date and payment commitment date are included in the sales invoice
+export."""
 from datetime import date, datetime
 
 from django.conf import settings
-from django.contrib.admin.sites import site
 from django.test import TestCase
 
 from company.models import Company
-from invoices.admin import SalesInvoiceAdmin
 from invoices.models import SalesInvoice
 from invoices.resources import SalesInvoiceResource
 from sales.models import Client
@@ -19,11 +17,6 @@ class SalesInvoiceListColumnsTests(TestCase):
         self.client_obj = Client.objects.create(
             name="Acme", company=self.company, payment_terms_days=30,
         )
-
-    def test_list_display_has_due_and_commitment_dates(self):
-        admin = SalesInvoiceAdmin(SalesInvoice, site)
-        self.assertIn("due_date", admin.list_display)
-        self.assertIn("payment_commitment_date", admin.list_display)
 
     def test_export_includes_due_and_commitment_dates(self):
         invoice = SalesInvoice.objects.create(

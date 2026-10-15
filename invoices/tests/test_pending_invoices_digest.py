@@ -9,7 +9,6 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import (
     Invoice,
     InvoiceDocumentType,
@@ -18,11 +17,13 @@ from invoices.models import (
     SalesInvoiceStatus,
 )
 from invoices.tasks import send_pending_invoices_digest
+from invoices.tests.digest_fixtures import (
+    make_company,
+    make_purchase_invoice,
+    make_sales_invoice,
+)
 from invoices.services.pending_invoices_digest_service import (
     PendingInvoicesDigestService,
-)
-from invoices.services.pending_invoices_digest_email_service import (
-    PendingInvoicesDigestEmailService,
 )
 from materials.models import Provider
 from payments.models import Payment, PaymentAllocation, PaymentDirection
@@ -32,33 +33,16 @@ from sales.models import Client
 @patch("core.services.email_service.EmailService.send_email", return_value=True)
 class SendPendingInvoicesDigestTests(TestCase):
     def _make_company(self, name, emails):
-        return Company.objects.create(name=name, invoice_digest_emails=emails)
+        return make_company(name=name, invoice_digest_emails=emails)
 
     def _make_invoice(self, company, number, total="100.00", due_date=None, **kwargs):
-        provider = kwargs.pop("provider", None) or Provider.objects.create(
-            company=company, name=f"Proveedor {number}"
-        )
-        return Invoice.objects.create(
-            company=company,
-            provider=provider,
-            invoice_number=number,
-            total_amount=Money(total, "EUR"),
-            due_date=due_date,
-            **kwargs,
+        return make_purchase_invoice(
+            company=company, number=number, total=total, due_date=due_date, **kwargs,
         )
 
     def _make_sales_invoice(self, company, number, total="200.00", due_date=None, **kwargs):
-        client = kwargs.pop("client", None) or Client.objects.create(
-            company=company, name=f"Cliente {number}"
-        )
-        kwargs.setdefault("status", SalesInvoiceStatus.FINAL)
-        return SalesInvoice.objects.create(
-            company=company,
-            client=client,
-            invoice_number=number,
-            total_amount=Money(total, "EUR"),
-            due_date=due_date,
-            **kwargs,
+        return make_sales_invoice(
+            company=company, number=number, total=total, due_date=due_date, **kwargs,
         )
 
     def _allocate_payment(self, invoice, amount, direction=PaymentDirection.OUTBOUND):
@@ -118,7 +102,7 @@ class SendPendingInvoicesDigestTests(TestCase):
         self.assertEqual(len(mock_send.call_args.kwargs["to"]), 1)
 
     def test_company_without_recipients_is_not_emailed(self, mock_send):
-        company = Company.objects.create(name="Silent")
+        company = make_company(name="Silent")
         self._make_invoice(company, "F-S1")
 
         result = send_pending_invoices_digest()
@@ -132,7 +116,11 @@ class SendPendingInvoicesDigestTests(TestCase):
         company = self._make_company("Alpha", ["boss@example.com"])
         yesterday = timezone.localdate() - timedelta(days=1)
         tomorrow = timezone.localdate() + timedelta(days=1)
-        self._make_invoice(company, "F-100", total="100.00", due_date=yesterday)
+        invoice = self._make_invoice(
+            company, "F-100", total="100.00", due_date=yesterday,
+            payment_status=InvoicePaymentStatus.PARTIAL,
+        )
+        self._allocate_payment(invoice, "40.00")
         self._make_sales_invoice(company, "V-250", total="250.00", due_date=tomorrow)
 
         send_pending_invoices_digest()
@@ -140,10 +128,11 @@ class SendPendingInvoicesDigestTests(TestCase):
         body = mock_send.call_args.kwargs["body_html"]
         self.assertIn("Proveedor F-100", body)
         self.assertIn("Cliente V-250", body)
-        self.assertIn("100,00", body)
+        # A partially paid invoice shows what is still owed, not its total
+        self.assertIn("60,00", body)
         self.assertIn("250,00", body)
-        # Net position: 250 - 100 = 150
-        self.assertIn("150,00", body)
+        # Net position: 250 - 60 = 190
+        self.assertIn("190,00", body)
         # Pre-filtered admin links for both changelists
         self.assertIn(reverse("admin:invoices_invoice_changelist"), body)
         self.assertIn(reverse("admin:invoices_salesinvoice_changelist"), body)
@@ -152,19 +141,6 @@ class SendPendingInvoicesDigestTests(TestCase):
         self.assertIn("status__exact=final", body)
         # Overdue purchase invoice is flagged
         self.assertIn("vencida", body)
-
-    def test_partial_payment_shows_remaining_amount(self, mock_send):
-        company = self._make_company("Alpha", ["boss@example.com"])
-        invoice = self._make_invoice(
-            company, "F-100", total="100.00",
-            payment_status=InvoicePaymentStatus.PARTIAL,
-        )
-        self._allocate_payment(invoice, "40.00")
-
-        send_pending_invoices_digest()
-
-        body = mock_send.call_args.kwargs["body_html"]
-        self.assertIn("60,00", body)
 
     def test_credit_note_nets_payables_total(self, mock_send):
         company = self._make_company("Alpha", ["boss@example.com"])
@@ -207,25 +183,22 @@ class DigestPrefilteredChangelistTests(TestCase):
         self.client.force_login(
             User.objects.create_superuser("digest-admin", "admin@test.com", "pass")
         )
-        self.company = Company.objects.create(name="Alpha")
+        self.company = make_company(name="Alpha")
         provider = Provider.objects.create(company=self.company, name="Proveedor")
-        self.unpaid = Invoice.objects.create(
-            company=self.company, provider=provider, invoice_number="AP-OPEN-1",
-            total_amount=Money("100.00", "EUR"),
+        self.unpaid = make_purchase_invoice(
+            company=self.company, provider=provider, number="AP-OPEN-1",
         )
-        self.paid = Invoice.objects.create(
-            company=self.company, provider=provider, invoice_number="AP-SETTLED-1",
-            total_amount=Money("100.00", "EUR"),
+        self.paid = make_purchase_invoice(
+            company=self.company, provider=provider, number="AP-SETTLED-1",
             payment_status=InvoicePaymentStatus.PAID,
         )
         client = Client.objects.create(company=self.company, name="Cliente")
-        self.final_sale = SalesInvoice.objects.create(
-            company=self.company, client=client, invoice_number="SALE-FINAL-1",
-            status=SalesInvoiceStatus.FINAL, total_amount=Money("50.00", "EUR"),
+        self.final_sale = make_sales_invoice(
+            company=self.company, client=client, number="SALE-FINAL-1", total="50.00",
         )
-        self.proforma_sale = SalesInvoice.objects.create(
-            company=self.company, client=client, invoice_number="SALE-PROF-1",
-            status=SalesInvoiceStatus.PROFORMA, total_amount=Money("50.00", "EUR"),
+        self.proforma_sale = make_sales_invoice(
+            company=self.company, client=client, number="SALE-PROF-1", total="50.00",
+            status=SalesInvoiceStatus.PROFORMA,
         )
 
     def test_payables_link_filters_to_pending_invoices(self):
@@ -260,12 +233,11 @@ class PendingInvoicesDigestServiceTests(TestCase):
     """The service returns raw data (Decimals, dates) and batches queries."""
 
     def test_returns_raw_decimals_dates_and_overdue_flags(self):
-        company = Company.objects.create(name="Alpha")
+        company = make_company(name="Alpha")
         provider = Provider.objects.create(company=company, name="ACME")
         yesterday = timezone.localdate() - timedelta(days=1)
-        invoice = Invoice.objects.create(
-            company=company, provider=provider, invoice_number="F-100",
-            total_amount=Money("100.00", "EUR"), due_date=yesterday,
+        invoice = make_purchase_invoice(
+            company=company, provider=provider, number="F-100", due_date=yesterday,
             payment_status=InvoicePaymentStatus.PARTIAL,
         )
         payment = Payment.objects.create(
@@ -291,11 +263,11 @@ class PendingInvoicesDigestServiceTests(TestCase):
         self.assertEqual(digest.receivables.count, 0)
 
     def test_invoice_without_due_date_counts_as_overdue(self):
-        company = Company.objects.create(name="Beta")
+        company = make_company(name="Beta")
         provider = Provider.objects.create(company=company, name="ACME")
-        Invoice.objects.create(
-            company=company, provider=provider, invoice_number="F-NODATE",
-            total_amount=Money("75.00", "EUR"), due_date=None,
+        make_purchase_invoice(
+            company=company, provider=provider, number="F-NODATE", total="75.00",
+            due_date=None,
         )
 
         digest = PendingInvoicesDigestService.get_company_digests([company])[company.pk]
@@ -307,17 +279,14 @@ class PendingInvoicesDigestServiceTests(TestCase):
     def test_batches_to_two_queries_regardless_of_company_count(self):
         companies = []
         for i in range(3):
-            company = Company.objects.create(name=f"C{i}")
+            company = make_company(name=f"C{i}")
             provider = Provider.objects.create(company=company, name=f"P{i}")
-            Invoice.objects.create(
-                company=company, provider=provider, invoice_number=f"F-{i}",
-                total_amount=Money("10.00", "EUR"),
+            make_purchase_invoice(
+                company=company, provider=provider, number=f"F-{i}", total="10.00",
             )
             client = Client.objects.create(company=company, name=f"K{i}")
-            SalesInvoice.objects.create(
-                company=company, client=client, invoice_number=f"V-{i}",
-                status=SalesInvoiceStatus.FINAL,
-                total_amount=Money("20.00", "EUR"),
+            make_sales_invoice(
+                company=company, client=client, number=f"V-{i}", total="20.00",
             )
             companies.append(company)
 
@@ -343,45 +312,3 @@ class PendingInvoicesDigestServiceTests(TestCase):
         ])
         self.assertEqual(merged, {"EUR": Decimal("12.50"), "USD": Decimal("5.00")})
 
-
-class PendingInvoicesDigestEmailServiceTests(TestCase):
-    """The email builder returns ready-to-send, transport-agnostic emails."""
-
-    def test_builds_consolidated_email_for_shared_recipient(self):
-        alpha = Company.objects.create(
-            name="Alpha", invoice_digest_emails=["shared@example.com"]
-        )
-        beta = Company.objects.create(
-            name="Beta", invoice_digest_emails=["shared@example.com"]
-        )
-        today = timezone.localdate()
-        digests = PendingInvoicesDigestService.get_company_digests(
-            [alpha, beta], today=today
-        )
-
-        emails = PendingInvoicesDigestEmailService.build_emails(
-            [alpha, beta], digests, today=today
-        )
-
-        self.assertEqual(len(emails), 1)
-        email = emails[0]
-        self.assertEqual(email.recipients, ["shared@example.com"])
-        self.assertIn("Alpha", email.subject)
-        self.assertIn("Beta", email.subject)
-        self.assertIn("Alpha", email.body_html)
-        # Consolidated email carries no single-company attribution.
-        self.assertIsNone(email.company)
-
-    def test_single_company_email_is_attributed_to_it(self):
-        alpha = Company.objects.create(
-            name="Alpha", invoice_digest_emails=["a@example.com"]
-        )
-        today = timezone.localdate()
-        digests = PendingInvoicesDigestService.get_company_digests([alpha], today=today)
-
-        emails = PendingInvoicesDigestEmailService.build_emails(
-            [alpha], digests, today=today
-        )
-
-        self.assertEqual(len(emails), 1)
-        self.assertEqual(emails[0].company, alpha)

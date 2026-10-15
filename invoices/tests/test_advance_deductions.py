@@ -54,7 +54,14 @@ from invoices.services.advances.deductions import InvoiceGoods, _Room
 from invoices.services.discounts import ADVANCE_LINE_PREFIX, QuoteDiscountResolver, SourceLine
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.services.sales_invoice_service import SalesInvoiceService
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, UserExpedienteMixin
+from invoices.tests.advance_fixtures import (
+    WIZARD_STEP,
+    AdvanceExpedienteMixin,
+    UserExpedienteMixin,
+    full_items,
+    invoice_taxes,
+    totals,
+)
 from materials.models import PaymentMethod
 from production.models import ProductionTicket
 from sales.models import (
@@ -67,58 +74,17 @@ from sales.models import (
 )
 
 
-def _full_items(project_file):
-    """Line dicts of "100 % del pendiente", as the API builds them."""
-    summary = ProjectFileInvoiceService.get_invoiceable_summary(project_file)
-    ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(summary, "percentage", Decimal("100"))
-    return ProjectFileInvoiceService.build_items_for_ratio(summary, ratio)
-
-
-def _invoice_taxes(invoice):
-    """{(tax name, %): (base, amount)} of the invoice-level taxes."""
-    return {
-        (tax.tax_type.tax_name, tax.selected_percentage): (tax.base_amount.amount, tax.calculated_amount.amount)
-        for tax in AppliedTax.objects.filter(
-            content_type=ContentType.objects.get_for_model(SalesInvoice), object_id=invoice.pk,
-        ).select_related("tax_type")
-    }
-
-
-def _totals(invoice):
-    invoice.refresh_from_db()
-    return (
-        invoice.subtotal_amount.amount,
-        invoice.discount_amount.amount,
-        invoice.taxable_base.amount,
-        invoice.tax_amount.amount,
-        invoice.total_amount.amount,
-    )
-
-
 class UserExpedienteRestInvoiceTests(UserExpedienteMixin, TestCase):
     """The worked example: a 30 % advance (457.90 + IVA = 554.06), then
     "100 % del pendiente"."""
 
     def setUp(self):
         super().setUp()
-        self.advance = AdvanceInvoiceService.create(
-            self.project_file, date_issued=date(2026, 9, 3), percentage=Decimal("30"),
-        )
-        self.advance.status = SalesInvoiceStatus.FINAL
-        self.advance.invoice_number = "INV-2026-00012"
-        self.advance.save(update_fields=["status", "invoice_number"])
-
-    def _rest(self):
-        invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29), due_date=None, items_data=_full_items(self.project_file),
-        )
-        AdvanceDeductionService.apply(invoice)
-        return invoice
+        self.advance = self.issue_advance()
 
     def test_rest_invoice_bills_the_goods_in_full_less_the_advance(self):
-        items = _full_items(self.project_file)
-        rest = self._rest()
+        items = full_items(self.project_file)
+        rest = self.rest_invoice()
 
         goods = rest.items.filter(advance_line__isnull=True)
         self.assertEqual(
@@ -144,13 +110,13 @@ class UserExpedienteRestInvoiceTests(UserExpedienteMixin, TestCase):
             (Decimal("1557.49"), Decimal("31.15")),
         )
         self.assertEqual(
-            _totals(rest),
+            totals(rest),
             (Decimal("1099.59"), Decimal("31.15"), Decimal("1068.44"), Decimal("224.37"), Decimal("1292.81")),
         )
-        self.assertEqual(_invoice_taxes(rest), {("IVA", Decimal("21.00")): (Decimal("1068.44"), Decimal("224.37"))})
+        self.assertEqual(invoice_taxes(rest), {("IVA", Decimal("21.00")): (Decimal("1068.44"), Decimal("224.37"))})
 
     def test_advance_and_rest_add_up_to_one_invoice(self):
-        rest = self._rest()
+        rest = self.rest_invoice()
         self.advance.refresh_from_db()
 
         self.assertEqual(self.advance.total_amount.amount + rest.total_amount.amount, Decimal("1846.87"))
@@ -168,7 +134,7 @@ class UserExpedienteRestInvoiceTests(UserExpedienteMixin, TestCase):
         self.assertEqual(self.project_file.advance_pending_amount.amount, Decimal("0.00"))
 
     def test_resolver_ignores_a_deduction_line(self):
-        items = _full_items(self.project_file)
+        items = full_items(self.project_file)
         summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
         quotes = [data["quote"] for data in summary["quotes"]]
         priced = ProjectFileInvoiceService.price_lines(summary, items).resolution
@@ -203,7 +169,7 @@ class _DeductionTestBase(AdvanceExpedienteMixin, TestCase):
         )
 
     def bases(self, invoice):
-        return {key: base for key, (base, _amount) in _invoice_taxes(invoice).items()}
+        return {key: base for key, (base, _amount) in invoice_taxes(invoice).items()}
 
 
 class ClosingInvoiceTests(_DeductionTestBase):
@@ -216,7 +182,7 @@ class ClosingInvoiceTests(_DeductionTestBase):
         self.assertEqual(deduction.advance_line, line)
         self.assertEqual(deduction.line_total.amount, Decimal("-300.00"))
         self.assertEqual(
-            _totals(invoice),
+            totals(invoice),
             (Decimal("700.00"), Decimal("0.00"), Decimal("700.00"), Decimal("147.00"), Decimal("847.00")),
         )
         self.assertEqual(self.bases(invoice), {("IVA", Decimal("21.00")): Decimal("700.00")})
@@ -243,7 +209,7 @@ class ClosingInvoiceTests(_DeductionTestBase):
         self.assertEqual(AdvanceDeductionService.deduction_lines(invoice), [])
 
         AdvanceDeductionService.apply(invoice, {line.pk: Decimal("300.00")})
-        self.assertEqual(_totals(invoice)[-1], Decimal("847.00"))
+        self.assertEqual(totals(invoice)[-1], Decimal("847.00"))
 
     def test_a_hundred_percent_advance_leaves_a_zero_invoice(self):
         self.make_advance(Decimal("1000.00"), "100")
@@ -251,7 +217,7 @@ class ClosingInvoiceTests(_DeductionTestBase):
 
         AdvanceDeductionService.apply(invoice)
 
-        self.assertEqual(_totals(invoice), (Decimal("0.00"),) * 5)
+        self.assertEqual(totals(invoice), (Decimal("0.00"),) * 5)
         self.assertEqual(self.bases(invoice), {("IVA", Decimal("21.00")): Decimal("0.00")})
 
 
@@ -313,7 +279,7 @@ class PartialInvoiceTests(_DeductionTestBase):
         first = self.goods(Decimal("0.5"))
 
         self.assertEqual(AdvanceDeductionService.apply(first, {}), [])
-        self.assertEqual(_totals(first)[-1], Decimal("605.00"))
+        self.assertEqual(totals(first)[-1], Decimal("605.00"))
 
         rest = self.goods(Decimal("0.5"))
         [deduction] = AdvanceDeductionService.apply(rest)
@@ -433,26 +399,31 @@ class OtherPartiesGoodsTests(_DeductionTestBase):
         self.assertEqual(invoice.status, SalesInvoiceStatus.PROFORMA)
 
     def test_the_wizard_keeps_the_expedientes_company(self):
-        data = {
-            "company": Company.objects.create(name="Otra SL").pk,
-            "date_issued": "2026-09-29",
-            "invoice_mode": "percentage",
-            "percentage": "100",
-            "payment_method": PaymentMethod.TRANSFER,
-        }
+        # Goods and advance invoices alike: another company is refused on
+        # the company field, the expediente's own goes through.
+        other = Company.objects.create(name="Otra SL")
         summary = self.summary()
+        for mode, percentage in (("percentage", "100"), ("advance", "30")):
+            with self.subTest(invoice_mode=mode):
+                data = {
+                    "company": other.pk,
+                    "date_issued": "2026-09-29",
+                    "invoice_mode": mode,
+                    "percentage": percentage,
+                    "payment_method": PaymentMethod.TRANSFER,
+                }
 
-        form = ProjectFileInvoiceSetupForm(
-            data=data, project_file=self.project_file, invoicing_summary=summary,
-        )
-        self.assertFalse(form.is_valid())
-        self.assertEqual(list(form.errors), ["company"])
+                form = ProjectFileInvoiceSetupForm(
+                    data=data, project_file=self.project_file, invoicing_summary=summary,
+                )
+                self.assertFalse(form.is_valid())
+                self.assertEqual(list(form.errors), ["company"])
 
-        form = ProjectFileInvoiceSetupForm(
-            data={**data, "company": self.company.pk}, project_file=self.project_file,
-            invoicing_summary=summary,
-        )
-        self.assertTrue(form.is_valid(), form.errors)
+                form = ProjectFileInvoiceSetupForm(
+                    data={**data, "company": self.company.pk}, project_file=self.project_file,
+                    invoicing_summary=summary,
+                )
+                self.assertTrue(form.is_valid(), form.errors)
 
 
 class CapTests(_DeductionTestBase):
@@ -468,7 +439,7 @@ class CapTests(_DeductionTestBase):
 
         # No tax base, taxable base or total below zero
         self.assertEqual(deduction.line_total.amount, Decimal("-500.00"))
-        self.assertEqual(_totals(invoice)[-1], Decimal("0.00"))
+        self.assertEqual(totals(invoice)[-1], Decimal("0.00"))
         self.assertEqual(self.summary()["advances_open_net"], Decimal("300.00"))
         self.project_file.refresh_from_db()
         self.assertEqual(self.project_file.advance_pending_amount.amount, Decimal("300.00"))
@@ -515,7 +486,7 @@ class UntaxedAdvanceLineTests(_DeductionTestBase):
 
         self.assertEqual((deduction.advance_line, deduction.line_total.amount), (line, Decimal("-300.00")))
         self.assertEqual(self.bases(rest), {("IVA", Decimal("21.00")): Decimal("700.00")})
-        self.assertEqual(_totals(rest)[2], Decimal("700.00"))
+        self.assertEqual(totals(rest)[2], Decimal("700.00"))
         self.assertEqual(self.summary()["advances_open_net"], Decimal("60.00"))
 
 
@@ -559,14 +530,9 @@ class UserExpedienteFullAdvanceTests(UserExpedienteMixin, TestCase):
             ),
             send_email=False,
         )
-        rest = ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file, company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29), due_date=None, items_data=_full_items(self.project_file),
-        )
+        rest = self.rest_invoice()
 
-        AdvanceDeductionService.apply(rest)
-
-        self.assertEqual(_totals(rest)[2:], (Decimal("0.00"),) * 3)
+        self.assertEqual(totals(rest)[2:], (Decimal("0.00"),) * 3)
         self.assertEqual(
             ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)["advances_open_net"],
             Decimal("0.00"),
@@ -719,13 +685,13 @@ class RemoveAndReapplyTests(_DeductionTestBase):
         self.assertEqual(restored, Decimal("300.00"))
         self.assertEqual(AdvanceDeductionService.deduction_lines(self.invoice), [])
         self.assertEqual(self.bases(self.invoice), {("IVA", Decimal("21.00")): Decimal("1000.00")})
-        self.assertEqual(_totals(self.invoice)[-1], Decimal("1210.00"))
+        self.assertEqual(totals(self.invoice)[-1], Decimal("1210.00"))
         self.project_file.refresh_from_db()
         self.assertEqual(self.project_file.advance_pending_amount.amount, Decimal("300.00"))
 
         AdvanceDeductionService.apply(self.invoice)
         self.assertEqual(self.bases(self.invoice), {("IVA", Decimal("21.00")): Decimal("700.00")})
-        self.assertEqual(_totals(self.invoice)[-1], Decimal("847.00"))
+        self.assertEqual(totals(self.invoice)[-1], Decimal("847.00"))
 
     def test_only_on_a_pro_forma(self):
         self.set_status(self.invoice, SalesInvoiceStatus.FINAL)
@@ -867,26 +833,16 @@ class ProtectedInlineTests(_DeductionTestBase):
 
 @override_settings(AEAT_SUBMISSIONS_ENABLED=False)
 class WizardDeductionTests(_DeductionTestBase):
-    STEP = "project_file_invoice_wizard_view-current_step"
+    STEP = WIZARD_STEP
 
     def setUp(self):
         super().setUp()
         _, self.line = self.make_advance(Decimal("300.00"), "30")
-        self.client.force_login(User.objects.create_superuser("wizard", "w@x.com", "pw"))
-        self.url = reverse("admin:management_projectfile_create_invoice", args=[self.project_file.pk])
+        self.url = self.login_to_wizard()
 
     def _to_deductions(self, percentage="100"):
         self.client.get(self.url)
-        response = self.client.post(self.url, {
-            self.STEP: "setup",
-            "setup-company": self.company.pk,
-            "setup-date_issued": "2026-09-29",
-            "setup-due_date": "",
-            "setup-invoice_mode": "percentage",
-            "setup-percentage": percentage,
-            "setup-custom_amount": "",
-            "setup-payment_method": PaymentMethod.TRANSFER,
-        })
+        response = self.client.post(self.url, self.wizard_setup_data(percentage=percentage))
         self.assertEqual(response.context["wizard"]["steps"].current, "items")
         formset = response.context["wizard"]["form"]
         data = {
@@ -946,7 +902,7 @@ class WizardDeductionTests(_DeductionTestBase):
         self.assertEqual(goods.source_id, f"config_{self.config.pk}")
         [deduction] = AdvanceDeductionService.deduction_lines(invoice)
         self.assertEqual((deduction.advance_line, deduction.line_total.amount), (self.line, Decimal("-300.00")))
-        self.assertEqual(_totals(invoice)[-1], Decimal("847.00"))
+        self.assertEqual(totals(invoice)[-1], Decimal("847.00"))
 
     def test_a_fixed_row_ignores_the_amount_posted(self):
         self._to_deductions()

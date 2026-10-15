@@ -4,85 +4,31 @@ carries the quote's whole discount, whatever was billed before."""
 from datetime import date
 from decimal import Decimal
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from invoices.models import AppliedTax, TaxType
+from configurator.models import Configuration
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile
-from sales.models import Client, Quote, QuoteStatus
+from invoices.tests.factories import ExpedienteMixin, discounted_quote
 
 
-class _FullRemainingBase(TestCase):
+class _FullRemainingBase(ExpedienteMixin, TestCase):
+    project_file_name = "PF Full"
+    invoice_date_issued = date(2026, 10, 1)
+
     def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Full", company=self.company, client=self.client_obj,
-        )
-        self.iva21, _created = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"},
-        )
+        super().setUp()
         # 1000 subtotal, 100 financing discount, taxable 900, IVA 189
-        self.quote = Quote.objects.create(
+        self.quote = discounted_quote(
+            project_file=self.project_file, kind="financing",
             project_name="Financed Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "Financiación 10%", "kind": "financing",
-                 "level": "basket", "mode": "net",
-                 "percentage": "10.00", "base": "1000.00", "amount": "100.00"},
-            ],
         )
         self.configs = [
-            self._make_config(Decimal(amount)) for amount in ("333.33", "333.33", "333.34")
+            self._make_config(self.quote, amount)
+            for amount in ("333.33", "333.33", "333.34")
         ]
-
-    def _make_config(self, subtotal, **kwargs):
-        config = Configuration.objects.create(
-            name="Config",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=self.quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=subtotal,
-            total_price=(subtotal * Decimal("1.21")).quantize(Decimal("0.01")),
-            **kwargs,
-        )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(Configuration),
-            object_id=config.pk,
-            tax_type=self.iva21,
-            selected_percentage=Decimal("21"),
-            base_amount=subtotal,
-            calculated_amount=(subtotal * Decimal("0.21")).quantize(Decimal("0.01")),
-        )
-        return config
 
     def _summary(self):
         return ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-
-    def _create_invoice(self, items_data):
-        return ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 10, 1),
-            due_date=None,
-            items_data=items_data,
-        )
 
     def _invoice_remaining(self, **kwargs):
         return self._create_invoice(
@@ -138,8 +84,8 @@ class FullRemainingInvoiceTest(_FullRemainingBase):
         self.assertEqual(len(items), 2)
 
     def test_quantity_kept_only_when_its_unit_price_is_exact(self):
-        exact = self._make_config(Decimal("300.00"), quantity=3)
-        inexact = self._make_config(Decimal("100.00"), quantity=3)
+        exact = self._make_config(self.quote, "300.00", quantity=3)
+        inexact = self._make_config(self.quote, "100.00", quantity=3)
 
         items = {
             item["source_id"]: item
@@ -188,7 +134,7 @@ class ClosingInvoiceDiscountTest(_FullRemainingBase):
             [entry["quote_id"] for entry in invoice.discount_breakdown], [self.quote.pk],
         )
 
-    def test_the_closing_invoice_takes_the_rounding_of_the_others(self):
+    def test_the_closing_invoice_takes_the_rounding_and_taxes_its_own_base(self):
         # 100 × 333.33 / 1000 rounds to 33.33 three times: 99.99
         first = self._invoice_config(self.configs[0])
         second = self._invoice_config(self.configs[1])
@@ -199,12 +145,6 @@ class ClosingInvoiceDiscountTest(_FullRemainingBase):
         self.assertEqual(last.discount_amount.amount, Decimal("33.34"))
         self.assertEqual(last.discount_breakdown[0]["amount"], "33.34")
         self.assertEqual(self._summary()["goods_remaining_net"], Decimal("0.00"))
-
-    def test_the_closing_invoice_taxes_its_own_discounted_base(self):
-        self._invoice_config(self.configs[0])
-        self._invoice_config(self.configs[1])
-        last = self._invoice_config(self.configs[2])
-
         # 333.34 − 33.34 = 300.00 at 21 %
         self.assertEqual(last.total_amount.amount, Decimal("363.00"))
 

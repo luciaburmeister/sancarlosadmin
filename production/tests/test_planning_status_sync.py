@@ -1,12 +1,10 @@
-from datetime import date, datetime, timedelta, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company, Employee, Machine
-from configurator.models import Configuration, ProductTemplate
-from production.models import PlannedProductionSession, ProductionItem, ProductionTicket
+from production.models import PlannedProductionSession
 from production.services.session_scheduler import get_or_create_resource_for_target
+from production.tests.factories import make_company, make_employee, make_item, make_machine, make_product, make_ticket
 
 STAGE = "corte"
 OTHER_STAGE = "montaje"
@@ -20,33 +18,20 @@ class SyncSessionEmployeeAssignmentTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Test Co")
-        cls.product = ProductTemplate.objects.create(
-            name="Ventana", company=cls.company, production_stages=[STAGE, OTHER_STAGE],
+        cls.company = make_company(stages=[])
+        cls.product = make_product(cls.company, name="Ventana", stages=[STAGE, OTHER_STAGE])
+        cls.employee = make_employee(cls.company, first_name="Jose", last_name="Murillo", stages=[])
+        cls.other_employee = make_employee(cls.company, first_name="Maria", last_name="Garcia", stages=[])
+        cls.machine = make_machine(
+            cls.company, name="Sierra", code="M-1", stages=[], daily_capacity_minutes=480,
         )
-        cls.employee = Employee.objects.create(
-            company=cls.company, first_name="Jose", last_name="Murillo",
-            hired_at=date(2020, 1, 1), can_work_on_production=True,
+        cls.ticket = make_ticket(cls.company, stages=[STAGE, OTHER_STAGE], product=cls.product, bom=False)
+        cls.item = make_item(
+            cls.ticket, stages=[STAGE], planning={STAGE: {"status": "pending"}}, production_stages_order=[],
         )
-        cls.other_employee = Employee.objects.create(
-            company=cls.company, first_name="Maria", last_name="Garcia",
-            hired_at=date(2020, 1, 1), can_work_on_production=True,
-        )
-        cls.machine = Machine.objects.create(
-            company=cls.company, name="Sierra", code="M-1", daily_capacity_minutes=480,
-        )
-        cls.config = Configuration.objects.create(company=cls.company, product=cls.product)
-        ct = ContentType.objects.get_for_model(Configuration)
-        cls.ticket = ProductionTicket.objects.create(
-            company=cls.company, content_type=ct, object_id=cls.config.id,
-        )
-        cls.item = ProductionItem.objects.create(
-            ticket=cls.ticket, company=cls.company,
-            planning={STAGE: {"status": "pending"}},
-        )
-        cls.other_stage_item = ProductionItem.objects.create(
-            ticket=cls.ticket, company=cls.company,
-            planning={OTHER_STAGE: {"status": "pending"}},
+        cls.other_stage_item = make_item(
+            cls.ticket, stages=[OTHER_STAGE], planning={OTHER_STAGE: {"status": "pending"}},
+            production_stages_order=[],
         )
         cls.employee_resource = get_or_create_resource_for_target(cls.employee)
         cls.other_employee_resource = get_or_create_resource_for_target(cls.other_employee)
@@ -91,3 +76,13 @@ class SyncSessionEmployeeAssignmentTest(TestCase):
             primary_resource=self.employee_resource,
         )
         # No exception raised is the assertion here.
+
+    def test_deleting_a_session_without_ticket_is_a_no_op(self):
+        session = PlannedProductionSession.objects.create(
+            production_stage=STAGE,
+            planned_start=datetime(2026, 9, 14, 8, tzinfo=dt_timezone.utc),
+            planned_end=datetime(2026, 9, 14, 9, tzinfo=dt_timezone.utc),
+            primary_resource=self.employee_resource,
+        )
+        session.delete()
+        self.assertFalse(PlannedProductionSession.objects.filter(pk=session.pk).exists())

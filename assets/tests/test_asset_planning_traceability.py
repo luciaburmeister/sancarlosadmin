@@ -21,17 +21,13 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from assets.admin.asset_planning import TraceabilityFilter
-from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, AssignmentOrigin, PlanningStatus
+from assets.models import Asset, AssetPlanning, AssignmentOrigin, PlanningStatus
+from assets.tests.factories import make_truck
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user, make_zone
 
 User = get_user_model()
 TODAY = timezone.localdate()
 ONE_HOUR = timedelta(hours=1)
-
-
-def make_truck(company):
-    truck_type = AssetType.objects.create(company=company, name="CAMIONES", category=AssetTypeCategory.TRUCK)
-    return Asset.objects.create(company=company, asset_type=truck_type, name="Truck 1")
 
 
 def _duration(start, end):

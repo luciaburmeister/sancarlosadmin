@@ -1,17 +1,10 @@
-from datetime import date, datetime, timedelta, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company, Employee
-from configurator.models import Configuration, ProductTemplate
-from production.models import (
-    ProductionItem,
-    ProductionItemSession,
-    ProductionItemSessionStatus,
-    ProductionTicket,
-)
+from production.models import ProductionItem, ProductionItemSessionStatus
 from production.services.board_activity import build_week_activity
+from production.tests.factories import make_company, make_employee, make_item, make_item_session, make_product, make_ticket
 
 STAGE = "corte"
 
@@ -19,38 +12,24 @@ STAGE = "corte"
 class BuildWeekActivityTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Test Co")
-        cls.product = ProductTemplate.objects.create(
-            name="Ventana", company=cls.company, production_stages=[STAGE],
-        )
-        cls.jose = Employee.objects.create(
-            company=cls.company, first_name="Jose", last_name="Murillo",
-            hired_at=date(2020, 1, 1), can_work_on_production=True,
-        )
-        cls.maria = Employee.objects.create(
-            company=cls.company, first_name="Maria", last_name="Garcia",
-            hired_at=date(2020, 1, 1), can_work_on_production=True,
-        )
-        cls.config = Configuration.objects.create(company=cls.company, product=cls.product)
-        ct = ContentType.objects.get_for_model(Configuration)
-        cls.ticket = ProductionTicket.objects.create(
-            company=cls.company, content_type=ct, object_id=cls.config.id,
-        )
+        cls.company = make_company(stages=[])
+        cls.product = make_product(cls.company, name="Ventana", stages=[STAGE])
+        cls.jose = make_employee(cls.company, first_name="Jose", last_name="Murillo", stages=[])
+        cls.maria = make_employee(cls.company, first_name="Maria", last_name="Garcia", stages=[])
+        cls.ticket = make_ticket(cls.company, stages=[STAGE], product=cls.product, bom=False)
 
         # Displayed week: Monday 2026-09-14 .. next Monday (exclusive).
         cls.range_start = datetime(2026, 9, 14, tzinfo=dt_timezone.utc)
         cls.range_end = cls.range_start + timedelta(days=7)
 
     def _item(self, status: str) -> ProductionItem:
-        return ProductionItem.objects.create(
-            ticket=self.ticket, company=self.company,
-            planning={STAGE: {"status": status}},
+        return make_item(
+            self.ticket, stages=[STAGE], planning={STAGE: {"status": status}}, production_stages_order=[],
         )
 
     def _session(self, item, employee, start, end=None, status=ProductionItemSessionStatus.IN_PROGRESS, comments=None):
-        return ProductionItemSession.objects.create(
-            production_item=item, company=self.company, production_stage=STAGE,
-            status=status, start_time=start, end_time=end, created_by=employee,
+        return make_item_session(
+            item, stage=STAGE, employee=employee, start=start, end=end, status=status,
             comment_entries=comments or [],
         )
 

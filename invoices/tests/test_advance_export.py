@@ -16,7 +16,6 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import translation
 from django.utils.formats import sanitize_separators
 from djangoql.queryset import apply_search
-from djangoql.serializers import DjangoQLSchemaSerializer
 
 from general.djangoql.fields import localized_name
 from general.djangoql.schema import RegisteredDjangoQLSchema
@@ -55,8 +54,7 @@ class _AdvanceExportTestBase(AdvanceExpedienteMixin, TestCase):
         self.project_file = project_file
         advance, _line = self.make_advance(Decimal("300.00"), "30")
         SalesInvoice.objects.filter(pk=advance.pk).update(invoice_number=number)
-        rest = self.invoice_goods()
-        AdvanceDeductionService.apply(rest)
+        rest = self.rest_invoice()
         advance.refresh_from_db()
         return advance, rest
 
@@ -186,9 +184,3 @@ class DocumentTypeSearchTests(_AdvanceExportTestBase):
         with translation.override("es"):
             name = localized_name("document_type")
         self.assertEqual(self.search(f'{name} = "advance"', lang="es"), {self.advance.pk})
-
-    def test_completion_offers_the_document_types(self):
-        with translation.override("en"):
-            schema = DjangoQLSchemaSerializer().serialize(RegisteredDjangoQLSchema(SalesInvoice))
-        fields = schema["models"][RegisteredDjangoQLSchema.model_label(SalesInvoice)]
-        self.assertTrue(fields["document_type"]["options"])

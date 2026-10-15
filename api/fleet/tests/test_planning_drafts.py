@@ -11,67 +11,53 @@ Run just this file:
 """
 from datetime import date
 
-from rest_framework.test import APIClient
-
 from django.test import TestCase
 
 from assets.models import (
     Asset, AssetPlanningRequestDraft, AssetPlanningRequestDraftStatus,
-    AssetType, AssetTypeCategory, ServiceType,
+    AssetTypeCategory, ServiceType,
 )
 from company.models import Employee
-from api.fleet.tests.helpers import make_company, make_employee, make_user, make_zone
+from api.fleet.tests.helpers import ApiFixtureMixin, make_asset_type, make_company, make_zone
 from sales.models import Client
 
 
 def _make_asset(company, category, name, is_active=True, client=None):
-    asset_type = AssetType.objects.create(company=company, name=f"{name} type", category=category)
+    asset_type = make_asset_type(company, name=f"{name} type", category=category)
     return Asset.objects.create(
         company=company, asset_type=asset_type, name=name, is_active=is_active, client=client,
     )
 
 
-class MachinesListEndpointTests(TestCase):
-    def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
-
+class MachinesListEndpointTests(ApiFixtureMixin, TestCase):
     def _url(self):
         return "/es/api/machines/"
-
-    def test_unauthenticated_request_is_rejected(self):
-        self.client_api.force_authenticate(user=None)
-        response = self.client_api.get(self._url())
-        self.assertEqual(response.status_code, 401)
 
     def test_returns_company_machine_with_no_owning_client(self):
         # This is the exact shape of real data: the company's own machines
         # are never assigned to a client. The endpoint must not require one.
         machine = _make_asset(self.company, AssetTypeCategory.MACHINE, "KUBOTA U 17-3", client=None)
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         self.assertEqual(response.status_code, 200)
         ids = [r["id"] for r in response.json()["results"]]
         self.assertIn(machine.pk, ids)
 
     def test_excludes_trucks(self):
         _make_asset(self.company, AssetTypeCategory.TRUCK, "Truck 1")
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         names = [r["name"] for r in response.json()["results"]]
         self.assertNotIn("Truck 1", names)
 
     def test_excludes_inactive_machines(self):
         _make_asset(self.company, AssetTypeCategory.MACHINE, "Retired excavator", is_active=False)
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         names = [r["name"] for r in response.json()["results"]]
         self.assertNotIn("Retired excavator", names)
 
     def test_excludes_other_companies_machines(self):
         other_company = make_company(name="Other Company")
         _make_asset(other_company, AssetTypeCategory.MACHINE, "Other Co Machine")
-        response = self.client_api.get(self._url())
+        response = self.api_client.get(self._url())
         names = [r["name"] for r in response.json()["results"]]
         self.assertNotIn("Other Co Machine", names)
 
@@ -79,37 +65,21 @@ class MachinesListEndpointTests(TestCase):
         # The list used to be (wrongly) scoped by ?client=<id>. Any value —
         # or none at all — must return the same company-wide list now.
         machine = _make_asset(self.company, AssetTypeCategory.MACHINE, "KUBOTA U 17-3")
-        response = self.client_api.get(self._url(), {"client": 999999})
+        response = self.api_client.get(self._url(), {"client": 999999})
         ids = [r["id"] for r in response.json()["results"]]
         self.assertIn(machine.pk, ids)
 
 
-class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
-    """AssetPlanningRequestDraft lifecycle exercised through the mobile API."""
+class PlanningDraftTestCase(ApiFixtureMixin, TestCase):
+    """Authenticated driver plus a real sales Client to request work for."""
 
     def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
+        super().setUp()
         self.sales_client = Client.objects.create(name="Client 1", company=self.company)
 
-    def test_create_draft_defaults_to_draft_status(self):
-        response = self.client_api.post(
-            "/es/api/planning-drafts/",
-            {
-                "service_type": ServiceType.SERVICIO_GRUA,
-                "client": self.sales_client.pk,
-                "destination_text": "Obra en Alicante",
-                "needed_date": "2026-09-01",
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        draft = AssetPlanningRequestDraft.objects.get(pk=response.json()["id"])
-        self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.DRAFT)
-        self.assertEqual(draft.requested_by_id, self.employee.pk)
-        self.assertEqual(draft.company_id, self.company.pk)
+
+class PlanningDraftDraftCreateProcessedFlowTests(PlanningDraftTestCase):
+    """AssetPlanningRequestDraft lifecycle exercised through the mobile API."""
 
     def test_submitted_draft_cannot_be_edited(self):
         draft = AssetPlanningRequestDraft.objects.create(
@@ -121,7 +91,7 @@ class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
             status=AssetPlanningRequestDraftStatus.SUBMITTED,
             needed_date="2026-09-01",
         )
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/", {"notes": "changed"}, format="json",
         )
         self.assertEqual(response.status_code, 400)
@@ -135,12 +105,12 @@ class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
             destination_text="",
             needed_date="2026-09-01",
         )
-        response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        response = self.api_client.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
         self.assertEqual(response.status_code, 400)
         self.assertIn("destination_text", response.json()["missing_fields"])
 
-    def test_needed_time_and_urgency_are_optional_and_roundtrip(self):
-        response = self.client_api.post(
+    def test_create_defaults_to_draft_status_and_needed_time_and_urgency_roundtrip(self):
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             {
                 "service_type": ServiceType.SERVICIO_GRUA,
@@ -151,11 +121,14 @@ class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         draft = AssetPlanningRequestDraft.objects.get(pk=response.json()["id"])
+        self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.DRAFT)
+        self.assertEqual(draft.requested_by_id, self.employee.pk)
+        self.assertEqual(draft.company_id, self.company.pk)
         self.assertIsNone(draft.needed_time)
         self.assertEqual(draft.urgency, "")
         self.assertEqual(draft.missing_fields_for_submit(), [])
 
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/",
             {"needed_time": "08:30:00", "urgency": "urgent"},
             format="json",
@@ -167,7 +140,7 @@ class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
 
         # Clearing them back (the app always sends these keys, using "" for
         # "not set" — this must not blow up on TimeField.to_python("")).
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/",
             {"needed_time": "", "urgency": ""},
             format="json",
@@ -181,7 +154,7 @@ class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
         # Regression: the app always sends needed_time/urgency, using "" when
         # the employee left them unset. An empty string used to reach
         # TimeField.to_python() unchanged and raise a ValidationError on save.
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             {
                 "service_type": ServiceType.SERVICIO_GRUA,
@@ -198,19 +171,11 @@ class PlanningDraftDraftCreateProcessedFlowTests(TestCase):
         self.assertEqual(draft.urgency, "")
 
 
-class NewClientRequestTests(TestCase):
+class NewClientRequestTests(PlanningDraftTestCase):
     """Requesting a not-yet-existing client instead of picking a real one."""
 
-    def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
-        self.sales_client = Client.objects.create(name="Client 1", company=self.company)
-
     def test_create_with_new_client_name_only(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             {
                 "service_type": ServiceType.SERVICIO_GRUA,
@@ -237,7 +202,7 @@ class NewClientRequestTests(TestCase):
         self.assertEqual(body["new_client_fiscal_address"], "Calle Falsa 123, Madrid")
 
     def test_create_without_client_or_new_client_name_fails(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             {
                 "service_type": ServiceType.SERVICIO_GRUA,
@@ -278,7 +243,7 @@ class NewClientRequestTests(TestCase):
             destination_text="Obra en Alicante",
             needed_date="2026-09-01",
         )
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/",
             {"new_client_name": "Constructora Nueva SL"},
             format="json",
@@ -298,7 +263,7 @@ class NewClientRequestTests(TestCase):
             destination_text="Obra en Alicante",
             needed_date="2026-09-01",
         )
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/",
             {"client": self.sales_client.pk},
             format="json",
@@ -310,20 +275,15 @@ class NewClientRequestTests(TestCase):
         self.assertEqual(draft.new_client_tax_id, "")
 
 
-class NewZoneRequestTests(TestCase):
+class NewZoneRequestTests(PlanningDraftTestCase):
     """Requesting a not-yet-existing working zone instead of picking a real one."""
 
     def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
-        self.sales_client = Client.objects.create(name="Client 1", company=self.company)
+        super().setUp()
         self.zone = make_zone(self.company, name="Obra Centro")
 
     def test_create_with_new_destination_zone_only(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             {
                 "service_type": ServiceType.SERVICIO_GRUA,
@@ -392,7 +352,7 @@ class NewZoneRequestTests(TestCase):
             destination_text="Calle Provisional 1",
             needed_date="2026-09-01",
         )
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/",
             {"to_zone": self.zone.pk},
             format="json",
@@ -411,7 +371,7 @@ class NewZoneRequestTests(TestCase):
             to_zone=self.zone,
             needed_date="2026-09-01",
         )
-        response = self.client_api.patch(
+        response = self.api_client.patch(
             f"/es/api/planning-drafts/{draft.pk}/",
             {"destination_text": "Calle Nueva 9", "destination_city": "Marbella"},
             format="json",
@@ -422,16 +382,11 @@ class NewZoneRequestTests(TestCase):
         self.assertEqual(draft.destination_text, "Calle Nueva 9")
 
 
-class MachinePorteDraftTests(TestCase):
+class MachinePorteDraftTests(PlanningDraftTestCase):
     """Own-machine transport drafts use the machine FK, not asset."""
 
     def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
-        self.sales_client = Client.objects.create(name="Client 1", company=self.company)
+        super().setUp()
         self.from_zone = make_zone(self.company, name="Depósito")
         self.to_zone = make_zone(self.company, name="Obra Norte")
         self.machine = _make_asset(
@@ -439,7 +394,7 @@ class MachinePorteDraftTests(TestCase):
         )
 
     def test_create_submit_and_roundtrip_machine_field(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             {
                 "service_type": ServiceType.PORTE_MAQUINA_PROPIA,
@@ -460,7 +415,7 @@ class MachinePorteDraftTests(TestCase):
         self.assertEqual(draft.machine_id, self.machine.pk)
         self.assertIsNone(draft.asset_id)
 
-        response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        response = self.api_client.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
         self.assertEqual(response.status_code, 200)
         draft.refresh_from_db()
         self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.SUBMITTED)
@@ -475,21 +430,13 @@ class MachinePorteDraftTests(TestCase):
             to_zone=self.to_zone,
             needed_date="2026-09-01",
         )
-        response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        response = self.api_client.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
         self.assertEqual(response.status_code, 400)
         self.assertIn("machine", response.json()["missing_fields"])
 
 
-class CancelRequestTests(TestCase):
+class CancelRequestTests(PlanningDraftTestCase):
     """DELETE /planning-drafts/<id>/ — cancellable up until a planner processes it."""
-
-    def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
-        self.sales_client = Client.objects.create(name="Client 1", company=self.company)
 
     def _make_draft(self, status):
         return AssetPlanningRequestDraft.objects.create(
@@ -504,40 +451,36 @@ class CancelRequestTests(TestCase):
 
     def test_can_cancel_a_submitted_request(self):
         draft = self._make_draft(AssetPlanningRequestDraftStatus.SUBMITTED)
-        response = self.client_api.delete(f"/es/api/planning-drafts/{draft.pk}/")
+        response = self.api_client.delete(f"/es/api/planning-drafts/{draft.pk}/")
         self.assertEqual(response.status_code, 200)
         draft.refresh_from_db()
         self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.CANCELLED)
 
     def test_can_still_cancel_a_draft(self):
         draft = self._make_draft(AssetPlanningRequestDraftStatus.DRAFT)
-        response = self.client_api.delete(f"/es/api/planning-drafts/{draft.pk}/")
+        response = self.api_client.delete(f"/es/api/planning-drafts/{draft.pk}/")
         self.assertEqual(response.status_code, 200)
         draft.refresh_from_db()
         self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.CANCELLED)
 
     def test_cannot_cancel_a_processed_request(self):
         draft = self._make_draft(AssetPlanningRequestDraftStatus.PROCESSED)
-        response = self.client_api.delete(f"/es/api/planning-drafts/{draft.pk}/")
+        response = self.api_client.delete(f"/es/api/planning-drafts/{draft.pk}/")
         self.assertEqual(response.status_code, 400)
         draft.refresh_from_db()
         self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.PROCESSED)
 
     def test_cannot_cancel_an_already_cancelled_request(self):
         draft = self._make_draft(AssetPlanningRequestDraftStatus.CANCELLED)
-        response = self.client_api.delete(f"/es/api/planning-drafts/{draft.pk}/")
+        response = self.api_client.delete(f"/es/api/planning-drafts/{draft.pk}/")
         self.assertEqual(response.status_code, 400)
 
 
-class LaborerMovementDraftTests(TestCase):
+class LaborerMovementDraftTests(ApiFixtureMixin, TestCase):
     """SERVICE_TYPE_PEONES drafts — no client required, moved_employees instead."""
 
     def setUp(self):
-        self.client_api = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.client_api.force_authenticate(user=self.user)
+        super().setUp()
         self.from_zone = make_zone(self.company, name="Obra A")
         self.to_zone = make_zone(self.company, name="Obra B")
         self.peon1 = Employee.objects.create(
@@ -559,7 +502,7 @@ class LaborerMovementDraftTests(TestCase):
         return payload
 
     def test_create_does_not_require_client(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/", self._payload(), format="json",
         )
         self.assertEqual(response.status_code, 201, response.content)
@@ -571,21 +514,21 @@ class LaborerMovementDraftTests(TestCase):
         )
 
     def test_missing_moved_employees_blocks_submit(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/", self._payload(moved_employees=[]), format="json",
         )
         self.assertEqual(response.status_code, 201, response.content)
         draft = AssetPlanningRequestDraft.objects.get(pk=response.json()["id"])
         self.assertIn("moved_employees", draft.missing_fields_for_submit())
-        submit_response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        submit_response = self.api_client.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
         self.assertEqual(submit_response.status_code, 400)
 
     def test_submit_succeeds_once_moved_employees_set(self):
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/", self._payload(), format="json",
         )
         draft_id = response.json()["id"]
-        submit_response = self.client_api.post(f"/es/api/planning-drafts/{draft_id}/submit/")
+        submit_response = self.api_client.post(f"/es/api/planning-drafts/{draft_id}/submit/")
         self.assertEqual(submit_response.status_code, 200)
         draft = AssetPlanningRequestDraft.objects.get(pk=draft_id)
         self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.SUBMITTED)
@@ -595,7 +538,7 @@ class LaborerMovementDraftTests(TestCase):
         other_employee = Employee.objects.create(
             company=other_company, first_name="Other", last_name="Co", hired_at=date.today(),
         )
-        response = self.client_api.post(
+        response = self.api_client.post(
             "/es/api/planning-drafts/",
             self._payload(moved_employees=[other_employee.pk]),
             format="json",

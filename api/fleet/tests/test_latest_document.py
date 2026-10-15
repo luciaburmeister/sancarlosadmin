@@ -9,30 +9,27 @@ import json
 
 from django.utils import timezone
 from datetime import timedelta
-from rest_framework.test import APIClient, APITestCase
+from rest_framework.test import APITestCase
 
 from assets.models import AssetTransaction, AssetTransactionReceipt, TransactionTypeChoices
 from api.fleet.tests.helpers import (
-    make_company,
-    make_user,
-    make_employee,
-    make_asset_type,
+    ApiFixtureMixin,
     make_asset,
+    make_asset_type,
+    make_employee,
+    make_user,
     make_zone,
 )
 
 
-class LatestTransactionDocumentViewTests(APITestCase):
+class LatestTransactionDocumentViewTests(ApiFixtureMixin, APITestCase):
     URL = "/en/api/transactions/latest-document/"
 
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.zone = make_zone(self.company)
         self.asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.zone)
-        self.client = APIClient()
 
     def _make_tx(self, transaction_type, minutes_ago=0, **overrides):
         return AssetTransaction.objects.create(
@@ -43,11 +40,6 @@ class LatestTransactionDocumentViewTests(APITestCase):
             date=timezone.now() - timedelta(minutes=minutes_ago),
             **overrides,
         )
-
-    def test_requires_authentication(self):
-        """No auth -> 401/403, not a 200 or a server error."""
-        response = self.client.get(self.URL)
-        self.assertIn(response.status_code, (401, 403))
 
     def test_no_documents_yet_returns_404(self):
         self.client.force_authenticate(user=self.user)

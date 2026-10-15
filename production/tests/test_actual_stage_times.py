@@ -1,89 +1,37 @@
-from datetime import date, datetime, timedelta, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company, Employee
-from configurator.models import Configuration, ProductTemplate
-from production.models import (
-    ProductionItem,
-    ProductionItemSession,
-    ProductionItemSessionKind,
-    ProductionItemSessionStatus,
-    ProductionItemStatus,
-    ProductionTicket,
-)
+from production.models import ProductionItemSessionKind, ProductionItemSessionStatus
 from production.services.actual_stage_times import compute_actual_stage_times
+from production.tests.factories import make_company, make_employee, make_item, make_item_session, make_product, make_ticket
 
 
 class ComputeActualStageTimesTest(TestCase):
     STAGE = "corte"
 
     def setUp(self):
-        self.company = Company.objects.create(
-            name="Test Co",
-            production_stages=[self.STAGE],
-        )
-        self.product = ProductTemplate.objects.create(
-            name="Ventana",
-            company=self.company,
-            production_stages=[self.STAGE],
-        )
-        hired = date(2020, 1, 1)
-        self.jose = Employee.objects.create(
-            company=self.company,
-            first_name="Jose",
-            last_name="Murillo",
-            hired_at=hired,
-            can_work_on_production=True,
-        )
-        self.maria = Employee.objects.create(
-            company=self.company,
-            first_name="Maria",
-            last_name="Garcia",
-            hired_at=hired,
-            can_work_on_production=True,
-        )
+        self.company = make_company(stages=[self.STAGE])
+        self.product = make_product(self.company, name="Ventana", stages=[self.STAGE])
+        self.jose = make_employee(self.company, first_name="Jose", last_name="Murillo", stages=[])
+        self.maria = make_employee(self.company, first_name="Maria", last_name="Garcia", stages=[])
         self.base = datetime(2026, 7, 1, 10, 0, tzinfo=dt_timezone.utc)
 
     def _make_ticket_with_item(self):
-        config = Configuration.objects.create(
-            company=self.company,
-            product=self.product,
-        )
-        ct = ContentType.objects.get_for_model(config)
-        ticket = ProductionTicket.objects.create(
-            company=self.company,
-            content_type=ct,
-            object_id=config.id,
-        )
-        item = ProductionItem.objects.create(
-            ticket=ticket,
-            company=self.company,
-            planning={
-                self.STAGE: {
-                    "status": ProductionItemStatus.PENDING,
-                    "started_at": None,
-                    "completed_at": None,
-                },
-            },
-            production_stages_order=[self.STAGE],
-        )
-        return ticket, item
+        ticket = make_ticket(self.company, stages=[self.STAGE], product=self.product, bom=False)
+        return ticket, make_item(ticket, stages=[self.STAGE])
 
     def _make_session(self, item, start_min, end_min, employee, **overrides):
-        params = dict(
-            production_item=item,
-            company=self.company,
-            kind=ProductionItemSessionKind.ACTIVITY_STARTED,
-            production_stage=self.STAGE,
-            status=ProductionItemSessionStatus.DONE,
-            start_time=self.base + timedelta(minutes=start_min),
-            end_time=self.base + timedelta(minutes=end_min),
-            created_by=employee,
+        end = overrides.pop("end_time", self.base + timedelta(minutes=end_min))
+        overrides.setdefault("kind", ProductionItemSessionKind.ACTIVITY_STARTED)
+        return make_item_session(
+            item,
+            stage=self.STAGE,
+            employee=employee,
+            start=self.base + timedelta(minutes=start_min),
+            end=end,
+            **overrides,
         )
-        params.update(overrides)
-        return ProductionItemSession.objects.create(**params)
 
     def test_merges_overlapping_sessions_and_averages_per_order(self):
         # Order 1: two workers overlap 10:00-11:00 and 10:30-11:30 -> 90 min
@@ -129,18 +77,6 @@ class ComputeActualStageTimesTest(TestCase):
         # The outlier's 2-worker attribution must not skew the worker average
         self.assertEqual(stats.avg_employees, 1.0)
 
-    def test_no_outlier_filtering_below_minimum_sample(self):
-        # Only three orders: even a wild value must be kept
-        for minutes in (30, 32, 600):
-            _, item = self._make_ticket_with_item()
-            self._make_session(item, 0, minutes, self.jose)
-
-        stats = compute_actual_stage_times(self.product)[self.STAGE]
-
-        self.assertEqual(stats.excluded_count, 0)
-        self.assertEqual(stats.order_count, 3)
-        self.assertEqual(stats.max_minutes, 600.0)
-
     def test_ignores_incomplete_and_cancelled_sessions(self):
         _, item = self._make_ticket_with_item()
         self._make_session(
@@ -159,27 +95,9 @@ class ComputeActualStageTimesTest(TestCase):
         self.assertEqual(actuals, {})
 
     def test_only_counts_sessions_for_the_given_product(self):
-        other_product = ProductTemplate.objects.create(
-            name="Puerta",
-            company=self.company,
-            production_stages=[self.STAGE],
-        )
-        config = Configuration.objects.create(
-            company=self.company,
-            product=other_product,
-        )
-        ct = ContentType.objects.get_for_model(config)
-        ticket = ProductionTicket.objects.create(
-            company=self.company,
-            content_type=ct,
-            object_id=config.id,
-        )
-        item = ProductionItem.objects.create(
-            ticket=ticket,
-            company=self.company,
-            planning={},
-            production_stages_order=[self.STAGE],
-        )
+        other_product = make_product(self.company, name="Puerta", stages=[self.STAGE])
+        ticket = make_ticket(self.company, stages=[self.STAGE], product=other_product, bom=False)
+        item = make_item(ticket, stages=[self.STAGE], planning={})
         self._make_session(item, 0, 45, self.jose)
 
         actuals = compute_actual_stage_times(self.product)

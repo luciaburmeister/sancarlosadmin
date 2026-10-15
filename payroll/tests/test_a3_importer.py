@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import translation
 
-from company.models import Company, Employee
 from payroll.models import (
     EmployeePayroll,
     EmployeePayrollProfile,
@@ -23,6 +22,7 @@ from payroll.services.a3_importer import (
     A3PayrollParseError,
     resolve_pending_row,
 )
+from payroll.tests.factories import make_company, make_employee, make_importer_employees
 
 MATCHED_EMP = {
     "code": "000001", "s1": "GARCIA", "s2": "LOPEZ", "given": "JUAN",
@@ -122,15 +122,8 @@ def build_a3_workbook(
 
 class A3ImporterTestBase(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
-        self.emp1 = Employee.objects.create(
-            company=self.company, first_name="JUAN", last_name="GARCIA LOPEZ",
-            hired_at=date(2020, 1, 1),
-        )
-        self.emp2 = Employee.objects.create(
-            company=self.company, first_name="ANA", last_name="PEREZ SANZ",
-            hired_at=date(2020, 1, 1),
-        )
+        self.company = make_company()
+        self.emp1, self.emp2 = make_importer_employees(company=self.company)
 
 
 class ValidateTests(A3ImporterTestBase):
@@ -153,7 +146,7 @@ class ValidateTests(A3ImporterTestBase):
         self.assertFalse(report.can_commit)
 
     def test_duplicate_nif_asks_for_company_with_candidates(self):
-        twin = Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        twin = make_company(name="Twin Company")
         report = A3PayrollImportService(build_a3_workbook()).validate()
         self.assertFalse(report.has_blocking_errors)
         self.assertTrue(report.needs_company_selection)
@@ -162,7 +155,7 @@ class ValidateTests(A3ImporterTestBase):
 
     def test_rows_stay_pending_until_company_resolved(self):
         """Without a resolved company, matching never runs: rows must not read 'ok'."""
-        Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        make_company(name="Twin Company")
         report = A3PayrollImportService(build_a3_workbook()).validate()
         self.assertTrue(report.needs_company_selection)
         self.assertTrue(report.rows)
@@ -173,7 +166,7 @@ class ValidateTests(A3ImporterTestBase):
         self.assertEqual(report.matched_count, 0)
 
     def test_manual_company_resolves_duplicate_nif(self):
-        Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        make_company(name="Twin Company")
         report = A3PayrollImportService(
             build_a3_workbook(), company=self.company, allow_nif_mismatch=True
         ).validate()
@@ -208,9 +201,9 @@ class ValidateTests(A3ImporterTestBase):
         self.assertTrue(report.has_blocking_errors)
 
     def test_ambiguous_name_not_matched(self):
-        Employee.objects.create(
+        make_employee(
             company=self.company, first_name="JUAN", last_name="GARCIA LOPEZ",
-            hired_at=date(2020, 1, 1), identification_number="DUP1",
+            identification_number="DUP1",
         )
         report = A3PayrollImportService(build_a3_workbook()).validate()
         row = next(r for r in report.rows if r.a3_code == "000001")
@@ -233,7 +226,7 @@ class CommitTests(A3ImporterTestBase):
             A3PayrollImportService(build_a3_workbook(nif="X99999999")).commit()
 
     def test_commit_with_manual_company(self):
-        Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        make_company(name="Twin Company")
         period = A3PayrollImportService(
             build_a3_workbook(), company=self.company, allow_nif_mismatch=True
         ).commit()
@@ -301,7 +294,7 @@ class PendingRowTests(A3ImporterTestBase):
     def test_resolve_pending_creates_payroll_and_sets_a3_code(self):
         period = self._commit_with_unmatched()
         pending = period.pending_rows.get()
-        new_emp = Employee.objects.create(
+        new_emp = make_employee(
             company=self.company, first_name="PEPE", last_name="NUEVO EMPLEADO",
             hired_at=date(2021, 1, 1),
         )
@@ -318,8 +311,8 @@ class PendingRowTests(A3ImporterTestBase):
     def test_resolve_rejects_employee_from_other_company(self):
         period = self._commit_with_unmatched()
         pending = period.pending_rows.get()
-        other = Company.objects.create(name="Other", tax_identifier="B99999999")
-        outsider = Employee.objects.create(
+        other = make_company(name="Other", tax_identifier="B99999999")
+        outsider = make_employee(
             company=other, first_name="X", last_name="Y", hired_at=date(2021, 1, 1)
         )
         with self.assertRaises(A3PayrollParseError):
@@ -334,7 +327,7 @@ class PendingRowTests(A3ImporterTestBase):
     def test_can_close_after_resolving_all_pending(self):
         period = self._commit_with_unmatched()
         pending = period.pending_rows.get()
-        new_emp = Employee.objects.create(
+        new_emp = make_employee(
             company=self.company, first_name="PEPE", last_name="NUEVO EMPLEADO",
             hired_at=date(2021, 1, 1),
         )
@@ -348,7 +341,7 @@ class PendingRowTests(A3ImporterTestBase):
     def test_reimport_after_resolution_keeps_match(self):
         period = self._commit_with_unmatched()
         pending = period.pending_rows.get()
-        new_emp = Employee.objects.create(
+        new_emp = make_employee(
             company=self.company, first_name="PEPE", last_name="NUEVO EMPLEADO",
             hired_at=date(2021, 1, 1),
         )

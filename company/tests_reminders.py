@@ -1,17 +1,14 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from datetime import timedelta, date
 from django.core import mail
-from django.conf import settings
 from company.models import Company, Employee, EmployeeDocument, EmployeeDocumentType
 from company.tasks import send_document_reminders
 
+
+@override_settings(BACKEND_URL="http://testserver")
 class DocumentReminderTestCase(TestCase):
     def setUp(self):
-        # Ensure BACKEND_URL exists for tests
-        if not hasattr(settings, 'BACKEND_URL'):
-            settings.BACKEND_URL = "http://testserver"
-            
         self.company = Company.objects.create(
             name="Test Company",
             email="company@test.com",

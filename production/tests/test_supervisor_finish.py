@@ -1,73 +1,29 @@
-from datetime import date
-
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from company.models import Company, Employee
-from configurator.models import Configuration, ProductTemplate
 from production.models import (
-    ProductionItem,
     ProductionItemSession,
     ProductionItemSessionStatus,
     ProductionItemStatus,
-    ProductionTicket,
 )
 from production.services.stages_to_sessions import StagesToSessionsService
+from production.tests.factories import make_company, make_employee, make_item, make_product, make_ticket
 
 
 class SupervisorFinishActivityTest(TestCase):
     STAGE = "limpieza"
 
     def setUp(self):
-        self.company = Company.objects.create(
-            name="Test Co",
+        self.company = make_company(
+            stages=[self.STAGE],
             allow_shared_production_stage_activities=True,
-            production_stages=[self.STAGE],
         )
-        self.product = ProductTemplate.objects.create(
-            name="Wash product",
-            company=self.company,
-            production_stages=[self.STAGE],
-        )
-        self.config = Configuration.objects.create(
-            company=self.company,
-            product=self.product,
-        )
-        ct = ContentType.objects.get_for_model(self.config)
-        self.ticket = ProductionTicket.objects.create(
-            company=self.company,
-            content_type=ct,
-            object_id=self.config.id,
-        )
-        self.item = ProductionItem.objects.create(
-            ticket=self.ticket,
-            company=self.company,
-            planning={
-                self.STAGE: {
-                    "status": ProductionItemStatus.PENDING,
-                    "started_at": None,
-                    "completed_at": None,
-                },
-            },
-            production_stages_order=[self.STAGE],
-        )
-        hired = date(2020, 1, 1)
-        self.jose = Employee.objects.create(
-            company=self.company,
-            first_name="Jose",
-            last_name="Murillo",
-            hired_at=hired,
-            can_work_on_production=True,
-        )
-        self.maria = Employee.objects.create(
-            company=self.company,
-            first_name="Maria",
-            last_name="Garcia",
-            hired_at=hired,
-            can_work_on_production=True,
-        )
+        product = make_product(self.company, name="Wash product", stages=[self.STAGE])
+        self.ticket = make_ticket(self.company, stages=[self.STAGE], product=product, bom=False)
+        self.item = make_item(self.ticket, stages=[self.STAGE])
+        self.jose = make_employee(self.company, first_name="Jose", last_name="Murillo", stages=[])
+        self.maria = make_employee(self.company, first_name="Maria", last_name="Garcia", stages=[])
 
     def _planning_status(self):
         self.item.refresh_from_db()

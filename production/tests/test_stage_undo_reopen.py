@@ -1,9 +1,6 @@
 """Workers can undo their own stage finish briefly; supervisors can reopen any finished stage."""
-from datetime import date, timedelta
+from datetime import timedelta
 
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.test import TestCase
@@ -11,62 +8,42 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from company.active_company import ActiveCompany
-from company.models import Company, CompanyUser, Employee
-from configurator.models import Configuration, ConfigurationItem, ProductTemplate
+from company.models import Company
+from configurator.models import ConfigurationItem
 from materials.models import Component, ComponentType
 from production.constants import ProductionActions
-from production.models import ProductionItem, ProductionItemStatus, ProductionTicket
+from production.models import ProductionItem, ProductionItemStatus
 from production.services.stages_to_sessions import StagesToSessionsService
-
-User = get_user_model()
+from production.tests.factories import make_company, make_item, make_product, make_staff_employee, make_ticket
 
 CUT = "corte"
 ASSEMBLY = "montaje"
+PERMS = ["view_productionticket", "change_productionitem"]
 
 
 class StageUndoReopenTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Alpha", production_stages=[CUT, ASSEMBLY])
-        product = ProductTemplate.objects.create(
-            name="Ventana", company=cls.company, production_stages=[CUT, ASSEMBLY]
-        )
-        cls.config = Configuration.objects.create(company=cls.company, product=product)
-        cls.ticket = ProductionTicket.objects.create(
-            company=cls.company,
-            content_type=ContentType.objects.get_for_model(cls.config),
-            object_id=cls.config.id,
-        )
-        cls.item = ProductionItem.objects.create(
-            ticket=cls.ticket,
-            company=cls.company,
+        cls.company = make_company(name="Alpha", stages=[CUT, ASSEMBLY])
+        product = make_product(cls.company, name="Ventana", stages=[CUT, ASSEMBLY])
+        cls.ticket = make_ticket(cls.company, stages=[CUT, ASSEMBLY], product=product, bom=False)
+        cls.config = cls.ticket.source_object
+        cls.item = make_item(
+            cls.ticket,
+            stages=[CUT, ASSEMBLY],
             planning={
                 CUT: {"status": ProductionItemStatus.PENDING},
                 ASSEMBLY: {"status": ProductionItemStatus.PENDING},
             },
-            production_stages_order=[CUT, ASSEMBLY],
         )
-        permissions = Permission.objects.filter(
-            codename__in=["view_productionticket", "change_productionitem"]
-        )
-        cls.worker = cls._employee("worker", permissions)
-        cls.other_worker = cls._employee("other", permissions)
-        cls.supervisor = cls._employee("supervisor", permissions, is_production_supervisor=True)
+        cls.worker = cls._employee("worker")
+        cls.other_worker = cls._employee("other")
+        cls.supervisor = cls._employee("supervisor", is_production_supervisor=True)
 
     @classmethod
-    def _employee(cls, username, permissions, **extra):
-        user = User.objects.create_user(username=username, password="x", is_staff=True)
-        user.user_permissions.set(permissions)
-        CompanyUser.objects.create(user=user, company=cls.company)
-        return Employee.objects.create(
-            company=cls.company,
-            user=user,
-            first_name=username,
-            last_name="Test",
-            hired_at=date(2020, 1, 1),
-            can_work_on_production=True,
-            production_stages=[CUT, ASSEMBLY],
-            **extra,
+    def _employee(cls, username, **extra):
+        return make_staff_employee(
+            cls.company, username=username, perms=PERMS, stages=[CUT, ASSEMBLY], **extra
         )
 
     def setUp(self):

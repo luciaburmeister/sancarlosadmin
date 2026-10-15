@@ -1,74 +1,39 @@
 """A worker with an open session elsewhere is told which task blocks them."""
-from datetime import date
 
 from django.contrib import messages
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
 from company.active_company import ActiveCompany
-from company.models import Company, CompanyUser, Employee
-from configurator.models import Configuration, ProductTemplate
 from production.constants import ProductionActions
 from production.exceptions import WorkerBusyError
-from production.models import ProductionItem, ProductionItemStatus, ProductionTicket
+from production.models import ProductionItemStatus
 from production.services.stages_to_sessions import StagesToSessionsService
-
-User = get_user_model()
+from production.tests.factories import make_company, make_item, make_product, make_staff_employee, make_ticket
 
 CUT = "corte"
+PERMS = ["view_productionticket", "change_productionitem"]
 
 
 class WorkerBusyTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Alpha", production_stages=[CUT])
-        cls.other_company = Company.objects.create(name="Beta", production_stages=[CUT])
-        permissions = Permission.objects.filter(
-            codename__in=["view_productionticket", "change_productionitem"]
-        )
+        cls.company = make_company(name="Alpha", stages=[CUT])
+        cls.other_company = make_company(name="Beta", stages=[CUT])
         cls.busy_ticket, cls.busy_item = cls._ticket(cls.company)
         cls.ticket, cls.item = cls._ticket(cls.company)
-        cls.worker = cls._employee("worker", cls.company, permissions)
+        cls.worker = make_staff_employee(cls.company, username="worker", perms=PERMS, stages=[CUT])
         cls.other_ticket, cls.other_item = cls._ticket(cls.other_company)
-        cls.other_worker = cls._employee("other", cls.other_company, permissions)
+        cls.other_worker = make_staff_employee(
+            cls.other_company, username="other", perms=PERMS, stages=[CUT]
+        )
 
-    @classmethod
-    def _ticket(cls, company):
-        product = ProductTemplate.objects.create(
-            name="Ventana", company=company, production_stages=[CUT]
-        )
-        config = Configuration.objects.create(company=company, product=product)
-        ticket = ProductionTicket.objects.create(
-            company=company,
-            content_type=ContentType.objects.get_for_model(config),
-            object_id=config.id,
-        )
-        item = ProductionItem.objects.create(
-            ticket=ticket,
-            company=company,
-            planning={CUT: {"status": ProductionItemStatus.PENDING}},
-            production_stages_order=[CUT],
-        )
-        return ticket, item
-
-    @classmethod
-    def _employee(cls, username, company, permissions):
-        user = User.objects.create_user(username=username, password="x", is_staff=True)
-        user.user_permissions.set(permissions)
-        CompanyUser.objects.create(user=user, company=company)
-        return Employee.objects.create(
-            company=company,
-            user=user,
-            first_name=username,
-            last_name="Test",
-            hired_at=date(2020, 1, 1),
-            can_work_on_production=True,
-            production_stages=[CUT],
-        )
+    @staticmethod
+    def _ticket(company):
+        product = make_product(company, name="Ventana", stages=[CUT])
+        ticket = make_ticket(company, stages=[CUT], product=product, bom=False)
+        return ticket, make_item(ticket, stages=[CUT], planning={CUT: {"status": ProductionItemStatus.PENDING}})
 
     def setUp(self):
         cache.clear()

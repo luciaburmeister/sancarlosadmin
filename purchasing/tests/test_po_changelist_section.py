@@ -15,28 +15,27 @@ from django.urls import reverse
 from django.utils import timezone, translation
 
 from accounting.models import CostCenter
-from company.models import Company
-from materials.models import Provider
 from purchasing.admin import PurchaseOrderAdmin, PurchaseOrderDetailsSection
-from purchasing.models import PurchaseOrder, PurchaseOrderStatus, PurchaseOrderType
+from purchasing.models import PurchaseOrderStatus, PurchaseOrderType
+from purchasing.tests.factories import make_company, make_provider, make_purchase_order
 
 
 class PurchaseOrderChangelistSectionTest(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
+        self.company = make_company()
         self.cost_center = CostCenter.objects.create(
             company=self.company, code="211", name="Flota Cuba"
         )
         # A new PO snapshots payment terms from its provider, so set them there.
-        self.provider = Provider.objects.create(
-            company=self.company, name="Proveedor SA", default_cost_center=self.cost_center,
+        self.provider = make_provider(
+            company=self.company, default_cost_center=self.cost_center,
             payment_terms_days=30,
         )
         self.user = get_user_model().objects.create_superuser(
             username="admin", email="admin@example.com", password="pw",
             first_name="Ana", last_name="Compras",
         )
-        self.po = PurchaseOrder.objects.create(
+        self.po = make_purchase_order(
             company=self.company, provider=self.provider,
             date_ordered=date(2026, 6, 1), po_type=PurchaseOrderType.STOCK,
             requested_by=self.user, status=PurchaseOrderStatus.APPROVED,
@@ -91,9 +90,9 @@ class PurchaseOrderChangelistSectionTest(TestCase):
         self.assertNotIn("Approved by", html)
 
     def test_section_handles_empty_relations(self):
-        bare = PurchaseOrder.objects.create(
+        bare = make_purchase_order(
             company=self.company,
-            provider=Provider.objects.create(company=self.company, name="Sin centro"),
+            provider=make_provider(company=self.company, name="Sin centro"),
             date_ordered=date(2026, 6, 2),
         )
         html = self._render(bare)

@@ -1,37 +1,37 @@
 """Shop-floor workers only see production tickets and stages assigned to them."""
-from datetime import date
 
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
 from company.active_company import ActiveCompany
-from company.models import Company, CompanyUser, Employee
-from configurator.models import Configuration, ProductTemplate
 from production.constants import ProductionActions
 from production.models import (
     AssemblyLine,
     AssemblyLineStatus,
-    ProductionItem,
     ProductionItemSession,
     ProductionItemStatus,
     ProductionTicket,
 )
-
-User = get_user_model()
+from production.tests.factories import (
+    make_company,
+    make_item,
+    make_product,
+    make_staff_employee,
+    make_staff_user,
+    make_ticket,
+)
 
 CUT = "corte"
 ASSEMBLY = "montaje"
+PERMS = ["view_productionticket", "change_productionitem"]
 
 
 class WorkerStageVisibilityTest(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Alpha", production_stages=[CUT, ASSEMBLY])
-        cls.other_company = Company.objects.create(name="Beta", production_stages=[CUT, ASSEMBLY])
+        cls.company = make_company(name="Alpha", stages=[CUT, ASSEMBLY])
+        cls.other_company = make_company(name="Beta", stages=[CUT, ASSEMBLY])
 
         cls.cut_ready = cls._ticket(cls.company, cut=ProductionItemStatus.PENDING)
         cls.assembly_ready = cls._ticket(cls.company, cut=ProductionItemStatus.DONE)
@@ -40,49 +40,21 @@ class WorkerStageVisibilityTest(TestCase):
         )
         cls._ticket(cls.other_company, cut=ProductionItemStatus.PENDING)
 
-        permissions = Permission.objects.filter(
-            codename__in=["view_productionticket", "change_productionitem"]
-        )
-        cls.cutter = cls._user("cutter", permissions, stages=[CUT])
-        cls.unassigned = cls._user("unassigned", permissions, stages=[])
-        cls.office = cls._user("office", permissions, stages=None)
+        cls.cutter = make_staff_employee(
+            cls.company, username="cutter", perms=PERMS, stages=[CUT]
+        ).user
+        cls.unassigned = make_staff_employee(
+            cls.company, username="unassigned", perms=PERMS, stages=[]
+        ).user
+        cls.office = make_staff_user(username="office", companies=[cls.company], perms=PERMS)
 
-    @classmethod
-    def _ticket(cls, company, cut, assembly=ProductionItemStatus.PENDING):
-        product = ProductTemplate.objects.create(
-            name="Ventana", company=company, production_stages=[CUT, ASSEMBLY]
-        )
-        config = Configuration.objects.create(company=company, product=product)
-        ticket = ProductionTicket.objects.create(
-            company=company,
-            content_type=ContentType.objects.get_for_model(config),
-            object_id=config.id,
-        )
-        ProductionItem.objects.create(
-            ticket=ticket,
-            company=company,
-            planning={CUT: {"status": cut}, ASSEMBLY: {"status": assembly}},
-            production_stages_order=[CUT, ASSEMBLY],
-        )
+    @staticmethod
+    def _ticket(company, cut, assembly=ProductionItemStatus.PENDING):
+        product = make_product(company, name="Ventana", stages=[CUT, ASSEMBLY])
+        ticket = make_ticket(company, stages=[CUT, ASSEMBLY], product=product, bom=False)
+        make_item(ticket, stages=[CUT, ASSEMBLY], planning={CUT: {"status": cut}, ASSEMBLY: {"status": assembly}})
         ticket.refresh_from_db()
         return ticket
-
-    @classmethod
-    def _user(cls, username, permissions, stages):
-        user = User.objects.create_user(username=username, password="x", is_staff=True)
-        user.user_permissions.set(permissions)
-        CompanyUser.objects.create(user=user, company=cls.company)
-        if stages is not None:
-            Employee.objects.create(
-                company=cls.company,
-                user=user,
-                first_name=username,
-                last_name="Test",
-                hired_at=date(2020, 1, 1),
-                can_work_on_production=True,
-                production_stages=stages,
-            )
-        return user
 
     def setUp(self):
         cache.clear()

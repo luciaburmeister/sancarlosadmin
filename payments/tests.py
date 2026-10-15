@@ -7,13 +7,9 @@ here and the claim-specific behaviour lives in `apps.expenses.tests`.
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.urls import reverse
-from django.utils import translation
 from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import (
     Invoice,
     InvoicePaymentStatus,
@@ -22,34 +18,19 @@ from invoices.models import (
 )
 from materials.models import Provider
 from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod
+from payments.testing import CompanyAdminTestMixin, payment_form
 from sales.models import Client
 
-User = get_user_model()
 
-
-class RegisterPaymentViewTest(TestCase):
+class RegisterPaymentViewTest(CompanyAdminTestMixin, TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
-        self.user = User.objects.create_superuser(username="finance", password="pw", email="fin@example.com")
-        self.client.force_login(self.user)
+        super().setUp()
+        self.user = self.login_superuser()
         self.today = date(2026, 7, 3)
         self.provider = Provider.objects.create(company=self.company, name="Perfiles SA")
 
-    def _post(self, url_name, pk, amount):
-        # LocaleMiddleware activates the URL prefix's language and never
-        # restores it, so the request has to run inside the override.
-        with translation.override("en"):
-            return self.client.post(reverse(url_name, args=[pk]), {
-                "amount": amount,
-                "currency": "EUR",
-                "payment_date": "2026-07-03",
-                "method": PaymentMethod.TRANSFER,
-                "reference": "REF-1",
-            })
-
-    def _get(self, url_name, pk):
-        with translation.override("en"):
-            return self.client.get(reverse(url_name, args=[pk]))
+    def _pay(self, url_name, pk, amount):
+        return self._post(url_name, pk, data=payment_form(amount=amount))
 
     # ── Purchase invoice: money goes out ─────────────────────────────────────
 
@@ -74,7 +55,7 @@ class RegisterPaymentViewTest(TestCase):
 
     def test_paying_a_purchase_invoice_creates_an_outbound_payment(self):
         invoice = self._purchase_invoice()
-        response = self._post("admin:invoices_invoice_register_payment", invoice.pk, "1210.00")
+        response = self._pay("admin:invoices_invoice_register_payment", invoice.pk, "1210.00")
         self.assertEqual(response.status_code, 302)
 
         payment = Payment.objects.get()
@@ -89,13 +70,13 @@ class RegisterPaymentViewTest(TestCase):
         # No cap is declared for invoices, unlike expense claims, but the
         # excess is not saved until the user confirms the distribution step.
         invoice = self._purchase_invoice()
-        response = self._post("admin:invoices_invoice_register_payment", invoice.pk, "2000.00")
+        response = self._pay("admin:invoices_invoice_register_payment", invoice.pk, "2000.00")
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "admin/payments/distribute_surplus.html")
         self.assertEqual(response.context["surplus"], Money("790.00", "EUR"))
         self.assertFalse(Payment.objects.exists())
 
-        response = self._post("admin:invoices_invoice_distribute_surplus", invoice.pk, "2000.00")
+        response = self._pay("admin:invoices_invoice_distribute_surplus", invoice.pk, "2000.00")
         self.assertEqual(response.status_code, 302)
 
         payment = Payment.objects.get()
@@ -119,15 +100,16 @@ class RegisterPaymentViewTest(TestCase):
 
     def test_paying_a_sales_invoice_creates_an_inbound_payment(self):
         invoice = self._sales_invoice()
-        response = self._post("admin:invoices_salesinvoice_register_payment", invoice.pk, "50.00")
+        response = self._pay("admin:invoices_salesinvoice_register_payment", invoice.pk, "50.00")
         self.assertEqual(response.status_code, 302)
 
         payment = Payment.objects.get()
         self.assertEqual(payment.direction, PaymentDirection.INBOUND)
+        self.assertEqual(payment.client, invoice.client)
         self.assertEqual(PaymentAllocation.objects.get().related_object, invoice)
 
 
-class PaymentDeletionRevertsInvoiceStatusTest(TestCase):
+class PaymentDeletionRevertsInvoiceStatusTest(CompanyAdminTestMixin, TestCase):
     """
     Deleting a Payment cascades the deletion of its PaymentAllocation rows
     through Django's collector, which bypasses PaymentAllocation.delete().
@@ -135,7 +117,7 @@ class PaymentDeletionRevertsInvoiceStatusTest(TestCase):
     """
 
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.today = date(2026, 7, 3)
 
     def test_deleting_the_payment_reverts_a_fully_paid_purchase_invoice_to_unpaid(self):

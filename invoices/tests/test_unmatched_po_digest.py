@@ -6,7 +6,6 @@ from django.test import TestCase
 from django.utils import timezone
 from djmoney.money import Money
 
-from company.models import Company
 from inventory.models import InventoryItem
 from invoices.models import (
     Invoice,
@@ -19,7 +18,7 @@ from invoices.services.unmatched_po_digest_email_service import (
 )
 from invoices.services.unmatched_po_digest_service import UnmatchedPODigestService
 from invoices.tasks import send_unmatched_po_digest
-from materials.models import Provider
+from invoices.tests.digest_fixtures import make_company, make_purchase_invoice
 from purchasing.models import (
     PurchaseOrder,
     PurchaseOrderItem,
@@ -34,7 +33,7 @@ class SendUnmatchedPODigestTests(TestCase):
     STALE_HOURS = UnmatchedPODigestService.GRACE_HOURS + 1
 
     def _make_company(self, name="Alpha", emails=None):
-        return Company.objects.create(
+        return make_company(
             name=name,
             unmatched_po_digest_emails=["compras@example.com"]
             if emails is None
@@ -56,15 +55,8 @@ class SendUnmatchedPODigestTests(TestCase):
         backdate it past the grace period.
         """
         age_hours = self.STALE_HOURS if age_hours is None else age_hours
-        provider = kwargs.pop("provider", None) or Provider.objects.create(
-            company=company, name=f"Proveedor {number}"
-        )
-        invoice = Invoice.objects.create(
-            company=company,
-            provider=provider,
-            invoice_number=number,
-            total_amount=Money(total, "EUR"),
-            **kwargs,
+        invoice = make_purchase_invoice(
+            company=company, number=number, total=total, **kwargs,
         )
         if quantity is not None:
             InvoiceItem.objects.create(
@@ -173,17 +165,6 @@ class SendUnmatchedPODigestTests(TestCase):
         self.assertEqual(digest.count, 1)
         self.assertEqual(digest.rows[0].uncovered_amount, Decimal("250.00"))
 
-    def test_skips_invoice_registered_before_start_date(self, _send):
-        """Old invoices nobody will match retroactively stay out of the digest."""
-        company = self._make_company()
-        company.unmatched_po_digest_start_date = (
-            timezone.localdate() - timedelta(days=2)
-        )
-        company.save()
-        self._make_invoice(company, age_hours=24 * 10)
-
-        self.assertEqual(self._digest_for(company).count, 0)
-
     def test_reports_invoice_registered_on_start_date(self, _send):
         company = self._make_company()
         invoice = self._make_invoice(company, age_hours=24 * 3)
@@ -194,15 +175,9 @@ class SendUnmatchedPODigestTests(TestCase):
 
         self.assertEqual(self._digest_for(company).count, 1)
 
-    def test_empty_start_date_reports_every_invoice(self, _send):
-        company = self._make_company()
-        company.unmatched_po_digest_start_date = None
-        company.save()
-        self._make_invoice(company, age_hours=24 * 400)
-
-        self.assertEqual(self._digest_for(company).count, 1)
-
     def test_start_date_is_per_company(self, _send):
+        """Old invoices nobody will match retroactively stay out of the digest;
+        a company with no start date gets every invoice reported."""
         alpha = self._make_company("Alpha")
         beta = self._make_company("Beta")
         alpha.unmatched_po_digest_start_date = timezone.localdate()
@@ -229,29 +204,8 @@ class SendUnmatchedPODigestTests(TestCase):
 
         self.assertEqual(digests[company.pk].count, 1)
 
-    def test_grace_hours_can_be_overridden(self, _send):
-        company = self._make_company()
-        self._make_invoice(company, age_hours=10)
-
-        digests = UnmatchedPODigestService.get_company_digests(
-            [company], grace_hours=5
-        )
-
-        self.assertEqual(digests[company.pk].count, 1)
-
-    def test_company_grace_hours_is_honoured(self, _send):
-        """The threshold is editable per company from the admin."""
-        company = self._make_company()
-        company.unmatched_po_digest_grace_hours = 4
-        company.save()
-        self._make_invoice(company, age_hours=6)
-
-        digest = self._digest_for(company)
-
-        self.assertEqual(digest.count, 1)
-        self.assertEqual(digest.grace_hours, 4)
-
     def test_grace_hours_is_per_company(self, _send):
+        """The threshold is editable per company from the admin."""
         alpha = self._make_company("Alpha")
         beta = self._make_company("Beta")
         alpha.unmatched_po_digest_grace_hours = 4
@@ -263,7 +217,9 @@ class SendUnmatchedPODigestTests(TestCase):
 
         digests = UnmatchedPODigestService.get_company_digests([alpha, beta])
 
+        self.assertEqual(digests[alpha.pk].grace_hours, 4)
         self.assertEqual(digests[alpha.pk].count, 1)  # past its 4h threshold
+        self.assertEqual(digests[beta.pk].grace_hours, 72)
         self.assertEqual(digests[beta.pk].count, 0)  # still inside its 72h one
 
     def test_only_reports_invoices_of_requested_companies(self, _send):

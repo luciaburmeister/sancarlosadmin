@@ -1,15 +1,11 @@
 from datetime import date, timedelta
 from decimal import Decimal
-import time
 from unittest.mock import patch
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from django.core.cache import cache
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.http import Http404
@@ -19,11 +15,11 @@ from django.utils import timezone, translation
 from djmoney.money import Money
 
 from company.active_company import ActiveCompany
-from company.models import Company, CompanyUser
+from company.models import CompanyUser
 from inventory.models import InventoryItem
 from invoices.models import AppliedTax, TaxType
 from management.models import ProjectFile
-from materials.models import PaymentMethod, Provider
+from materials.models import PaymentMethod
 from purchasing.admin import (
     ProjectPurchaseApprovalRuleAdmin, PurchaseOrderAdmin, PurchaseOrderDetailsSection,
 )
@@ -35,18 +31,19 @@ from purchasing.models import (
     PurchaseOrderType,
 )
 from purchasing.tasks import process_due_purchase_order_approvals
+from purchasing.tests.factories import (
+    login_scoped, make_admin_request, make_company, make_provider, make_purchase_order,
+)
 from sales.models import Client
 
 
 class ProjectPurchaseApprovalRuleTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Purchasing Co", tax_identifier="B12345678")
-        cls.other_company = Company.objects.create(name="Other Co", tax_identifier="B87654321")
-        cls.provider = Provider.objects.create(
-            company=cls.company, name="Supplier", payment_terms_days=30
-        )
-        cls.other_provider = Provider.objects.create(company=cls.other_company, name="Other supplier")
+        cls.company = make_company(name="Purchasing Co")
+        cls.other_company = make_company(name="Other Co", tax_identifier="B87654321")
+        cls.provider = make_provider(company=cls.company, name="Supplier", payment_terms_days=30)
+        cls.other_provider = make_provider(company=cls.other_company, name="Other supplier")
         client = Client.objects.create(company=cls.company, name="Buyer")
         cls.project = ProjectFile.objects.create(company=cls.company, client=client, name="Project")
         other_client = Client.objects.create(company=cls.other_company, name="Other buyer")
@@ -68,15 +65,11 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         ActiveCompany.clear_current()
 
     def _request(self):
-        request = RequestFactory().post("/", {"_form_submitted": "on"})
-        SessionMiddleware(lambda r: None).process_request(request)
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.user
-        return request
+        return make_admin_request(user=self.user, data={"_form_submitted": "on"})
 
     def _order(self, amount="100.00", po_type=PurchaseOrderType.PROJECT, company=None):
         company = company or self.company
-        po = PurchaseOrder.objects.create(
+        po = make_purchase_order(
             company=company,
             provider=self.provider if company == self.company else self.other_provider,
             project_file=self.project if po_type == PurchaseOrderType.PROJECT and company == self.company else None,
@@ -103,6 +96,18 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
             self.po_admin._send_to_approval(self._request(), po)
         po.refresh_from_db()
         return pending, decision
+
+    def _assert_stays_pending(self, po, pending, decision):
+        """The order waits for a person: approvers are told, no decision is sent."""
+        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
+        pending.assert_called_once_with(po.pk)
+        decision.assert_not_called()
+
+    def _assert_auto_approved(self, po, pending, decision):
+        """The order was approved on submission: only the requester is told."""
+        self.assertEqual(po.status, PurchaseOrderStatus.APPROVED)
+        pending.assert_not_called()
+        decision.assert_called_once_with(po.pk, "approved")
 
     def _set_project_revenue(self, amount):
         self.project.total_amount = Money(amount, "EUR")
@@ -195,12 +200,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         )
         po = self._order()
         self._submit(po)
-        self.client.force_login(self.user)
-        cache.delete(ActiveCompany.SUPERUSER_IDS_CACHE_KEY)
-        session = self.client.session
-        session[ActiveCompany.SESSION_KEY] = [self.company.pk]
-        session[ActiveCompany.SESSION_SET_AT_KEY] = time.time()
-        session.save()
+        login_scoped(client=self.client, user=self.user, company=self.company)
         with (
             patch("purchasing.tasks.send_purchase_order_decision_notification.delay") as notified,
             self.captureOnCommitCallbacks(execute=True),
@@ -262,10 +262,8 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         po = self._order()
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
+        self._assert_stays_pending(po, pending, decision)
         self.assertFalse(po.approved_automatically)
-        pending.assert_called_once_with(po.pk)
-        decision.assert_not_called()
 
     def test_immediate_bank_transfer_requires_manual_approval(self):
         ProjectPurchaseApprovalRule.objects.create(
@@ -277,10 +275,8 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
+        self._assert_stays_pending(po, pending, decision)
         self.assertFalse(po.approved_automatically)
-        pending.assert_called_once_with(po.pk)
-        decision.assert_not_called()
 
     def test_non_immediate_payment_still_approves_automatically(self):
         ProjectPurchaseApprovalRule.objects.create(
@@ -295,9 +291,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         for po in (transfer_later, immediate_card):
             with self.subTest(payment_method=po.payment_method, days=po.payment_terms_days):
                 pending, decision = self._submit(po)
-                self.assertEqual(po.status, PurchaseOrderStatus.APPROVED)
-                pending.assert_not_called()
-                decision.assert_called_once_with(po.pk, "approved")
+                self._assert_auto_approved(po, pending, decision)
 
     def test_immediate_transfer_review_can_be_disabled_per_company(self):
         ProjectPurchaseApprovalRule.objects.create(
@@ -311,9 +305,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.APPROVED)
-        pending.assert_not_called()
-        decision.assert_called_once_with(po.pk, "approved")
+        self._assert_auto_approved(po, pending, decision)
 
     def test_margin_at_minimum_approves_after_existing_committed_purchases(self):
         self._set_project_revenue("1000")
@@ -332,9 +324,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.APPROVED)
-        pending.assert_not_called()
-        decision.assert_called_once_with(po.pk, "approved")
+        self._assert_auto_approved(po, pending, decision)
         self.project.refresh_from_db()
         self.assertEqual(self.project.total_purchased.amount, Decimal("300"))
 
@@ -350,9 +340,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
-        pending.assert_called_once_with(po.pk)
-        decision.assert_not_called()
+        self._assert_stays_pending(po, pending, decision)
 
     def test_margin_includes_other_project_costs(self):
         self._set_project_revenue("1000")
@@ -369,9 +357,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
-        pending.assert_called_once_with(po.pk)
-        decision.assert_not_called()
+        self._assert_stays_pending(po, pending, decision)
 
     def test_margin_rule_requires_positive_project_revenue(self):
         ProjectPurchaseApprovalRule.objects.create(
@@ -384,9 +370,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
-        pending.assert_called_once_with(po.pk)
-        decision.assert_not_called()
+        self._assert_stays_pending(po, pending, decision)
 
     def test_margin_rule_rejects_percent_outside_zero_to_one_hundred(self):
         for value in (Decimal("-0.01"), Decimal("100.01")):
@@ -412,9 +396,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         pending, decision = self._submit(po)
 
-        self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
-        pending.assert_called_once_with(po.pk)
-        decision.assert_not_called()
+        self._assert_stays_pending(po, pending, decision)
 
     def test_foreign_provider_or_item_cannot_qualify_for_automatic_approval(self):
         ProjectPurchaseApprovalRule.objects.create(
@@ -430,9 +412,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         for po in (foreign_provider, foreign_item):
             with self.subTest(po=po.pk):
                 pending, decision = self._submit(po)
-                self.assertEqual(po.status, PurchaseOrderStatus.PENDING_APPROVAL)
-                pending.assert_called_once_with(po.pk)
-                decision.assert_not_called()
+                self._assert_stays_pending(po, pending, decision)
 
     def test_automatic_approval_notifies_requester_without_pending_email(self):
         self.company.purchase_order_notification_emails = ["approver@example.com"]
@@ -462,11 +442,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
             codename__in=("view_purchaseorder", "change_purchaseorder"),
         ))
         self.assertFalse(employee.has_perm("purchasing.view_projectpurchaseapprovalrule"))
-        self.client.force_login(employee)
-        session = self.client.session
-        session[ActiveCompany.SESSION_KEY] = [self.company.pk]
-        session[ActiveCompany.SESSION_SET_AT_KEY] = time.time()
-        session.save()
+        login_scoped(client=self.client, user=employee, company=self.company)
 
         rule = ProjectPurchaseApprovalRule.objects.create(
             company=self.company, maximum_amount=Money("500", "EUR")
@@ -574,19 +550,12 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
             company=self.company, maximum_amount=Money("500", "EUR")
         )
         po = self._order()
-        self.client.force_login(self.user)
-        cache.delete(ActiveCompany.SUPERUSER_IDS_CACHE_KEY)
-        session = self.client.session
-        session[ActiveCompany.SESSION_KEY] = [self.company.pk]
-        session[ActiveCompany.SESSION_SET_AT_KEY] = time.time()
-        session.save()
+        login_scoped(client=self.client, user=self.user, company=self.company)
         url = reverse("admin:purchasing_purchaseorder_send_to_approval", args=[po.pk])
 
-        response = self.client.get(url)
+        # The dialog's wording is checked in test_employee_sees_no_automatic_approval_details
+        self.assertEqual(self.client.get(url).status_code, 200)
         po.refresh_from_db()
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "¿Enviar esta orden a aprobación?")
-        self.assertNotContains(response, "automáticamente")
         self.assertEqual(po.status, PurchaseOrderStatus.DRAFT)
 
         with (
@@ -684,12 +653,7 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         )
         foreign_po.status = PurchaseOrderStatus.PENDING_APPROVAL
         foreign_po.save(update_fields=["status"])
-        self.client.force_login(self.user)
-        cache.delete(ActiveCompany.SUPERUSER_IDS_CACHE_KEY)
-        session = self.client.session
-        session[ActiveCompany.SESSION_KEY] = [self.company.pk]
-        session[ActiveCompany.SESSION_SET_AT_KEY] = time.time()
-        session.save()
+        login_scoped(client=self.client, user=self.user, company=self.company)
         url = reverse("admin:purchasing_purchaseorder_reject", args=[foreign_po.pk])
 
         self.assertEqual(self.client.get(url).status_code, 404)

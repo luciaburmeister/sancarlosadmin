@@ -7,51 +7,43 @@ invoice built from the expediente — never IRPF on the base plus the IVA.
 from datetime import date
 from decimal import Decimal
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from djmoney.money import Money
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from invoices.models import AppliedTax, TaxType
+from configurator.models import ConfigurationStatus
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile
-from sales.models import Client, Quote, QuoteStatus
+from invoices.tests.factories import (
+    apply_tax,
+    get_irpf,
+    get_iva21,
+    make_client,
+    make_company,
+    make_configuration,
+    make_product_template,
+    make_project_file,
+    make_quote,
+)
 
 
 class ConfigurationTaxesTest(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Retenciones SL")
-        self.client_obj = Client.objects.create(name="Cliente SA", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="Obra", company=self.company, client=self.client_obj,
+        self.company = make_company(name="Retenciones SL")
+        self.client_obj = make_client(company=self.company, name="Cliente SA")
+        self.project_file = make_project_file(
+            company=self.company, client=self.client_obj, name="Obra",
         )
-        self.quote = Quote.objects.create(
-            project_name="Obra", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.ACCEPTED,
-        )
-        self.config = Configuration.objects.create(
-            name="Ventana",
-            company=self.company,
-            product=ProductTemplate.objects.create(name="Ventana", company=self.company),
-            client=self.client_obj,
-            quote=self.quote,
-            project_file=self.project_file,
+        self.quote = make_quote(project_file=self.project_file, project_name="Obra")
+        self.config = make_configuration(
+            quote=self.quote, name="Ventana", tax_pct=None,
+            product=make_product_template(company=self.company, name="Ventana"),
             status=ConfigurationStatus.DRAFT,
             price_override=Money(Decimal("1000.00"), "EUR"),
         )
-        for order, (name, behavior, percentage) in enumerate(
-            (("IVA", "add", "21"), ("IRPF", "subtract", "15"))
+        for order, (tax_type, percentage) in enumerate(
+            ((get_iva21(), "21"), (get_irpf(), "15"))
         ):
-            tax_type, _created = TaxType.objects.get_or_create(
-                tax_name=name, country="ES", defaults={"behavior": behavior},
-            )
-            AppliedTax.objects.create(
-                content_type=ContentType.objects.get_for_model(Configuration),
-                object_id=self.config.pk,
-                tax_type=tax_type,
-                selected_percentage=Decimal(percentage),
-                order=order,
+            apply_tax(
+                self.config, tax_type=tax_type, percentage=percentage, order=order,
             )
         self.config.recalculate_price()
         self.config.refresh_from_db()

@@ -48,16 +48,6 @@ class SyncFromDateTests(TestCase):
             ArcopayService.sync_account(self.account, **sync_kwargs)
         return calls
 
-    def test_sync_uses_sync_from_date_when_set(self):
-        """With sync_from_date = Jan 1st, transactions are fetched from Jan 1st."""
-        self.account.sync_from_date = date(2026, 1, 1)
-        self.account.save()
-
-        calls = self._sync_and_capture_start_dates()
-        self.assertTrue(calls)
-        for call in calls:
-            self.assertEqual(call["start_date"], date(2026, 1, 1))
-
     def test_sync_defaults_to_90_days_without_sync_from_date(self):
         calls = self._sync_and_capture_start_dates()
         self.assertTrue(calls)
@@ -78,13 +68,6 @@ class SyncFromDateTests(TestCase):
         self.assertTrue(calls)
         for call in calls:
             self.assertEqual(call["start_date"], date(2026, 1, 1))
-
-    def test_sync_without_token_does_not_call_api(self):
-        self.account.nuek_token = ""
-        self.account.save()
-
-        calls = self._sync_and_capture_start_dates()
-        self.assertEqual(calls, [])
 
     def test_sync_from_date_cleared_after_successful_sync(self):
         """The backfill date is one-shot: gone once the sync succeeds."""
@@ -111,12 +94,13 @@ class SyncFromDateTests(TestCase):
         self.account.refresh_from_db()
         self.assertEqual(self.account.sync_from_date, date(2026, 1, 1))
 
-    def test_sync_from_date_kept_when_no_token(self):
+    def test_sync_without_token_calls_nothing_and_keeps_sync_from_date(self):
         self.account.nuek_token = ""
         self.account.sync_from_date = date(2026, 1, 1)
         self.account.save()
 
-        self._sync_and_capture_start_dates()
+        calls = self._sync_and_capture_start_dates()
+        self.assertEqual(calls, [])
         self.account.refresh_from_db()
         self.assertEqual(self.account.sync_from_date, date(2026, 1, 1))
 

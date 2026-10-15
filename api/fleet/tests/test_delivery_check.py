@@ -8,16 +8,15 @@ drop; this endpoint is what the app uses to build the zone picker.
 """
 
 from django.utils import timezone
-from rest_framework.test import APIClient, APITestCase
+from rest_framework.test import APITestCase
 
 from api.fleet.tests.helpers import (
+    ApiFixtureMixin,
+    make_almacen,
     make_asset,
     make_asset_type,
-    make_company,
-    make_employee,
+    make_obra,
     make_planning,
-    make_user,
-    make_zone,
 )
 from assets.models import (
     AssetTransaction,
@@ -26,23 +25,17 @@ from assets.models import (
     PlanningType,
     TransactionTypeChoices,
 )
-from company.models import WorkingZone
 
 
 GPS_LAT = 40.416775
 GPS_LON = -3.703790
 
 
-class DeliveryCheckDejarTests(APITestCase):
+class DeliveryCheckDejarTests(ApiFixtureMixin, APITestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
-        self.obra = make_zone(self.company, name="Obra Destino", lat=GPS_LAT, lon=GPS_LON)
-        self.obra.zone_type = WorkingZone.ZoneType.OBRA
-        self.obra.save()
+        self.obra = make_obra(self.company, name="Obra Destino", lat=GPS_LAT, lon=GPS_LON)
         self.asset = make_asset(
             self.company, self.asset_type, employee=self.employee, zone=self.obra,
         )
@@ -51,7 +44,6 @@ class DeliveryCheckDejarTests(APITestCase):
             planning_type=PlanningType.CUBA, cuba_operation_type=CubaOperationType.PUESTA,
             destination=self.obra,
         )
-        self.client.force_authenticate(user=self.user)
 
     def _url(self, **extra):
         params = {
@@ -75,10 +67,7 @@ class DeliveryCheckDejarTests(APITestCase):
         )
 
     def _almacen_nearby(self):
-        almacen = make_zone(self.company, name="Almacen Cercano", lat=GPS_LAT, lon=GPS_LON)
-        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
-        almacen.save()
-        return almacen
+        return make_almacen(self.company, name="Almacen Cercano", lat=GPS_LAT, lon=GPS_LON)
 
     def test_empty_cuba_offers_destination_obra(self):
         self._pick_up(full=False)

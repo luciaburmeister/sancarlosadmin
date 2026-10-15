@@ -20,21 +20,17 @@ import json
 from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 from django.utils import timezone
 from django_celery_beat.models import PeriodicTask
 
-from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
 from assets.constants import (
     SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS, SERVICE_TYPE_MATERIAL_EXTERNO,
     SERVICE_TYPE_AUTOPORTE_MAQUINA, SERVICE_TYPE_PEONES,
 )
 from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, AssetTransaction, PlanningType, TransactionTypeChoices
 from assets.tasks import apply_scheduled_zone_change
-from management.models import ProjectFile
-from sales.models import Client
+from assets.tests.factories import PlanningRequestFixtureMixin, approve_request, make_project_file
 from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_employee, make_planning, make_user, make_zone
 
 User = get_user_model()
@@ -134,128 +130,89 @@ class PorteDeliveryZoneSyncTests(TestCase):
         self.assertEqual(self.machine.current_working_zone_id, self.origin.id)
 
 
-class MachinistMovementRequestTests(TestCase):
+class EmployeeMovementRequestTests(PlanningRequestFixtureMixin, TestCase):
+    """Machinist Movement (SERVICE_TYPE_MAQUINISTAS) and Laborer Movement
+    (SERVICE_TYPE_PEONES) share one mechanism: planning_type == NONE, no
+    AssetPlanning, approval just moves moved_employees to to_zone (now, or
+    via the scheduled zone-sync task when needed_date is in the future)."""
+
+    # (service_type, project_file) — a project file is optional for both;
+    # exercised with one for machinists and without for laborers.
+    SERVICE_TYPES = (SERVICE_TYPE_MAQUINISTAS, SERVICE_TYPE_PEONES)
+
     def setUp(self):
-        self.company = make_company()
+        super().setUp()
         self.from_zone = make_zone(self.company, name="From Zone")
-        self.to_zone = make_zone(self.company, name="To Zone")
-        client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
-        self.machinist = make_employee(self.company, make_user(username="machinist1"))
+        self.employee = make_employee(self.company, make_user(username="mover1"))
 
-        self.superuser = User.objects.create_superuser(username="admin", password="testpass123", email="a@a.com")
-        make_employee(self.company, self.superuser)
+    def _project_file_for(self, service_type):
+        return self.project_file if service_type == SERVICE_TYPE_MAQUINISTAS else None
 
-    def _make_request(self, needed_date):
+    def _make_request(self, service_type, needed_date):
         req = AssetPlanningRequest(
             company=self.company,
-            service_type=SERVICE_TYPE_MAQUINISTAS,
+            service_type=service_type,
             to_zone=self.to_zone,
             from_zone=self.from_zone,
             needed_date=needed_date,
-            project_file=self.project_file,
+            project_file=self._project_file_for(service_type),
         )
         req.full_clean(exclude=["planning_type"])
         req.save()
-        req.moved_employees.set([self.machinist])
+        req.moved_employees.set([self.employee])
         return req
 
     def _approve(self, req):
-        request = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        request.session.save()
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.superuser
-        AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None).approve_submit_action(request, req)
+        approve_request(req, self.superuser)
+
+    def _reset_employee_zone(self):
+        self.employee.current_working_zone = None
+        self.employee.save(update_fields=["current_working_zone"])
 
     def test_clean_does_not_require_estimated_duration(self):
-        req = self._make_request(date.today())
+        req = self._make_request(SERVICE_TYPE_MAQUINISTAS, date.today())
         self.assertIsNone(req.estimated_duration)
         self.assertEqual(req.planning_type, PlanningType.NONE)
 
-    def test_approve_today_moves_machinist_immediately_without_planning(self):
-        req = self._make_request(date.today())
-        self._approve(req)
-        req.refresh_from_db()
-        self.assertEqual(req.status, AssetPlanningRequestStatus.APPROVED)
-        self.assertIsNone(req.resulting_planning)
-        self.assertIsNotNone(req.zone_sync_applied_at)
-        self.machinist.refresh_from_db()
-        self.assertEqual(self.machinist.current_working_zone_id, self.to_zone.id)
-
-    def test_approve_future_date_does_not_move_machinist_yet(self):
-        req = self._make_request(date.today() + timedelta(days=3))
-        self._approve(req)
-        req.refresh_from_db()
-        self.assertEqual(req.status, AssetPlanningRequestStatus.APPROVED)
-        self.assertIsNone(req.zone_sync_applied_at)
-        self.machinist.refresh_from_db()
-        self.assertIsNone(self.machinist.current_working_zone_id)
-
-    def test_approve_without_machinists_selected_is_rejected(self):
-        req = self._make_request(date.today())
-        req.moved_employees.clear()
-        self._approve(req)
-        req.refresh_from_db()
-        self.assertEqual(req.status, AssetPlanningRequestStatus.PENDING_REVIEW)
-
-
-class LaborerMovementRequestTests(TestCase):
-    """Same mechanism as MachinistMovementRequestTests, but for SERVICE_TYPE_PEONES."""
-
-    def setUp(self):
-        self.company = make_company()
-        self.from_zone = make_zone(self.company, name="From Zone")
-        self.to_zone = make_zone(self.company, name="To Zone")
-        self.laborer = make_employee(self.company, make_user(username="laborer1"))
-
-        self.superuser = User.objects.create_superuser(username="admin2", password="testpass123", email="b@a.com")
-        make_employee(self.company, self.superuser)
-
-    def _make_request(self, needed_date):
-        req = AssetPlanningRequest(
-            company=self.company,
-            service_type=SERVICE_TYPE_PEONES,
-            to_zone=self.to_zone,
-            from_zone=self.from_zone,
-            needed_date=needed_date,
-        )
-        # No project_file — no longer required for planning_type == NONE.
-        req.full_clean(exclude=["planning_type"])
-        req.save()
-        req.moved_employees.set([self.laborer])
-        return req
-
-    def _approve(self, req):
-        request = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        request.session.save()
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.superuser
-        AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None).approve_submit_action(request, req)
-
     def test_clean_does_not_require_project_file(self):
-        req = self._make_request(date.today())
+        # No project_file — no longer required for planning_type == NONE.
+        req = self._make_request(SERVICE_TYPE_PEONES, date.today())
         self.assertIsNone(req.project_file_id)
         self.assertEqual(req.planning_type, PlanningType.NONE)
 
-    def test_approve_today_moves_laborer_immediately_without_planning(self):
-        req = self._make_request(date.today())
-        self._approve(req)
-        req.refresh_from_db()
-        self.assertEqual(req.status, AssetPlanningRequestStatus.APPROVED)
-        self.assertIsNone(req.resulting_planning)
-        self.assertIsNotNone(req.zone_sync_applied_at)
-        self.laborer.refresh_from_db()
-        self.assertEqual(self.laborer.current_working_zone_id, self.to_zone.id)
+    def test_approve_today_moves_employee_immediately_without_planning(self):
+        for service_type in self.SERVICE_TYPES:
+            with self.subTest(service_type=service_type):
+                self._reset_employee_zone()
+                req = self._make_request(service_type, date.today())
+                self._approve(req)
+                req.refresh_from_db()
+                self.assertEqual(req.status, AssetPlanningRequestStatus.APPROVED)
+                self.assertIsNone(req.resulting_planning)
+                self.assertIsNotNone(req.zone_sync_applied_at)
+                self.employee.refresh_from_db()
+                self.assertEqual(self.employee.current_working_zone_id, self.to_zone.id)
 
-    def test_approve_future_date_does_not_move_laborer_yet(self):
-        req = self._make_request(date.today() + timedelta(days=3))
-        self._approve(req)
-        req.refresh_from_db()
-        self.assertIsNone(req.zone_sync_applied_at)
-        self.laborer.refresh_from_db()
-        self.assertIsNone(self.laborer.current_working_zone_id)
+    def test_approve_future_date_does_not_move_employee_yet(self):
+        for service_type in self.SERVICE_TYPES:
+            with self.subTest(service_type=service_type):
+                self._reset_employee_zone()
+                req = self._make_request(service_type, date.today() + timedelta(days=3))
+                self._approve(req)
+                req.refresh_from_db()
+                self.assertEqual(req.status, AssetPlanningRequestStatus.APPROVED)
+                self.assertIsNone(req.zone_sync_applied_at)
+                self.employee.refresh_from_db()
+                self.assertIsNone(self.employee.current_working_zone_id)
+
+    def test_approve_without_employees_selected_is_rejected(self):
+        for service_type in self.SERVICE_TYPES:
+            with self.subTest(service_type=service_type):
+                req = self._make_request(service_type, date.today())
+                req.moved_employees.clear()
+                self._approve(req)
+                req.refresh_from_db()
+                self.assertEqual(req.status, AssetPlanningRequestStatus.PENDING_REVIEW)
 
 
 class AutoporteMaquinaRequestTests(TestCase):
@@ -266,8 +223,7 @@ class AutoporteMaquinaRequestTests(TestCase):
         self.company = make_company()
         self.from_zone = make_zone(self.company, name="From Zone")
         self.to_zone = make_zone(self.company, name="To Zone")
-        client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
+        self.project_file = make_project_file(self.company)
         self.asset_type = make_asset_type(self.company, name="Machine")
         self.machine = make_asset(self.company, self.asset_type, zone=self.from_zone, name="Machine 1")
         self.machinist = make_employee(self.company, make_user(username="autoporte_machinist"))
@@ -292,12 +248,7 @@ class AutoporteMaquinaRequestTests(TestCase):
         return req
 
     def _approve(self, req):
-        request = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        request.session.save()
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.superuser
-        AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None).approve_submit_action(request, req)
+        approve_request(req, self.superuser)
 
     def test_clean_does_not_require_from_zone_or_estimated_duration(self):
         req = self._make_request(date.today())
@@ -377,12 +328,7 @@ class ZoneSyncSchedulingTests(TestCase):
         return req
 
     def _approve(self, req):
-        request = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(request)
-        request.session.save()
-        MessageMiddleware(lambda r: None).process_request(request)
-        request.user = self.superuser
-        AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None).approve_submit_action(request, req)
+        approve_request(req, self.superuser)
 
     def test_approving_future_request_schedules_one_off_task(self):
         req = self._make_request(date.today() + timedelta(days=3), needed_time=time(9, 0))

@@ -4,9 +4,7 @@ from unittest.mock import patch
 from celery.exceptions import Retry
 from django.test import TestCase
 from django.utils import timezone
-from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import (
     PaymentReminderLog,
     PaymentReminderLogStatus,
@@ -14,8 +12,6 @@ from invoices.models import (
     PaymentReminderSettings,
     PaymentReminderTriggeredBy,
     PaymentReminderType,
-    SalesInvoice,
-    SalesInvoiceStatus,
 )
 from invoices.tasks import (
     process_payment_reminders,
@@ -23,6 +19,7 @@ from invoices.tasks import (
     send_payment_reminder_email,
     send_payment_reminder_report,
 )
+from invoices.tests.digest_fixtures import make_company, make_sales_invoice
 from sales.models import Client
 
 
@@ -34,7 +31,7 @@ class PaymentReminderReportTests(TestCase):
     # ── Helpers ───────────────────────────────────────────────────────
 
     def _make_company(self, name="Alpha", email=None):
-        return Company.objects.create(name=name, email=email)
+        return make_company(name=name, email=email)
 
     def _make_settings(self, company, report_emails=None, **kwargs):
         return PaymentReminderSettings.objects.create(
@@ -49,13 +46,9 @@ class PaymentReminderReportTests(TestCase):
             company=company, name=client_name, email=client_email,
             payment_reminder_emails=reminder_emails or [],
         )
-        return SalesInvoice.objects.create(
-            company=company,
-            client=client,
-            invoice_number=number,
-            total_amount=Money("100.00", "EUR"),
+        return make_sales_invoice(
+            company=company, client=client, number=number, total="100.00",
             due_date=due_date or self.today,
-            status=SalesInvoiceStatus.FINAL,
         )
 
     def _make_log(self, invoice, status, error_message="", **kwargs):
@@ -251,10 +244,9 @@ class PaymentReminderReportTests(TestCase):
         due = self.today + timedelta(days=3)
         # Client A has a pending credit note (negative invoice): we owe them.
         invoice_a = self._make_invoice(company, "F-A", client_email="a@example.com", due_date=due)
-        SalesInvoice.objects.create(
-            company=company, client=invoice_a.client, invoice_number="R-A",
-            total_amount=Money("-40.00", "EUR"), due_date=due,
-            status=SalesInvoiceStatus.FINAL,
+        make_sales_invoice(
+            company=company, client=invoice_a.client, number="R-A", total="-40.00",
+            due_date=due,
         )
         # Client B has only positive invoices and must still be reminded.
         invoice_b = self._make_invoice(company, "F-B", client_email="b@example.com", due_date=due)
@@ -318,10 +310,9 @@ class PaymentReminderReportTests(TestCase):
             company, "F-C1", client_email="gerente@cliente.com",
             reminder_emails=["pagos@cliente.com"],
         )
-        other = SalesInvoice.objects.create(
-            company=company, client=invoice.client, invoice_number="F-C2",
-            total_amount=Money("50.00", "EUR"), due_date=self.today,
-            status=SalesInvoiceStatus.FINAL,
+        other = make_sales_invoice(
+            company=company, client=invoice.client, number="F-C2", total="50.00",
+            due_date=self.today,
         )
         logs = [
             self._make_log(invoice, PaymentReminderLogStatus.PENDING),

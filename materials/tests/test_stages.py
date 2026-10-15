@@ -3,7 +3,6 @@ from django.core.exceptions import ValidationError
 from company.models import Company
 from materials.models import Material, Component, Category, Provider
 from configurator.models import ProductTemplate, Configuration, ConfigurationItem
-from decimal import Decimal
 
 class StagesValidationTestCase(TestCase):
     def setUp(self):

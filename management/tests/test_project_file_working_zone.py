@@ -14,11 +14,24 @@ from sales.models import Client, Quote
 User = get_user_model()
 
 
-class ProjectFileWorkingZoneInlineMinNumTests(TestCase):
-    """Unit tests for the dynamic min_num logic, without a full admin round trip."""
+class _WorkingZoneBase(TestCase):
+    """A company (zone not required by default) with a client and one unlinked working zone."""
 
     def setUp(self):
         self.company = Company.objects.create(name="Taller Co")
+        self.client_obj = Client.objects.create(name="Acme", company=self.company)
+        self.zone = WorkingZone.objects.create(
+            company=self.company,
+            name="Obra Centro",
+            location="POINT(-3.70379 40.416775)",
+        )
+
+
+class ProjectFileWorkingZoneInlineMinNumTests(_WorkingZoneBase):
+    """Unit tests for the dynamic min_num logic, without a full admin round trip."""
+
+    def setUp(self):
+        super().setUp()
         self.factory = RequestFactory()
         self.inline = ProjectFileWorkingZoneInline(ProjectFile, admin_site=admin.site)
 
@@ -43,22 +56,12 @@ class ProjectFileWorkingZoneInlineMinNumTests(TestCase):
     def test_min_num_zero_for_existing_object_even_if_company_requires_it(self):
         self.company.require_working_zone_on_project_file = True
         self.company.save(update_fields=["require_working_zone_on_project_file"])
-        client_obj = Client.objects.create(name="Acme", company=self.company)
-        pf = ProjectFile.objects.create(name="Histórico", company=self.company, client=client_obj)
+        pf = ProjectFile.objects.create(name="Histórico", company=self.company, client=self.client_obj)
         request = self._request(company_id=self.company.pk)
         self.assertEqual(self.inline.get_min_num(request, obj=pf), 0)
 
 
-class LinkProjectFileFormWorkingZoneTests(TestCase):
-    def setUp(self):
-        self.company = Company.objects.create(name="Taller Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.zone = WorkingZone.objects.create(
-            company=self.company,
-            name="Obra Centro",
-            location="POINT(-3.70379 40.416775)",
-        )
-
+class LinkProjectFileFormWorkingZoneTests(_WorkingZoneBase):
     def _form(self, **overrides):
         data = {
             "action_type": "new",
@@ -99,15 +102,9 @@ class LinkProjectFileFormWorkingZoneTests(TestCase):
         self.assertNotIn(self.zone, form.fields["working_zones"].queryset)
 
 
-class QuoteAcceptanceWizardWorkingZoneTests(TestCase):
+class QuoteAcceptanceWizardWorkingZoneTests(_WorkingZoneBase):
     def setUp(self):
-        self.company = Company.objects.create(name="Taller Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.zone = WorkingZone.objects.create(
-            company=self.company,
-            name="Obra Centro",
-            location="POINT(-3.70379 40.416775)",
-        )
+        super().setUp()
         self.quote = Quote.objects.create(
             company=self.company, client=self.client_obj, project_name="Proyecto X",
         )
@@ -140,7 +137,8 @@ class QuoteAcceptanceWizardWorkingZoneTests(TestCase):
         self.zone.refresh_from_db()
         self.assertEqual(self.zone.project_file, project_file)
 
-    def test_existing_action_unaffected_by_requirement(self):
+
+    def test_linking_an_existing_expediente_ignores_the_zone_requirement(self):
         self.company.require_working_zone_on_project_file = True
         self.company.save(update_fields=["require_working_zone_on_project_file"])
         existing_pf = ProjectFile.objects.create(
@@ -151,15 +149,16 @@ class QuoteAcceptanceWizardWorkingZoneTests(TestCase):
             "existing_project": existing_pf.pk,
         })
         self.assertEqual(response.status_code, 302)
+        self.quote.refresh_from_db()
+        self.assertEqual(self.quote.project_file, existing_pf)
 
 
-class ProjectFileAdminSaveFormsetWorkingZoneTests(TestCase):
+class ProjectFileAdminSaveFormsetWorkingZoneTests(_WorkingZoneBase):
     """Regression test: WorkingZone rows created via the ProjectFile admin inline
     must inherit `company` from the parent ProjectFile, same as `client` already does."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Taller Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
+        super().setUp()
         self.project_file = ProjectFile.objects.create(
             name="Expediente", company=self.company, client=self.client_obj,
         )

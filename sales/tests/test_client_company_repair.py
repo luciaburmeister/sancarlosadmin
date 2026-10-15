@@ -9,7 +9,6 @@ from django.core.management import call_command
 from django.test import TestCase
 from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import SalesInvoice, SalesInvoiceStatus
 from sales.models import (
     Client,
@@ -27,6 +26,7 @@ from sales.services.client_company_repair import (
     build_plans,
     find_mismatched_client_ids,
 )
+from sales.tests.factories import make_client, make_company
 
 
 def make_invoice(company, client, number):
@@ -45,13 +45,11 @@ class ClientCompanyRepairTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.owner = Company.objects.create(name="Aluares")
-        cls.user = Company.objects.create(name="San Carlos")
+        cls.owner = make_company(name="Aluares")
+        cls.user = make_company(name="San Carlos")
 
     def _client(self, company, name="RECICAB 2005 S.L", tax_identifier="B29000001"):
-        return Client.objects.create(
-            company=company, name=name, tax_identifier=tax_identifier
-        )
+        return make_client(company=company, name=name, tax_identifier=tax_identifier)
 
     def _repair(self, client_ids=None):
         plans = build_plans(client_ids or find_mismatched_client_ids())

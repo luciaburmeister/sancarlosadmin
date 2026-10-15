@@ -13,15 +13,14 @@ from django.test import TestCase
 from django.urls import reverse
 from djmoney.money import Money
 
-from company.models import Company
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
 from configurator.services.export.kind_registry import get_preview_object
 from configurator.services.export.purchase_order import PurchaseOrderExportStrategy
 from inventory.models import InventoryItem
 from invoices.models import AppliedTax, TaxType
-from materials.models import Provider
-from purchasing.models import PurchaseOrder, PurchaseOrderItem, PurchaseOrderType
+from purchasing.models import PurchaseOrderItem, PurchaseOrderType
+from purchasing.tests.factories import make_company, make_provider, make_purchase_order
 
 User = get_user_model()
 
@@ -29,15 +28,15 @@ User = get_user_model()
 class PurchaseOrderExportTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Export Co", tax_identifier="B12345678")
-        cls.provider = Provider.objects.create(
+        cls.company = make_company(name="Export Co")
+        cls.provider = make_provider(
             company=cls.company,
             name="Perfiles del Sur S.L.",
             contact="Ana",
             email="compras@perfiles.test",
             tax_identifier="B87654321",
         )
-        cls.po = PurchaseOrder.objects.create(
+        cls.po = make_purchase_order(
             company=cls.company,
             provider=cls.provider,
             po_type=PurchaseOrderType.STOCK,

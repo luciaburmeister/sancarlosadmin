@@ -8,24 +8,41 @@ from management.models import ProjectFile
 from sales.models import Client
 
 
-class AssetTransactionExportClientContextTests(TestCase):
+class _AssetTransactionExportTestCase(TestCase):
+    """One company with one "Cuba" asset; subclasses add the rest."""
+
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Taller Co")
         cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
-        cls.sales_client = Client.objects.create(
-            company=cls.company,
-            name="Obra Sur S.L.",
-            phone="952000000",
-            tax_identifier="B12345678",
-            nima="2900012345",
-        )
+        cls.sales_client = cls.make_asset_client()
         cls.asset = Asset.objects.create(
             company=cls.company,
             asset_type=cls.asset_type,
             name="Cuba 1",
             client=cls.sales_client,
         )
+
+    @classmethod
+    def make_asset_client(cls):
+        """Return the client the asset is rented to (none by default)."""
+        return None
+
+
+class AssetTransactionExportClientContextTests(_AssetTransactionExportTestCase):
+    @classmethod
+    def make_asset_client(cls):
+        return Client.objects.create(
+            company=cls.company,
+            name="Obra Sur S.L.",
+            phone="952000000",
+            tax_identifier="B12345678",
+            nima="2900012345",
+        )
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
         cls.transaction = AssetTransaction.objects.create(
             company=cls.company,
             asset=cls.asset,
@@ -93,18 +110,12 @@ class AssetTransactionExportClientContextTests(TestCase):
         self.assertEqual(context["client_nima"], "2900099999")
 
 
-class AssetTransactionExportReferenceNumberContextTests(TestCase):
+class AssetTransactionExportReferenceNumberContextTests(_AssetTransactionExportTestCase):
     """reference_number moved from a `data` JSON key to a real model field
     (migration 0078), but every template -- including ones already live in
     production -- reads it as `{{ data.reference_number }}`. These prove
     that read path is byte-identical regardless of where the value actually
     lives now."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Taller Co")
-        cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
-        cls.asset = Asset.objects.create(company=cls.company, asset_type=cls.asset_type, name="Cuba 1")
 
     def test_model_field_value_appears_under_data_reference_number(self):
         transaction = AssetTransaction.objects.create(
@@ -157,18 +168,14 @@ class AssetTransactionExportReferenceNumberContextTests(TestCase):
         self.assertEqual(context["data"]["reference_number"], "NEW-REF")
 
 
-class AssetTransactionExportWorkingZoneContextTests(TestCase):
+class AssetTransactionExportWorkingZoneContextTests(_AssetTransactionExportTestCase):
+    @classmethod
+    def make_asset_client(cls):
+        return Client.objects.create(company=cls.company, name="Obra Sur S.L.")
+
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Taller Co")
-        cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
-        cls.sales_client = Client.objects.create(company=cls.company, name="Obra Sur S.L.")
-        cls.asset = Asset.objects.create(
-            company=cls.company,
-            asset_type=cls.asset_type,
-            name="Cuba 1",
-            client=cls.sales_client,
-        )
+        super().setUpTestData()
         cls.project_file = ProjectFile.objects.create(
             company=cls.company,
             client=cls.sales_client,
@@ -290,16 +297,10 @@ class AssetTransactionExportWorkingZoneContextTests(TestCase):
         self.assertEqual(context["project_file_nima"], "")
 
 
-class AssetTransactionExportLandfillContextTests(TestCase):
+class AssetTransactionExportLandfillContextTests(_AssetTransactionExportTestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Taller Co")
-        cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
-        cls.asset = Asset.objects.create(
-            company=cls.company,
-            asset_type=cls.asset_type,
-            name="Cuba 1",
-        )
+        super().setUpTestData()
         cls.landfill = WorkingZone.objects.create(
             company=cls.company,
             name="Reciclados San Carlos",

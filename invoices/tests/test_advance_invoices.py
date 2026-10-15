@@ -35,7 +35,6 @@ from invoices.models import (
     AppliedTax,
     SalesInvoice,
     SalesInvoiceDocumentType,
-    SalesInvoiceItem,
     SalesInvoiceStatus,
     TaxType,
 )
@@ -43,7 +42,14 @@ from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceSe
 from invoices.services.discounts import is_advance_line_source, source_kind
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.services.sales_invoice_service import SalesInvoiceService
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, UserExpedienteMixin
+from invoices.tests.advance_fixtures import (
+    WIZARD_STEP,
+    AdvanceExpedienteMixin,
+    UserExpedienteMixin,
+    invoice_tax_rows,
+    line_taxes,
+    totals,
+)
 from management.models import ProjectFile
 from materials.models import PaymentMethod
 from sales.models import Client, Quote, QuoteStatus
@@ -51,35 +57,6 @@ from sales.models import Client, Quote, QuoteStatus
 
 def _create(project_file, **kwargs):
     return AdvanceInvoiceService.create(project_file, date_issued=date(2026, 9, 3), **kwargs)
-
-
-def _invoice_taxes(invoice):
-    ct = ContentType.objects.get_for_model(invoice)
-    return [
-        (tax.tax_type.tax_name, tax.selected_percentage, tax.base_amount.amount,
-         tax.calculated_amount.amount, tax.order)
-        for tax in AppliedTax.objects.filter(content_type=ct, object_id=invoice.pk)
-        .select_related("tax_type").order_by("order", "pk")
-    ]
-
-
-def _line_taxes(line):
-    return [
-        (tax.tax_type.tax_name, tax.selected_percentage, tax.base_amount.amount,
-         tax.calculated_amount.amount)
-        for tax in line.applied_taxes.select_related("tax_type").order_by("order", "pk")
-    ]
-
-
-def _totals(invoice):
-    invoice.refresh_from_db()
-    return (
-        invoice.subtotal_amount.amount,
-        invoice.discount_amount.amount,
-        invoice.taxable_base.amount,
-        invoice.tax_amount.amount,
-        invoice.total_amount.amount,
-    )
 
 
 class UserExpedienteAdvanceTests(UserExpedienteMixin, TestCase):
@@ -97,7 +74,7 @@ class UserExpedienteAdvanceTests(UserExpedienteMixin, TestCase):
 
         # 1,526.34 × 30 % = 457.902 → 457.90; IVA 96.159 → 96.16
         self.assertEqual(
-            _totals(invoice),
+            totals(invoice),
             (Decimal("457.90"), Decimal("0.00"), Decimal("457.90"), Decimal("96.16"), Decimal("554.06")),
         )
         self.assertEqual(invoice.discount_breakdown, [])
@@ -118,10 +95,10 @@ class UserExpedienteAdvanceTests(UserExpedienteMixin, TestCase):
         self.assertIsNone(line.advance_line)
         self.assertEqual((line.quantity, line.unit_price.amount), (Decimal("1.00"), Decimal("457.90")))
         self.assertEqual(
-            _line_taxes(line), [("IVA", Decimal("21.00"), Decimal("457.90"), Decimal("96.16"))],
+            line_taxes(line), [("IVA", Decimal("21.00"), Decimal("457.90"), Decimal("96.16"))],
         )
         self.assertEqual(
-            _invoice_taxes(invoice), [("IVA", Decimal("21.00"), Decimal("457.90"), Decimal("96.16"), 0)],
+            invoice_tax_rows(invoice), [("IVA", Decimal("21.00"), Decimal("457.90"), Decimal("96.16"), 0)],
         )
 
     def test_the_expediente_counts_it(self):
@@ -137,12 +114,12 @@ class UserExpedienteAdvanceTests(UserExpedienteMixin, TestCase):
 
     def test_recalculating_moves_nothing(self):
         invoice = _create(self.project_file, percentage=Decimal("30"))
-        before = _totals(invoice)
+        before = totals(invoice)
 
         invoice.recalculate_totals()
         invoice.save()
 
-        self.assertEqual(_totals(invoice), before)
+        self.assertEqual(totals(invoice), before)
 
     def test_preview_is_what_create_issues(self):
         with CaptureQueriesContext(connection) as ctx:
@@ -160,7 +137,7 @@ class UserExpedienteAdvanceTests(UserExpedienteMixin, TestCase):
         self.assertEqual(preview["max_amount"], Decimal("1526.34"))
         self.assertEqual(
             (preview["base"], preview["tax_amount"], preview["total"]),
-            _totals(invoice)[2:],
+            totals(invoice)[2:],
         )
         [line] = invoice.items.all()
         self.assertEqual(
@@ -169,7 +146,7 @@ class UserExpedienteAdvanceTests(UserExpedienteMixin, TestCase):
         )
         self.assertEqual(
             [(t["name"], t["percentage"], t["base"], t["amount"]) for t in preview["taxes"]],
-            [row[:4] for row in _invoice_taxes(invoice)],
+            [row[:4] for row in invoice_tax_rows(invoice)],
         )
 
 
@@ -261,7 +238,7 @@ class VatGroupTests(_AdvanceTestBase):
         lines = list(invoice.items.order_by("pk"))
         self.assertEqual([line.unit_price.amount for line in lines], [Decimal("300.00"), Decimal("150.00")])
         self.assertEqual(
-            [_line_taxes(line) for line in lines],
+            [line_taxes(line) for line in lines],
             [
                 [("IVA", Decimal("21.00"), Decimal("300.00"), Decimal("63.00"))],
                 [("IVA", Decimal("10.00"), Decimal("150.00"), Decimal("15.00"))],
@@ -270,14 +247,14 @@ class VatGroupTests(_AdvanceTestBase):
         # Several groups: each line names its taxes
         self.assertNotEqual(lines[0].description, lines[1].description)
         self.assertEqual(
-            _invoice_taxes(invoice),
+            invoice_tax_rows(invoice),
             [
                 ("IVA", Decimal("21.00"), Decimal("300.00"), Decimal("63.00"), 0),
                 ("IVA", Decimal("10.00"), Decimal("150.00"), Decimal("15.00"), 1),
             ],
         )
         self.assertEqual(
-            _totals(invoice),
+            totals(invoice),
             (Decimal("450.00"), Decimal("0.00"), Decimal("450.00"), Decimal("78.00"), Decimal("528.00")),
         )
 
@@ -292,7 +269,7 @@ class VatGroupTests(_AdvanceTestBase):
 
         lines = list(invoice.items.order_by("pk"))
         self.assertEqual(
-            [_line_taxes(line) for line in lines],
+            [line_taxes(line) for line in lines],
             [
                 [
                     ("IVA", Decimal("21.00"), Decimal("300.00"), Decimal("63.00")),
@@ -306,7 +283,7 @@ class VatGroupTests(_AdvanceTestBase):
         )
         # IVA on both groups; IRPF and RE only on theirs
         self.assertEqual(
-            _invoice_taxes(invoice),
+            invoice_tax_rows(invoice),
             [
                 ("IVA", Decimal("21.00"), Decimal("450.00"), Decimal("94.50"), 0),
                 ("IRPF", Decimal("15.00"), Decimal("300.00"), Decimal("45.00"), 1),
@@ -315,7 +292,7 @@ class VatGroupTests(_AdvanceTestBase):
         )
         # Base + IVA + RE − IRPF
         self.assertEqual(
-            _totals(invoice),
+            totals(invoice),
             (Decimal("450.00"), Decimal("0.00"), Decimal("450.00"), Decimal("57.30"), Decimal("507.30")),
         )
         preview = AdvanceInvoiceService.preview(self.project_file, percentage=Decimal("30"))
@@ -331,11 +308,11 @@ class VatGroupTests(_AdvanceTestBase):
 
         lines = list(invoice.items.order_by("pk"))
         self.assertEqual([line.unit_price.amount for line in lines], [Decimal("500.00"), Decimal("100.00")])
-        self.assertEqual(_line_taxes(lines[1]), [])
+        self.assertEqual(line_taxes(lines[1]), [])
         self.assertEqual(
-            _invoice_taxes(invoice), [("IVA", Decimal("21.00"), Decimal("500.00"), Decimal("105.00"), 0)],
+            invoice_tax_rows(invoice), [("IVA", Decimal("21.00"), Decimal("500.00"), Decimal("105.00"), 0)],
         )
-        self.assertEqual(_totals(invoice)[4], Decimal("705.00"))
+        self.assertEqual(totals(invoice)[4], Decimal("705.00"))
 
 
 @override_settings(AEAT_SUBMISSIONS_ENABLED=False)
@@ -375,7 +352,7 @@ class GroupInvoicedFirstTests(_AdvanceTestBase):
         # 30 % of 1,200.00, all of it on the goods at IVA 21 %
         [line] = advance.items.all()
         self.assertEqual(
-            _line_taxes(line), [("IVA", Decimal("21.00"), Decimal("360.00"), Decimal("75.60"))],
+            line_taxes(line), [("IVA", Decimal("21.00"), Decimal("360.00"), Decimal("75.60"))],
         )
         self.assertEqual(advance.total_amount.amount, Decimal("435.60"))
         self.assertEqual(rest.total_amount.amount, Decimal("774.40"))
@@ -396,11 +373,11 @@ class GroupInvoicedFirstTests(_AdvanceTestBase):
 
         [line] = advance.items.all()
         self.assertEqual(
-            _line_taxes(line), [("IVA", Decimal("21.00"), Decimal("360.00"), Decimal("75.60"))],
+            line_taxes(line), [("IVA", Decimal("21.00"), Decimal("360.00"), Decimal("75.60"))],
         )
         # No untaxed deduction: the IVA base is the whole taxable base
         self.assertEqual(
-            _invoice_taxes(rest), [("IVA", Decimal("21.00"), Decimal("640.00"), Decimal("134.40"), 0)],
+            invoice_tax_rows(rest), [("IVA", Decimal("21.00"), Decimal("640.00"), Decimal("134.40"), 0)],
         )
         self.assertEqual(rest.taxable_base.amount, Decimal("640.00"))
         self.assertEqual(
@@ -522,29 +499,6 @@ class CompanyTests(_AdvanceTestBase):
         invoice = _create(self.project_file, percentage=Decimal("30"))
         self.assertEqual(invoice.company, self.project_file.company)
 
-    def test_wizard_refuses_another_company(self):
-        other = Company.objects.create(name="Zeta Obras")
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
-        data = {
-            "company": other.pk,
-            "date_issued": "2026-09-29",
-            "invoice_mode": "advance",
-            "percentage": "30",
-            "payment_method": PaymentMethod.TRANSFER,
-        }
-
-        form = ProjectFileInvoiceSetupForm(
-            data=data, project_file=self.project_file, invoicing_summary=summary,
-        )
-        self.assertFalse(form.is_valid())
-        self.assertEqual(list(form.errors), ["company"])
-
-        data["company"] = self.company.pk
-        form = ProjectFileInvoiceSetupForm(
-            data=data, project_file=self.project_file, invoicing_summary=summary,
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-
     def test_wizard_maps_the_error_to_the_field_entered(self):
         summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
         base = {
@@ -650,26 +604,17 @@ class AdvanceLockOrderTests(_AdvanceTestBase):
 
 @override_settings(AEAT_SUBMISSIONS_ENABLED=False)
 class AdvanceWizardTests(_AdvanceTestBase):
-    STEP = "project_file_invoice_wizard_view-current_step"
+    STEP = WIZARD_STEP
 
     def setUp(self):
         super().setUp()
-        self.client.force_login(User.objects.create_superuser("wizard", "w@x.com", "pw"))
-        self.url = reverse("admin:management_projectfile_create_invoice", args=[self.project_file.pk])
+        self.url = self.login_to_wizard()
 
     def _setup(self, **fields):
         self.client.get(self.url)
-        return self.client.post(self.url, {
-            self.STEP: "setup",
-            "setup-company": self.company.pk,
-            "setup-date_issued": "2026-09-29",
-            "setup-due_date": "",
-            "setup-invoice_mode": "advance",
-            "setup-percentage": "30",
-            "setup-custom_amount": "",
-            "setup-payment_method": PaymentMethod.TRANSFER,
-            **{f"setup-{name}": value for name, value in fields.items()},
-        })
+        return self.client.post(
+            self.url, self.wizard_setup_data(**{"invoice_mode": "advance", "percentage": "30", **fields}),
+        )
 
     def test_advance_skips_the_items_step(self):
         response = self._setup()

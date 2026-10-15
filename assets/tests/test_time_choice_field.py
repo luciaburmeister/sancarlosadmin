@@ -18,10 +18,6 @@ from assets.forms import TimeChoiceField
 
 
 class TimeChoiceFieldTests(SimpleTestCase):
-    def test_has_changed_does_not_crash_with_a_time_initial(self):
-        field = TimeChoiceField()
-        field.has_changed(time(9, 0), "540")  # no exception (9:00 = 540 min)
-
     def test_has_changed_is_false_when_the_submitted_value_matches_initial(self):
         field = TimeChoiceField()
         self.assertFalse(field.has_changed(time(9, 0), "540"))

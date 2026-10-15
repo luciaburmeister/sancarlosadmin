@@ -21,7 +21,7 @@ from django.utils import timezone
 from unfold.widgets import UnfoldAdminDateWidget
 
 from company.active_company import ActiveCompany
-from company.models import Company, CompanyUser
+from company.models import CompanyUser
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
 from configurator.services.export.commissionist_agent import CommissionistAgentExportStrategy
@@ -30,7 +30,8 @@ from configurator.services.export.service import CustomJSONEncoder
 from core.services.pdf_service import PDFService
 from core.tasks import render_document_task
 from invoices.models import SalesInvoiceStatus, TaxType
-from sales.models import Client, CommissionistAgent, Quote, QuoteStatus
+from sales.models import Quote, QuoteStatus
+from sales.tests.factories import make_agent, make_client, make_company, make_quote
 from sales.tests.test_commission_releases import _CommissionReleaseTestCase
 
 User = get_user_model()
@@ -50,18 +51,18 @@ def report(agent, period):
 class _AgentReportTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Fistex")
-        cls.other_company = Company.objects.create(name="Other")
-        cls.agent = CommissionistAgent.objects.create(name="Gesclival", company=cls.company)
-        cls.other_agent = CommissionistAgent.objects.create(name="Tomás", company=cls.company)
-        cls.foreign_agent = CommissionistAgent.objects.create(name="Foreign", company=cls.other_company)
-        cls.client_ = Client.objects.create(name="Ávila Bosch", company=cls.company, agent=cls.agent)
+        cls.company = make_company(name="Fistex")
+        cls.other_company = make_company(name="Other")
+        cls.agent = make_agent(company=cls.company, name="Gesclival")
+        cls.other_agent = make_agent(company=cls.company, name="Tomás")
+        cls.foreign_agent = make_agent(company=cls.other_company, name="Foreign")
+        cls.client_ = make_client(company=cls.company, name="Ávila Bosch", agent=cls.agent)
         TaxType.objects.get_or_create(tax_name="IRPF", defaults={"behavior": "subtract"})
 
     @classmethod
     def make_quote(cls, *, agent=None, client=None, day=date(2026, 8, 6),
                    status=QuoteStatus.SENT, company=None, base="100.00", breakdown=None):
-        quote = Quote.objects.create(
+        quote = make_quote(
             company=company or cls.company, client=client, agent=agent,
             project_name=f"Job {day}", date=day, status=status,
         )
@@ -192,7 +193,7 @@ class AgentInvoicesTests(_CommissionReleaseTestCase):
 
     def test_pro_formas_other_months_and_other_agents_are_left_out(self):
         invoice = self.invoice_goods()  # still a pro forma
-        other_agent = CommissionistAgent.objects.create(name="Otro", company=self.company)
+        other_agent = make_agent(company=self.company, name="Otro")
 
         self.assertEqual(report(self.agent, SEPTEMBER)["invoices"]["rows"], [])
         self.set_status(invoice, SalesInvoiceStatus.FINAL)

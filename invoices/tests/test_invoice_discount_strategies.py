@@ -6,8 +6,8 @@ strategy:
 - standard basket rules → invoice-level discount_amount (+ breakdown);
 - line-items-basket rules → invoice-level, but scaled only by the invoiced
   line items (never configuration lines);
-- financing rules → invoice-level discount_amount too (they are their own
-  negative line only on delivery orders);
+- financing rules → a header discount as well, on delivery orders and
+  invoices alike (never a negative line);
 - line-item rules → carried on the source line's discount_percentage.
 """
 from datetime import date
@@ -16,62 +16,20 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from invoices.models import AppliedTax, TaxType
+from invoices.models import AppliedTax
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
-from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile
-from sales.models import Client, Quote, QuoteStatus
+from invoices.tests.factories import (
+    ExpedienteMixin,
+    discounted_quote,
+    financed_quote,
+    make_quote,
+)
+from sales.models import Quote
 
 
-class _StrategyTestBase(TestCase):
-
-    def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Strategies",
-            company=self.company,
-            client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"}
-        )
-
-    def _make_config(self, quote, subtotal, total, with_tax=True):
-        config = Configuration.objects.create(
-            name="Config",
-            company=self.company,
-            product=self.product,
-            client=self.client_obj,
-            quote=quote,
-            project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=subtotal,
-            total_price=total,
-        )
-        if with_tax:
-            AppliedTax.objects.create(
-                content_type=ContentType.objects.get_for_model(Configuration),
-                object_id=config.pk,
-                tax_type=self.iva21,
-                selected_percentage=Decimal("21"),
-                base_amount=subtotal,
-                calculated_amount=(subtotal * Decimal("0.21")).quantize(Decimal("0.01")),
-            )
-        return config
-
-    def _create_invoice(self, items_data):
-        return ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 8, 1),
-            due_date=date(2026, 9, 1),
-            items_data=items_data,
-        )
+class _StrategyTestBase(ExpedienteMixin, TestCase):
+    project_file_name = "PF Strategies"
+    invoice_due_date = date(2026, 9, 1)
 
 
 class FinancingDiscountFoldedIntoHeaderTests(_StrategyTestBase):
@@ -81,26 +39,11 @@ class FinancingDiscountFoldedIntoHeaderTests(_StrategyTestBase):
     def setUp(self):
         super().setUp()
         # 1000 subtotal, 100 financing discount, taxable 900, IVA 189, total 1089
-        self.quote = Quote.objects.create(
+        self.quote = discounted_quote(
+            project_file=self.project_file, kind="financing",
             project_name="Financed Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "Financiación 10%", "kind": "financing",
-                 "level": "basket", "mode": "net",
-                 "percentage": "10.00", "base": "1000.00", "amount": "100.00"},
-            ],
         )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
 
     def _full_items(self):
         return [{
@@ -160,29 +103,10 @@ class MixedStandardAndFinancingTests(_StrategyTestBase):
         super().setUp()
         # 1000 subtotal; standard 100 + financing 50 → taxable 850,
         # IVA 178.50, total 1028.50
-        self.quote = Quote.objects.create(
-            project_name="Mixed Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("150.00"),
-            discounted_subtotal=Decimal("850.00"),
-            tax_amount=Decimal("178.50"),
-            total_price=Decimal("1028.50"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-                {"rule_name": "Financiación 5%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "5.00",
-                 "base": "1000.00", "amount": "50.00"},
-            ],
+        self.quote = financed_quote(
+            project_file=self.project_file, project_name="Mixed Quote",
         )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
 
     def test_both_land_in_discount_amount(self):
         invoice = self._create_invoice([{
@@ -214,16 +138,12 @@ class LineItemsBasketScopingTests(_StrategyTestBase):
         from sales.models import QuoteInventoryItem
 
         # config 600 + inventory 400; 10% discount on line items only → 40
-        self.quote = Quote.objects.create(
-            project_name="Line-items discounted",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
+        self.quote = make_quote(
+            project_file=self.project_file, project_name="Line-items discounted",
             subtotal_price=Decimal("1000.00"),
         )
         self.config = self._make_config(
-            self.quote, Decimal("600.00"), Decimal("600.00"), with_tax=False
+            self.quote, "600.00", total=Decimal("600.00"), tax_pct=None,
         )
         stock_item = InventoryItem.objects.create(name="Widget", company=self.company)
         self.inv_item = QuoteInventoryItem.objects.create(
@@ -275,26 +195,10 @@ class BulkInvoiceDiscountRegressionTests(_StrategyTestBase):
 
     def setUp(self):
         super().setUp()
-        self.quote = Quote.objects.create(
-            project_name="Bulk Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-            ],
+        self.quote = discounted_quote(
+            project_file=self.project_file, project_name="Bulk Quote",
         )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
 
     def test_bulk_invoice_carries_basket_discount(self):
         invoice = BulkProjectFileInvoiceService.create_bulk_invoice(
@@ -321,22 +225,11 @@ class LegacyBreakdownFallbackTests(_StrategyTestBase):
 
     def setUp(self):
         super().setUp()
-        self.quote = Quote.objects.create(
-            project_name="Legacy Quote",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
+        self.quote = discounted_quote(
+            project_file=self.project_file, project_name="Legacy Quote",
             discount_breakdown=[],
         )
-        self.config = self._make_config(
-            self.quote, Decimal("1000.00"), Decimal("1210.00")
-        )
+        self.config = self._make_config(self.quote, "1000.00", total=Decimal("1210.00"))
 
     def test_discount_carried_as_basket(self):
         invoice = self._create_invoice([{

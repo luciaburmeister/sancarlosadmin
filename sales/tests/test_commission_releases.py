@@ -16,13 +16,15 @@ from configurator.commission.models import (
     CommissionRelease,
     CommissionReleaseStatus,
     CommissionRuleType,
+    InvoiceCommission,
     QuoteCommission,
 )
 from configurator.commission.services import CommissionService
 from invoices.models import SalesInvoiceStatus
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
 from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod, PaymentStatus
-from sales.models import CommissionistAgent, CommissionReleasePolicy, Quote, QuoteStatus
+from sales.models import Client, CommissionReleasePolicy, Quote, QuoteStatus
+from sales.tests.factories import make_agent, make_quote
 
 
 class _CommissionReleaseTestCase(AdvanceExpedienteMixin, TestCase):
@@ -30,7 +32,7 @@ class _CommissionReleaseTestCase(AdvanceExpedienteMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        self.agent = CommissionistAgent.objects.create(name="Agente", company=self.company)
+        self.agent = make_agent(company=self.company, name="Agente")
         self.rule = AgentCommissionRule.objects.create(
             company=self.company, agent=self.agent,
             rule_type=CommissionRuleType.PERCENTAGE, value=Decimal("10"),
@@ -89,11 +91,17 @@ class ReleaseOnPaymentTest(_CommissionReleaseTestCase):
         self.assertEqual(self.commission.release_status, CommissionReleaseStatus.PARTIAL)
 
     def test_full_payment_releases_the_whole_commission(self):
+        # The client's own agent rule must not add to a fully quoted invoice
+        Client.objects.filter(pk=self.client_obj.pk).update(agent=self.agent)
         invoice = self.final_goods_invoice()
         self.pay(invoice, Decimal("605.00"))
         self.pay(invoice, Decimal("605.00"))
         self.assertEqual(self.released(), Decimal("100.00"))
         self.assertEqual(self.commission.release_status, CommissionReleaseStatus.FULL)
+        # The commissions-list row adds up the quote commission only
+        row = InvoiceCommission.objects.get(sales_invoice=invoice)
+        self.assertEqual(row.own_base_amount.amount, Decimal("0.00"))
+        self.assertEqual(row.released_amount.amount, Decimal("100.00"))
 
     def test_removing_the_payment_takes_the_release_back(self):
         invoice = self.final_goods_invoice()
@@ -138,8 +146,8 @@ class AdvanceReleaseTest(_CommissionReleaseTestCase):
         self.assertEqual(self.released(), Decimal("100.00"))
 
     def test_advance_is_split_across_the_expediente_quotes(self):
-        second = Quote.objects.create(
-            project_name="Ampliación", company=self.company, client=self.client_obj,
+        second = make_quote(
+            company=self.company, client=self.client_obj, project_name="Ampliación",
             project_file=self.project_file, status=QuoteStatus.ACCEPTED,
         )
         self.add_config(second, Decimal("500.00"))

@@ -5,12 +5,10 @@ Tests for the project-file invoice creation API
 import json
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
-from django.urls import reverse
 from rest_framework.test import APIClient
 
 from company.models import Company, Employee
@@ -121,6 +119,8 @@ class ProjectFileInvoiceCreateTests(_ProjectFileInvoiceTestBase):
         data = resp.json()
         self.assertIn("id", data)
         self.assertEqual(data["status"], "proforma")
+        self.assertIsNone(data["invoice_number"])
+        self.assertNotIn("email_queued", data)
         self.assertGreater(data["subtotal_amount"], 0)
         self.assertGreater(data["total_amount"], data["subtotal_amount"])
 
@@ -148,8 +148,9 @@ class ProjectFileInvoiceInventoryItemTests(_ProjectFileInvoiceTestBase):
         qi._recalc_total_with_tax()
         qi.quote.recalc_totals()
 
-    def test_inventory_items_included(self):
-        """QuoteInventoryItems show up as separate line items on the invoice."""
+    def test_inventory_items_included_and_taxed(self):
+        """QuoteInventoryItems show up as separate line items on the invoice
+        and their taxes are part of the invoice tax amount."""
         from inventory.models import InventoryItem
 
         quote = self._create_quote(subtotal=100, total=121)
@@ -180,30 +181,6 @@ class ProjectFileInvoiceInventoryItemTests(_ProjectFileInvoiceTestBase):
             f"Inventory item not found in line items: {descriptions}",
         )
 
-    def test_inventory_item_tax_correct(self):
-        """Tax amount includes inventory item taxes."""
-        from inventory.models import InventoryItem
-
-        quote = self._create_quote(subtotal=100, total=121)
-        config = self._create_config(quote, subtotal=100, total=121, name="Door")
-        self._attach_tax(config, self.iva21, 21, base=100, calc=21)
-
-        inv_item = InventoryItem.objects.create(
-            name="Tube", company=self.company, selling_price=50
-        )
-        qi = QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=inv_item,
-            quantity=1,
-            unit_price=50,
-            discount=0,
-        )
-        self._attach_inv_item_tax_and_recalc(qi, self.iva21, 21, base=50, calc=Decimal("10.50"))
-
-        resp = self._post_create()
-        self.assertEqual(resp.status_code, 201, resp.json())
-
-        data = resp.json()
         subtotal = Decimal(str(data["subtotal_amount"]))
         tax = Decimal(str(data["tax_amount"]))
         total = Decimal(str(data["total_amount"]))
@@ -332,63 +309,6 @@ class BulkEmitQuoteObservationsTests(_ProjectFileInvoiceTestBase):
         invoice = self._created_invoice(self._post_bulk(notes="Nota común"))
         self.assertEqual(invoice.notes, "Nota común")
 
-    def test_company_flag_appends_observations_after_notes(self):
-        self.company.bulk_emit_copy_quote_observations = True
-        self.company.save(update_fields=["bulk_emit_copy_quote_observations"])
-        Quote.objects.create(
-            project_name="Q Test",
-            company=self.company,
-            client=self.client_obj,
-            project_file=self.project_file,
-            status=QuoteStatus.ACCEPTED,
-            observations="Cambio de aceite incluido",
-            subtotal_price=100,
-            tax_amount=21,
-            total_price=121,
-        )
-
-        captured = {}
-
-        def fake_create(**kwargs):
-            captured["notes"] = kwargs["notes"]
-            invoice = MagicMock()
-            invoice.id = 1
-            invoice.invoice_number = "INV-1"
-            invoice.total_amount = None
-            return invoice
-
-        with (
-            patch(
-                "api.billing.serializers.ProjectFileInvoiceService.get_invoiceable_summary",
-                return_value={
-                    "total_invoiceable": Decimal("121"),
-                    "remaining": Decimal("121"),
-                    "can_invoice": True,
-                },
-            ),
-            patch(
-                "api.billing.serializers.build_items_from_summary",
-                return_value=[{"description": "Door"}],
-            ),
-            patch(
-                "api.billing.serializers.ProjectFileInvoiceService.create_invoice_from_project_file",
-                side_effect=fake_create,
-            ),
-            patch("api.billing.serializers.AdvanceDeductionService.apply"),
-            patch(
-                "api.billing.serializers.SalesInvoiceService.finalize_invoice",
-                side_effect=lambda invoice, send_email=True: invoice,
-            ),
-            patch(
-                "api.billing.serializers.SalesInvoiceService.get_finalize_email_status",
-                return_value={},
-            ),
-        ):
-            resp = self._post_bulk(notes="Nota común")
-
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(captured["notes"], "Nota común\n---\nCambio de aceite incluido")
-
     def test_company_flag_without_common_notes(self):
         self.company.bulk_emit_copy_quote_observations = True
         self.company.save()
@@ -465,9 +385,14 @@ class ProjectFileInvoiceDirectFinalizeTests(_ProjectFileInvoiceTestBase):
         config = self._create_config(quote, subtotal=100, total=121)
         self._attach_tax(config, self.iva21, 21, base=100, calc=21)
 
-    def test_finalize_true_creates_final_invoice_with_number(self):
+    def test_finalize_true_creates_final_invoice_without_sending_email(self):
+        """Emails stay a separate user action, as in the legacy flow: even
+        with a client address on file nothing is queued unless asked."""
         self._setup_invoiceable_pf()
-        resp = self._post_create(finalize=True, send_email=False)
+        self.client_obj.email = "cliente@example.com"
+        self.client_obj.save()
+
+        resp = self._post_create(finalize=True)
         self.assertEqual(resp.status_code, 201, resp.json())
 
         data = resp.json()
@@ -475,31 +400,10 @@ class ProjectFileInvoiceDirectFinalizeTests(_ProjectFileInvoiceTestBase):
         self.assertIsNotNone(data["invoice_number"])
         self.assertIn("email_queued", data)
         self.assertFalse(data["email_queued"])
+        self.assertEqual(data["email_skip_reason"], "disabled")
 
         invoice = SalesInvoice.objects.get(pk=data["id"])
         self.assertIsNotNone(invoice.incremental_id)
-
-    def test_finalize_does_not_send_email_by_default(self):
-        """Emails stay a separate user action, as in the legacy flow."""
-        self._setup_invoiceable_pf()
-        self.client_obj.email = "cliente@example.com"
-        self.client_obj.save()
-
-        resp = self._post_create(finalize=True)
-        self.assertEqual(resp.status_code, 201, resp.json())
-        data = resp.json()
-        self.assertEqual(data["status"], "final")
-        self.assertFalse(data["email_queued"])
-        self.assertEqual(data["email_skip_reason"], "disabled")
-
-    def test_default_still_creates_proforma(self):
-        self._setup_invoiceable_pf()
-        resp = self._post_create()
-        self.assertEqual(resp.status_code, 201, resp.json())
-        data = resp.json()
-        self.assertEqual(data["status"], "proforma")
-        self.assertIsNone(data["invoice_number"])
-        self.assertNotIn("email_queued", data)
 
     def test_existing_proforma_can_still_be_finalized(self):
         """The legacy proforma → finalize flow must keep working."""

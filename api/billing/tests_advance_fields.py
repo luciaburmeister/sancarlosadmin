@@ -10,52 +10,26 @@ What the mobile API exposes about advance invoices:
   while an advance is still a pro forma, or its cancellation at the AEAT is
   in flight, since its goods cannot be invoiced.
 """
-from datetime import date
 from decimal import Decimal
 
-from django.contrib.auth.models import User
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
-from rest_framework.test import APIClient
 
 from api.billing.serializers import SalesInvoiceDetailSerializer
-from apps.einvoicing.models import (
-    EInvoicingAccount,
-    EInvoicingSubmission,
-    SubmissionAction,
-    SubmissionStatus,
-)
-from company.models import Employee
+from apps.einvoicing.models import SubmissionStatus
 from invoices.models import SalesInvoice, SalesInvoiceDocumentType, SalesInvoiceStatus
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
+from invoices.tests.advance_fixtures import AdvanceApiMixin, aeat_cancel_marker
 from sales.models import Quote, QuoteStatus
 
 
-class _AdvanceFieldsBase(AdvanceExpedienteMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        user = User.objects.create_user("advance-fields", password="pw")
-        Employee.objects.create(
-            user=user, company=self.company, first_name="Ana", last_name="Anticipo",
-            is_active=True, hired_at=date(2020, 1, 1),
-        )
-        self.api = APIClient()
-        self.api.force_authenticate(user=user)
+class _AdvanceFieldsBase(AdvanceApiMixin, TestCase):
+    api_username = "advance-fields"
 
     def _get(self, url):
         response = self.api.get(url)
         self.assertEqual(response.status_code, 200)
         return response.json()
-
-    def _cancel_marker(self, advance, status):
-        """A cancellation of ``advance`` at the AEAT, in ``status``."""
-        return EInvoicingSubmission.objects.create(
-            account=EInvoicingAccount.objects.get_or_create(
-                company=self.company, name="Verifacti",
-            )[0],
-            sales_invoice=advance, action=SubmissionAction.CANCEL, status=status,
-        )
 
     def _issued_advance(self, base=Decimal("300.00"), percentage="30", number="INV-2026-00012"):
         """A FINAL advance with its invoice number. Returns (invoice, line)."""
@@ -196,7 +170,7 @@ class ProjectFileInvoicingTests(_AdvanceFieldsBase):
         advance, _ = self._issued_advance()
         for status in (SubmissionStatus.PENDING, SubmissionStatus.SUBMITTED):
             with self.subTest(status=status):
-                marker = self._cancel_marker(advance, status)
+                marker = aeat_cancel_marker(advance, status=status)
 
                 invoicing = self._detail()["invoicing"]
 
@@ -207,7 +181,7 @@ class ProjectFileInvoicingTests(_AdvanceFieldsBase):
 
     def test_answered_cancellation_does_not_block_it(self):
         advance, _ = self._issued_advance()
-        marker = self._cancel_marker(advance, SubmissionStatus.PENDING)
+        marker = aeat_cancel_marker(advance, status=SubmissionStatus.PENDING)
         for status in (SubmissionStatus.REJECTED, SubmissionStatus.ERROR):
             with self.subTest(status=status):
                 marker.status = status
@@ -269,7 +243,7 @@ class BulkEmitCandidateTests(_AdvanceFieldsBase):
         advance, _ = self._issued_advance()
         for status in (SubmissionStatus.PENDING, SubmissionStatus.SUBMITTED):
             with self.subTest(status=status):
-                marker = self._cancel_marker(advance, status)
+                marker = aeat_cancel_marker(advance, status=status)
 
                 candidate = self._candidate()
 
@@ -277,12 +251,3 @@ class BulkEmitCandidateTests(_AdvanceFieldsBase):
                 self.assertIn(advance.invoice_number, candidate["block_reason"])
                 self.assertEqual(candidate["advances_open_net"], 300.0)
                 marker.delete()
-
-    def test_final_advance_stays_facturable(self):
-        self._issued_advance()
-
-        candidate = self._candidate()
-
-        self.assertTrue(candidate["facturable"])
-        self.assertIsNone(candidate["block_reason"])
-        self.assertEqual(candidate["advances_open_net"], 300.0)

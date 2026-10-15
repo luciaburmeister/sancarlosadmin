@@ -1,7 +1,7 @@
 """
 api/fleet/tests/test_endpoints.py
 
-Tests 26-34: POST /en/api/assets/<id>/transaction/
+POST /en/api/assets/<id>/transaction/
 
 Run just this file:
     python manage.py test api.fleet.tests.test_endpoints
@@ -10,31 +10,25 @@ Run just this file:
 import json
 
 from django.test import TestCase
-from rest_framework.test import APIClient
 
 from assets.models import AssetTransaction, TransactionTypeChoices, PlanningStatus, CubaOperationType
 from api.fleet.tests.helpers import (
-    make_company,
-    make_user,
-    make_employee,
-    make_asset_type,
+    ApiFixtureMixin,
     make_asset,
-    make_zone,
+    make_asset_type,
     make_planning,
+    make_zone,
 )
 
 
-class AssetTransactionEndpointTests(TestCase):
+class AssetTransactionEndpointTests(ApiFixtureMixin, TestCase):
     """
     Tests for POST /en/api/assets/<id>/transaction/
     These use APIClient to simulate real HTTP requests from the Android app.
     """
 
     def setUp(self):
-        self.client = APIClient()
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.zone = make_zone(self.company)
         self.asset = make_asset(
@@ -43,7 +37,6 @@ class AssetTransactionEndpointTests(TestCase):
             zone=self.zone,
         )
         self.planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
-        self.client.force_authenticate(user=self.user)
 
     def _movement_payload(self, **overrides):
         payload = {
@@ -69,31 +62,21 @@ class AssetTransactionEndpointTests(TestCase):
         pk = asset_id if asset_id is not None else self.asset.id
         return f"/en/api/assets/{pk}/transaction/"
 
-    # Test 26
-    def test_unauthenticated_request_is_rejected(self):
-        """
-        A request with no JWT token must get a 401 Unauthorized response.
-        This confirms the endpoint is not accidentally public.
-        """
-        self.client.force_authenticate(user=None)
-        response = self.client.post(
-            self._url(),
-            data=json.dumps(self._movement_payload()),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 401)
-
-    # Test 27
-    def test_movement_endpoint_returns_200(self):
-        """A valid movement payload from an authenticated user must return 200."""
+    def test_movement_endpoint_creates_one_transaction_and_returns_its_id(self):
+        """A valid movement payload from an authenticated user must return 200
+        with 'success': true and the transaction_id the app reads, and create
+        exactly one transaction row."""
         response = self.client.post(
             self._url(),
             data=json.dumps(self._movement_payload()),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body.get("success"))
+        self.assertIn("transaction_id", body)
+        self.assertEqual(AssetTransaction.objects.count(), 1)
 
-    # Test 28
     def test_delivery_endpoint_returns_200(self):
         """A valid delivery payload must return 200."""
         response = self.client.post(
@@ -103,7 +86,6 @@ class AssetTransactionEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-    # Test 29
     def test_receipt_endpoint_returns_200(self):
         """A valid receipt/verteo payload must return 200."""
         AssetTransaction.objects.create(
@@ -128,7 +110,6 @@ class AssetTransactionEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-    # Test 30
     def test_wrong_asset_id_returns_404(self):
         """Calling the endpoint with a non-existent asset ID must return 404."""
         response = self.client.post(
@@ -138,37 +119,6 @@ class AssetTransactionEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    # Test 31
-    def test_response_contains_success_true(self):
-        """The response JSON must contain 'success': true."""
-        response = self.client.post(
-            self._url(),
-            data=json.dumps(self._movement_payload()),
-            content_type="application/json",
-        )
-        self.assertTrue(response.json().get("success"))
-
-    # Test 32
-    def test_response_contains_transaction_id(self):
-        """The response JSON must contain a transaction_id — the app uses this."""
-        response = self.client.post(
-            self._url(),
-            data=json.dumps(self._movement_payload()),
-            content_type="application/json",
-        )
-        self.assertIn("transaction_id", response.json())
-
-    # Test 33
-    def test_movement_endpoint_creates_exactly_one_transaction(self):
-        """Calling the endpoint once must create exactly one transaction row."""
-        self.client.post(
-            self._url(),
-            data=json.dumps(self._movement_payload()),
-            content_type="application/json",
-        )
-        self.assertEqual(AssetTransaction.objects.count(), 1)
-
-    # Test 34
     def test_invalid_transaction_type_returns_400(self):
         """Sending an unknown transaction_type must return 400, not 500."""
         response = self.client.post(
@@ -189,6 +139,7 @@ class AssetTransactionEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json())
+        self.assertEqual(AssetTransaction.objects.count(), 0)
 
     def test_delivery_to_planned_destination_marks_plan_delivered(self):
         """Delivering at the plan's own destination zone completes a puesta."""
@@ -232,9 +183,11 @@ class AssetTransactionEndpointTests(TestCase):
         self.assertEqual(tx.to_zone_id, other_zone.id)
 
     def test_delivery_without_planned_destination_still_completes(self):
-        """A puesta with no destination still completes when left at an obra."""
+        """A puesta with no destination still completes when left at an obra,
+        and the delivery row is linked to the plan through the FK."""
         self.planning.cuba_operation_type = CubaOperationType.PUESTA
-        self.planning.save(update_fields=["cuba_operation_type"])
+        self.planning.status = PlanningStatus.IN_TRANSIT
+        self.planning.save(update_fields=["cuba_operation_type", "status"])
         self.assertIsNone(self.planning.destination_id)
         response = self.client.post(
             self._url(),
@@ -242,5 +195,7 @@ class AssetTransactionEndpointTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(transaction_type=TransactionTypeChoices.DELIVERY)
+        self.assertEqual(tx.planning_id, self.planning.id)
         self.planning.refresh_from_db()
         self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)

@@ -7,7 +7,7 @@ renders real AssetPlanning data, and move/resize/unassign persist via POST.
 Run just this file:
     python manage.py test assets.tests.test_asset_schedule_view
 """
-from datetime import date, time, timedelta
+from datetime import time, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -18,7 +18,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext, override
 
-from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, PlanningStatus
+from assets.models import Asset, AssetPlanning, PlanningStatus
+from assets.tests.factories import make_scheduled_planning, make_truck, make_truck_type
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_zone
 
 User = get_user_model()
@@ -30,23 +31,16 @@ class AssetScheduleViewTests(TestCase):
         self.company = make_company()
         self.origin = make_zone(self.company, name="Origin")
         self.destination = make_zone(self.company, name="Destination")
-        self.truck_type = AssetType.objects.create(company=self.company, name="CAMIONES", category=AssetTypeCategory.TRUCK)
-        self.truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 1")
+        self.truck_type = make_truck_type(self.company)
+        self.truck = make_truck(self.company, asset_type=self.truck_type)
         self.cargo = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company, "Cuba"), name="Cuba 1")
 
         self.superuser = User.objects.create_superuser(username="admin", password="testpass123", email="a@a.com")
         self.employee = make_employee(self.company, self.superuser)
 
-        self.planning = AssetPlanning.objects.create(
-            company=self.company,
-            asset=self.cargo,
-            origin=self.origin,
-            destination=self.destination,
-            assigned_to=self.employee,
-            transport_asset=self.truck,
-            scheduled_date=TODAY,
-            scheduled_time=time(8, 0),
-            estimated_duration=timedelta(hours=1),
+        self.planning = make_scheduled_planning(
+            self.company, driver=self.employee, truck=self.truck,
+            asset=self.cargo, origin=self.origin, destination=self.destination,
         )
 
         self.client.force_login(self.superuser)
@@ -211,7 +205,10 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(self.planning.abandoned_stage, "")
         self.assertIsNone(self.planning.abandoned_at)
 
-    def test_unassign_clears_driver_truck_and_time(self):
+    def test_unassign_clears_driver_truck_and_time_but_keeps_the_duration(self):
+        """Origin/destination don't change on unassign, so the duration already
+        on the planning is still a valid estimate — no need to re-derive it
+        from the zone-distance cache when it reappears in the backlog."""
         response = self.client.post(
             self.url,
             data={"action": "unassign", "id": self.planning.pk},
@@ -223,18 +220,6 @@ class AssetScheduleViewTests(TestCase):
         self.assertIsNone(self.planning.transport_asset)
         self.assertIsNone(self.planning.scheduled_time)
         self.assertIsNone(self.planning.scheduled_end_time)
-
-    def test_unassign_keeps_the_existing_estimated_duration(self):
-        """Origin/destination don't change on unassign, so the duration already
-        on the planning is still a valid estimate — no need to re-derive it
-        from the zone-distance cache when it reappears in the backlog."""
-        response = self.client.post(
-            self.url,
-            data={"action": "unassign", "id": self.planning.pk},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.planning.refresh_from_db()
         self.assertEqual(self.planning.estimated_duration, timedelta(hours=1))
 
     def test_resize_rejects_end_before_start(self):
@@ -403,38 +388,13 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(planning.transport_asset_id, self.truck.pk)
 
     def test_move_lists_multiple_driver_trucks_as_suggestions_without_picking_one(self):
-        truck2 = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
-        self.truck.assigned_to = self.employee
-        self.truck.save(update_fields=["assigned_to"])
-        truck2.assigned_to = self.employee
-        truck2.save(update_fields=["assigned_to"])
-        planning = AssetPlanning.objects.create(
-            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY,
-        )
-        response = self.client.post(
-            self.url,
-            data={
-                "action": "move", "id": planning.pk,
-                "start": 10 * 60, "end": 11 * 60,
-                "person_id": self.employee.pk, "day": TODAY.isoformat(),
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["truck"], "")
-        self.assertTrue(data["truck_note"])
-        planning.refresh_from_db()
-        self.assertIsNone(planning.transport_asset)
-        self.assertCountEqual(planning.suggested_trucks.all(), [self.truck, truck2])
-
-    def test_move_adds_to_suggested_trucks_instead_of_replacing_them(self):
-        # suggested_trucks is a hint for whoever assigns this later (by hand
-        # or by a future auto-assigner) — it should only ever grow here, never
-        # get wiped out by a driver drag, so a curated/previous list survives.
-        curated_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Curated")
-        truck2 = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        # A driver with two trucks: none gets picked, both are listed as
+        # suggestions. suggested_trucks is a hint for whoever assigns this later
+        # (by hand or by a future auto-assigner) — it should only ever grow
+        # here, never get wiped out by a driver drag, so a curated/previous
+        # list survives.
+        curated_truck = make_truck(self.company, name="Curated", asset_type=self.truck_type)
+        truck2 = make_truck(self.company, name="Truck 2", asset_type=self.truck_type)
         self.truck.assigned_to = self.employee
         self.truck.save(update_fields=["assigned_to"])
         truck2.assigned_to = self.employee
@@ -455,13 +415,17 @@ class AssetScheduleViewTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["truck"], "")
+        self.assertTrue(data["truck_note"])
         planning.refresh_from_db()
+        self.assertIsNone(planning.transport_asset)
         self.assertCountEqual(planning.suggested_trucks.all(), [curated_truck, self.truck, truck2])
 
     def test_move_never_overrides_an_already_assigned_truck(self):
         other_user = User.objects.create_user(username="other3", password="testpass123")
         other_employee = make_employee(self.company, other_user)
-        other_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        other_truck = make_truck(self.company, name="Truck 2", asset_type=self.truck_type)
         other_truck.assigned_to = other_employee
         other_truck.save(update_fields=["assigned_to"])
         # self.planning already has transport_asset=self.truck from setUp.
@@ -480,17 +444,19 @@ class AssetScheduleViewTests(TestCase):
 
     def test_move_swaps_the_truck_when_it_was_only_carried_over_from_the_previous_driver(self):
         # self.employee owns self.truck; moving self.planning (auto-linked to
-        # self.truck via self.employee) to a driver with their own truck should
-        # swap it, not leave self.truck stuck on the job forever.
+        # self.truck via self.employee — it already has transport_asset=self.truck
+        # from setUp) to a driver with their own truck should swap it, not leave
+        # self.truck stuck on the job forever. The swap must not clear the
+        # existing suggested_trucks either.
+        curated_truck = make_truck(self.company, name="Curated", asset_type=self.truck_type)
+        self.planning.suggested_trucks.add(curated_truck)
         self.truck.assigned_to = self.employee
         self.truck.save(update_fields=["assigned_to"])
-        other_user = User.objects.create_user(username="other4", password="testpass123")
+        other_user = User.objects.create_user(username="other5", password="testpass123")
         other_employee = make_employee(self.company, other_user)
-        other_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        other_truck = make_truck(self.company, name="Truck 2", asset_type=self.truck_type)
         other_truck.assigned_to = other_employee
         other_truck.save(update_fields=["assigned_to"])
-        # self.planning already has transport_asset=self.truck from setUp — as
-        # if it had been auto-linked to self.employee's own truck earlier.
 
         response = self.client.post(
             self.url,
@@ -505,30 +471,6 @@ class AssetScheduleViewTests(TestCase):
         data = response.json()
         self.assertEqual(data["truck"], "Truck 2")
         self.assertIsNone(data["truck_note"])
-        self.planning.refresh_from_db()
-        self.assertEqual(self.planning.transport_asset_id, other_truck.pk)
-
-    def test_move_carried_over_swap_never_clears_existing_suggested_trucks(self):
-        curated_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Curated")
-        self.planning.suggested_trucks.add(curated_truck)
-        self.truck.assigned_to = self.employee
-        self.truck.save(update_fields=["assigned_to"])
-        other_user = User.objects.create_user(username="other5", password="testpass123")
-        other_employee = make_employee(self.company, other_user)
-        other_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
-        other_truck.assigned_to = other_employee
-        other_truck.save(update_fields=["assigned_to"])
-
-        response = self.client.post(
-            self.url,
-            data={
-                "action": "move", "id": self.planning.pk,
-                "start": 9 * 60, "end": 10 * 60,
-                "person_id": other_employee.pk, "day": TODAY.isoformat(),
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
         self.planning.refresh_from_db()
         self.assertEqual(self.planning.transport_asset_id, other_truck.pk)
         self.assertIn(curated_truck, self.planning.suggested_trucks.all())
@@ -634,12 +576,8 @@ class AssetScheduleCaptureViewTests(TestCase):
         self.destination.street_address = "Calle B 2"
         self.destination.city = "Málaga"
         self.destination.save()
-        self.truck_type = AssetType.objects.create(
-            company=self.company, name="CAMIONES", category=AssetTypeCategory.TRUCK
-        )
-        self.truck = Asset.objects.create(
-            company=self.company, asset_type=self.truck_type, name="Truck 1"
-        )
+        self.truck_type = make_truck_type(self.company)
+        self.truck = make_truck(self.company, asset_type=self.truck_type)
         self.cargo = Asset.objects.create(
             company=self.company, asset_type=make_asset_type(self.company, "Cuba"), name="Cuba 1"
         )
@@ -647,16 +585,9 @@ class AssetScheduleCaptureViewTests(TestCase):
             username="admin", password="testpass123", email="a@a.com"
         )
         self.employee = make_employee(self.company, self.superuser)
-        self.planning = AssetPlanning.objects.create(
-            company=self.company,
-            asset=self.cargo,
-            origin=self.origin,
-            destination=self.destination,
-            assigned_to=self.employee,
-            transport_asset=self.truck,
-            scheduled_date=TODAY,
-            scheduled_time=time(8, 0),
-            estimated_duration=timedelta(hours=1),
+        self.planning = make_scheduled_planning(
+            self.company, driver=self.employee, truck=self.truck,
+            asset=self.cargo, origin=self.origin, destination=self.destination,
             load_description="Escombros",
             notes="Llamar al encargado",
             cuba_size="7m3",

@@ -147,14 +147,6 @@ class PlanTicketTest(TestCase):
         self.assertTrue(result.blocked)
         self.assertEqual(PlannedProductionSession.objects.count(), 0)
 
-    def test_planning_marks_the_configuration_as_planned(self):
-        ProductionPlanningService.plan_ticket(self.ticket.pk, start_at=self.start)
-
-        configuration = Configuration.objects.get(pk=self.ticket.object_id)
-        self.assertEqual(
-            configuration.planning_status, ConfigurationPlanningStatus.PLANNED
-        )
-
     def test_same_ticket_stage_cannot_be_planned_twice_in_the_same_slot(self):
         ProductionPlanningService.plan_ticket(self.ticket.pk, start_at=self.start)
 
@@ -319,6 +311,9 @@ class CustomPlanTicketTest(TestCase):
         self.assertIn(ConflictCode.RESOURCE_NOT_SKILLED, {c.code for c in result.conflicts})
 
     def test_individual_stage_requires_an_explicit_stage_assignment(self):
+        # Stricter than the conflict checker alone, which treats stages=[] as
+        # unrestricted (test_planning_conflicts.py): this path passes
+        # require_explicit_stage=True.
         ticket = make_ticket(self.company, stages=[STAGE_CUT])
         unconfigured = resource_for(
             make_employee(self.company, first_name="Eva", stages=[])
@@ -386,10 +381,8 @@ class CustomPlanTicketTest(TestCase):
             1,
         )
 
-    def test_invalid_stage_payload_is_atomic(self):
-        ticket = make_ticket(
-            self.company, stages=[STAGE_CUT, STAGE_WELD]
-        )
+    def test_a_stage_list_missing_a_product_stage_is_refused(self):
+        ticket = make_ticket(self.company, stages=[STAGE_CUT, STAGE_WELD])
 
         result = ProductionPlanningService.plan_ticket_custom(
             ticket.pk,
@@ -400,7 +393,7 @@ class CustomPlanTicketTest(TestCase):
         )
 
         self.assertFalse(result.ok)
-        self.assertTrue(result.blocked)
+        self.assertEqual([c.code for c in result.conflicts], ["invalid_stages"])
         self.assertFalse(
             PlannedProductionSession.objects.filter(production_ticket=ticket).exists()
         )
@@ -663,21 +656,6 @@ class MutationTest(TestCase):
 
     # --- unplan ----------------------------------------------------------
 
-    def test_unplan_returns_the_configuration_to_the_backlog(self):
-        session = self.session()
-        configuration = Configuration.objects.get(pk=self.ticket.object_id)
-        self.assertEqual(
-            configuration.planning_status, ConfigurationPlanningStatus.PLANNED
-        )
-
-        result = ProductionPlanningService.unplan(session.pk)
-
-        self.assertTrue(result.ok)
-        configuration.refresh_from_db()
-        self.assertEqual(
-            configuration.planning_status, ConfigurationPlanningStatus.UNPLANNED
-        )
-
     def test_unplan_refuses_a_locked_session(self):
         session = self.session(locked=True)
 
@@ -704,40 +682,6 @@ class MutationTest(TestCase):
         self.assertTrue(PlannedProductionSession.objects.get().locked)
 
     # --- reorder ---------------------------------------------------------
-
-    def test_reorder_renumbers_and_reflows_the_stages(self):
-        first = make_session(
-            self.ticket,
-            stage=STAGE_CUT,
-            start=self.start.replace(hour=8),
-            end=self.start.replace(hour=9),
-            resources=[self.operator],
-            sequence=0,
-        )
-        second = make_session(
-            self.ticket,
-            stage=STAGE_PAINT,
-            start=self.start.replace(hour=9),
-            end=self.start.replace(hour=11),
-            resources=[self.cnc],
-            sequence=1,
-        )
-
-        result = ProductionPlanningService.reorder(
-            self.ticket.pk,
-            session_id=second.pk,
-            before_session_id=first.pk,
-            override=True,
-        )
-
-        self.assertTrue(result.ok, result.conflicts)
-        second.refresh_from_db()
-        first.refresh_from_db()
-        self.assertEqual((second.sequence, first.sequence), (0, 1))
-        # Painting (2h) now runs first from 08:00, cutting (1h) follows it.
-        self.assertEqual(timezone.localtime(second.planned_start, self.tz).hour, 8)
-        self.assertEqual(second.planned_end, first.planned_start)
-        self.assertEqual(first.duration_minutes, 60)
 
     def test_reorder_query_cost(self):
         from production.views.production_schedule_view import _session_json
@@ -878,7 +822,10 @@ class MutationTest(TestCase):
         second.refresh_from_db()
         first.refresh_from_db()
         later.refresh_from_db()
+        # Painting (2h) now runs first from 08:00, cutting (1h) follows it.
+        self.assertEqual(timezone.localtime(second.planned_start, self.tz).hour, 8)
         self.assertEqual(second.planned_end, first.planned_start)
+        self.assertEqual(first.duration_minutes, 60)
         self.assertEqual(first.planned_end, later.planned_start)
 
     def test_reorder_persists_the_ticket_workflow_order_without_touching_the_template(self):

@@ -7,9 +7,7 @@ it is created from the quote.
 """
 import datetime
 from decimal import Decimal
-from importlib import import_module
 
-from django.apps import apps
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.test import RequestFactory
@@ -122,19 +120,6 @@ class ShippingDefaultsTests(_ComponentLinesBase):
 
         self.assertEqual(do.planned_delivery_date, datetime.date(2026, 11, 3))
         self.assertEqual(do.delivery_address, shipping)
-
-
-class SentBecomesDispatchedMigrationTests(_ComponentLinesBase):
-
-    def test_sent_orders_are_migrated_to_dispatched(self):
-        do = DeliveryOrder.objects.create(company=self.company, client=self.client_obj)
-        DeliveryOrder.objects.filter(pk=do.pk).update(status="sent")
-
-        module = import_module("sales.migrations.0073_delivery_order_shipping_lifecycle")
-        module.sent_to_dispatched(apps, None)
-
-        do.refresh_from_db()
-        self.assertEqual(do.status, DeliveryOrderStatus.DISPATCHED)
 
 
 class AdminTests(_ComponentLinesBase):

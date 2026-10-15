@@ -16,11 +16,10 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 
 from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
-from assets.models import Asset, AssetPlanningRequest, AssetTypeCategory
+from assets.models import AssetPlanningRequest
+from assets.tests.factories import make_project_file, make_truck, make_truck_type
 from company.models import CompanyUser
-from management.models import ProjectFile
-from sales.models import Client
-from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user
+from api.fleet.tests.helpers import make_company, make_employee, make_user
 
 User = get_user_model()
 
@@ -37,16 +36,10 @@ class MultiCompanyPickerTests(TestCase):
         CompanyUser.objects.create(user=self.user, company=self.company_a, is_active=True)
         CompanyUser.objects.create(user=self.user, company=self.company_b, is_active=True)
 
-        client_b = Client.objects.create(name="Client B", company=self.company_b)
-        self.project_file_b = ProjectFile.objects.create(
-            name="Project B", client=client_b, company=self.company_b,
+        self.project_file_b = make_project_file(self.company_b, name="Project B", client_name="Client B")
+        self.truck_b = make_truck(
+            self.company_b, name="Truck B", asset_type=make_truck_type(self.company_b, name="Camion"),
         )
-        truck_type = make_asset_type(self.company_b, name="Camion")
-        self.truck_b = Asset.objects.create(
-            company=self.company_b, asset_type=truck_type, name="Truck B",
-        )
-        self.truck_b.asset_type.category = AssetTypeCategory.TRUCK
-        self.truck_b.asset_type.save(update_fields=["category"])
 
         self.admin = AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None)
         self.request = RequestFactory().get("/")

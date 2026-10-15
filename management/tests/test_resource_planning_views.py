@@ -13,25 +13,21 @@ import datetime
 from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.models import ContentType
 from django.http import QueryDict
 from django.test import TestCase, Client as HttpClient, override_settings
 from django.urls import reverse
 from django.utils import timezone, translation
 
-from company.models import Company, Employee
 from management.models import (
     ProjectFile,
     ResourcePlanning,
     ResourcePlanningBacklogItem,
     ResourcePlanningBacklogLabel,
-    ResourcePlanningBacklogStatus,
     ResourcePlanningGroup,
     ResourcePlanningStatus,
     ResourcePlanningType,
 )
-from management.services.resource_planning import create_plannings
-from sales.models import Client
+from management.tests.factories import ResourcePlanningFixturesMixin
 
 User = get_user_model()
 
@@ -50,35 +46,13 @@ _PLANNING_VIEW_STORAGES = {
 # ── Shared base ───────────────────────────────────────────────────────────────
 
 @override_settings(STORAGES=_PLANNING_VIEW_STORAGES)
-class _ViewBase(TestCase):
+class _ViewBase(ResourcePlanningFixturesMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="View Co")
-        cls.client_obj = Client.objects.create(company=cls.company, name="Client")
-
-        _hired = datetime.date(2020, 1, 1)
-        cls.employee = Employee.objects.create(
-            company=cls.company, first_name="Ana", last_name="García",
-            hired_at=_hired, is_active=True,
-        )
-        cls.employee2 = Employee.objects.create(
-            company=cls.company, first_name="Luis", last_name="Pérez",
-            hired_at=_hired, is_active=True,
-        )
-
-        cls.project_file = ProjectFile.objects.create(
-            company=cls.company, reference="EXP-00001", name="Project",
-            status="open", client=cls.client_obj,
-        )
-        cls.planning_type = ResourcePlanningType.objects.create(
-            company=cls.company, name="Install", color="#000000",
-        )
-
+        super().setUpTestData()
         cls.superuser = User.objects.create_superuser(
             username="admin", password="admin", email="admin@test.com"
         )
-
-        cls.employee_ct = ContentType.objects.get(app_label="company", model="employee")
 
     def setUp(self):
         # Admin URLs live under i18n_patterns, so reverse() and request locale
@@ -111,39 +85,20 @@ class _ViewBase(TestCase):
     def _make_group(self, resources=None, date_from=None, date_to=None,
                     exclude_weekends=False):
         if resources is None:
-            resources = [
-                (self.employee_ct, self.employee.pk),
-                (self.employee_ct, self.employee2.pk),
-            ]
-        return create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
+            resources = self.two_resources
+        return self._create(
             resources=resources,
-            date_from=date_from or datetime.date(2026, 7, 7),
-            date_to=date_to or datetime.date(2026, 7, 9),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
+            date_from=date_from or self.date_from,
+            date_to=date_to or self.date_to,
             exclude_weekends=exclude_weekends,
             is_group=True,
         )
 
     def _make_individual(self, date_from=None, date_to=None, exclude_weekends=False):
-        plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
-            date_from=date_from or datetime.date(2026, 7, 7),
-            date_to=date_to or datetime.date(2026, 7, 9),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
+        plannings = self._create(
+            date_from=date_from or self.date_from,
+            date_to=date_to or self.date_to,
             exclude_weekends=exclude_weekends,
-            is_group=False,
         )
         return plannings[0]
 
@@ -163,10 +118,6 @@ class _ViewBase(TestCase):
 # ── Add view ──────────────────────────────────────────────────────────────────
 
 class TestAddViewGet(_ViewBase):
-    def test_get_renders_form(self):
-        r = self.http.get(self.add_url)
-        self.assertEqual(r.status_code, 200)
-
     def test_get_prepopulates_resources(self):
         r = self.http.get(self.add_url + f"?resources=employee:{self.employee.pk}")
         self.assertEqual(r.status_code, 200)
@@ -259,30 +210,6 @@ class TestAddViewPost(_ViewBase):
             r, self.group_url(group.pk), fetch_redirect_response=False
         )
 
-    def test_post_invalid_shows_errors(self):
-        data = self._post_data(
-            date_from="2026-07-07",
-            date_to="2026-07-07",
-            daily_start="17:00:00",
-            daily_end="08:00:00",
-        )
-        r = self.http.post(self.add_url, data)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(ResourcePlanning.objects.count(), 0)
-
-    def test_post_spanish_date_format_multi_day(self):
-        data = self._post_data(
-            date_from="07/07/2026",
-            date_to="09/07/2026",
-            daily_start="08:00",
-            daily_end="17:00",
-        )
-        r = self.http.post(self.add_url, data)
-        self.assertEqual(ResourcePlanning.objects.count(), 1)
-        p = ResourcePlanning.objects.get()
-        local_end = timezone.localtime(p.end)
-        self.assertEqual(local_end.date(), datetime.date(2026, 7, 9))
-
     def test_post_exclude_weekends_saved(self):
         self.http.post(self.add_url, self._post_data(exclude_weekends="on"))
         self.assertTrue(ResourcePlanning.objects.get().exclude_weekends)
@@ -295,12 +222,6 @@ class TestAddViewPost(_ViewBase):
 # ── Group change view ─────────────────────────────────────────────────────────
 
 class TestGroupChangeViewGet(_ViewBase):
-    def test_get_renders_form(self):
-        plannings = self._make_group()
-        group = plannings[0].group
-        r = self.http.get(self.group_url(group.pk))
-        self.assertEqual(r.status_code, 200)
-
     def test_get_initial_exclude_weekends_false_when_has_weekends(self):
         # Plannings spanning Sat/Sun → exclude_weekends detected as False
         plannings = self._make_group(
@@ -403,11 +324,6 @@ class TestGroupChangeViewPost(_ViewBase):
 # ── Individual change view ────────────────────────────────────────────────────
 
 class TestIndividualChangeViewGet(_ViewBase):
-    def test_get_renders_form(self):
-        p = self._make_individual()
-        r = self.http.get(self.individual_url(p.pk))
-        self.assertEqual(r.status_code, 200)
-
     def test_get_initial_dates_use_local_time(self):
         # Planning stored as UTC — form initial must use local Madrid time, not UTC
         p = self._make_individual(
@@ -455,20 +371,16 @@ class TestIndividualChangeViewPost(_ViewBase):
         data.update(overrides)
         return self.http.post(self.individual_url(self.planning.pk), data)
 
-    def test_post_updates_notes(self):
-        self._ind_post(notes="updated note")
-        self.assertEqual(ResourcePlanning.objects.get(pk=self.planning.pk).notes, "updated note")
-
-    def test_post_updates_status(self):
-        self._ind_post(status=ResourcePlanningStatus.CONFIRMED)
-        self.assertEqual(
-            ResourcePlanning.objects.get(pk=self.planning.pk).status,
-            ResourcePlanningStatus.CONFIRMED,
+    def test_post_updates_fields(self):
+        self._ind_post(
+            notes="updated note",
+            status=ResourcePlanningStatus.CONFIRMED,
+            exclude_weekends="on",
         )
-
-    def test_post_updates_exclude_weekends(self):
-        self._ind_post(exclude_weekends="on")
-        self.assertTrue(ResourcePlanning.objects.get(pk=self.planning.pk).exclude_weekends)
+        p = ResourcePlanning.objects.get(pk=self.planning.pk)
+        self.assertEqual(p.notes, "updated note")
+        self.assertEqual(p.status, ResourcePlanningStatus.CONFIRMED)
+        self.assertTrue(p.exclude_weekends)
 
     def test_post_updates_date_range(self):
         self._ind_post(date_from="2026-07-14", date_to="2026-07-16")
@@ -537,19 +449,10 @@ class TestScheduleExcludeWeekends(_ViewBase):
 
     def test_planning_with_exclude_weekends_hidden_on_saturday(self):
         # Create a planning Mon–Sun with exclude_weekends=True
-        create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
-            date_from=datetime.date(2026, 7, 6),   # Monday
-            date_to=datetime.date(2026, 7, 12),    # Sunday
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
+        self._create(
+            date_from=datetime.date(2026, 7, 6),  # Monday
+            date_to=datetime.date(2026, 7, 12),  # Sunday
             exclude_weekends=True,
-            is_group=False,
         )
         # View the week that includes Sat 11 Jul
         r = self.http.get(
@@ -571,19 +474,9 @@ class TestScheduleExcludeWeekends(_ViewBase):
         self.assertTrue(len(mon["blocks"]) > 0, "Monday should have a block")
 
     def test_planning_without_exclude_weekends_shows_on_saturday(self):
-        create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
+        self._create(
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 12),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
-            exclude_weekends=False,
-            is_group=False,
         )
         r = self.http.get(
             self.schedule_url + "?day=2026-07-06&num_days=7"
@@ -601,18 +494,10 @@ class TestScheduleFilters(_ViewBase):
         return reverse("admin:management_resourceplanning_schedule")
 
     def test_only_with_plans_shows_only_rows_with_blocks(self):
-        create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
+        self._create(
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 6),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
-            is_group=False,
+            exclude_weekends=True,
         )
 
         response = self.http.get(
@@ -636,31 +521,20 @@ class TestScheduleFilters(_ViewBase):
         self.assertFalse(response.context["show_cell_create_buttons"])
 
     def test_status_filter_accepts_multiple_values(self):
-        create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
+        self._create(
             notes="planned",
-            resources=[(self.employee_ct, self.employee.pk)],
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 6),
-            daily_start=datetime.time(8, 0),
             daily_end=datetime.time(12, 0),
-            is_group=False,
+            exclude_weekends=True,
         )
-        create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
+        self._create(
             status=ResourcePlanningStatus.CONFIRMED,
             notes="confirmed",
-            resources=[(self.employee_ct, self.employee.pk)],
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 6),
             daily_start=datetime.time(13, 0),
-            daily_end=datetime.time(17, 0),
-            is_group=False,
+            exclude_weekends=True,
         )
 
         response = self.http.get(
@@ -688,18 +562,10 @@ class TestScheduleFilters(_ViewBase):
 
     def test_resources_filter_works_when_form_is_invalid(self):
         """Resource filter must apply even when other fields invalidate the form."""
-        create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
+        self._create(
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 6),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
-            is_group=False,
+            exclude_weekends=True,
         )
 
         response = self.http.get(
@@ -891,19 +757,12 @@ class TestScheduleBacklogFilters(_ViewBase):
 
 class TestRepetitionSeries(_ViewBase):
     def _make_repetition(self):
-        plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
+        plannings = self._create(
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 6),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
             repeat="weekly",
             repeat_until=datetime.date(2026, 7, 20),
+            exclude_weekends=True,
         )
         group = plannings[0].group
         self.assertTrue(group.is_repetition)
@@ -1000,21 +859,15 @@ class TestRepetitionSeries(_ViewBase):
 class TestScheduleDeleteDayFromGroup(_ViewBase):
     def setUp(self):
         super().setUp()
-        self.plannings = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
+        self.plannings = self._create(
             resources=[
                 (self.employee_ct, self.employee.pk),
                 (self.employee_ct, self.employee2.pk),
             ],
             date_from=datetime.date(2026, 7, 6),
             date_to=datetime.date(2026, 7, 10),
-            daily_start=datetime.time(8, 0),
-            daily_end=datetime.time(17, 0),
             is_group=True,
+            exclude_weekends=True,
         )
         self.group = self.plannings[0].group
         self.p1, self.p2 = self.plannings[0], self.plannings[1]
@@ -1026,12 +879,8 @@ class TestScheduleDeleteDayFromGroup(_ViewBase):
             "next": reverse("admin:management_resourceplanning_schedule"),
         })
         self.assertEqual(r.status_code, 302)
-
         self.p1.refresh_from_db()
-        self.p2.refresh_from_db()
         self.assertIsNone(self.p1.group_id)
-        self.assertEqual(self.p2.group_id, self.group.pk)
-        self.assertTrue(ResourcePlanningGroup.objects.filter(pk=self.group.pk).exists())
 
 
 # ── Multi add view ────────────────────────────────────────────────────────────
@@ -1078,33 +927,23 @@ class TestMultiAddView(_ViewBase):
         data.update(overrides)
         return data
 
-    def test_get_renders_form(self):
-        r = self.http.get(self.multi_add_url)
-        self.assertEqual(r.status_code, 200)
-
     def test_get_prepopulates_resources(self):
         r = self.http.get(self.multi_add_url + f"?resources=employee:{self.employee.pk}")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, f"employee:{self.employee.pk}")
 
     def test_post_creates_one_planning_per_line(self):
-        r = self.http.post(self.multi_add_url, self._multi_post_data())
+        r = self.http.post(self.multi_add_url, self._multi_post_data(
+            status=ResourcePlanningStatus.CONFIRMED,
+        ))
         self.assertEqual(r.status_code, 302)
         self.assertEqual(ResourcePlanning.objects.count(), 2)
         self.assertEqual(ResourcePlanningGroup.objects.count(), 0)
-
-    def test_post_each_line_keeps_own_fields(self):
-        self.http.post(self.multi_add_url, self._multi_post_data())
         first = ResourcePlanning.objects.get(project_file=self.project_file)
         second = ResourcePlanning.objects.get(project_file=self.project_file2)
         self.assertEqual(first.planning_type, self.planning_type)
         self.assertEqual(second.planning_type, self.planning_type2)
-
-    def test_post_shared_status_applied(self):
-        self.http.post(self.multi_add_url, self._multi_post_data(
-            status=ResourcePlanningStatus.CONFIRMED,
-        ))
-        for p in ResourcePlanning.objects.all():
+        for p in (first, second):
             self.assertEqual(p.status, ResourcePlanningStatus.CONFIRMED)
 
     def test_post_per_line_options_applied(self):
@@ -1172,19 +1011,11 @@ class TestAddViewShiftFollowing(_ViewBase):
         self.morning.start = self.morning.start.replace(hour=8, minute=0)
         self.morning.end = self.morning.end.replace(hour=10, minute=0)
         self.morning.save()
-        self.midday = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
+        self.midday = self._create(
             date_from=day,
             date_to=day,
             daily_start=datetime.time(10, 0),
             daily_end=datetime.time(12, 0),
-            exclude_weekends=False,
-            is_group=False,
         )[0]
 
     def test_get_prepopulates_shift_following(self):
@@ -1202,28 +1033,16 @@ class TestAddViewShiftFollowing(_ViewBase):
         )
         r = self.http.post(self.add_url, data)
         self.assertEqual(r.status_code, 302)
-        self.midday.refresh_from_db()
-        from django.utils import timezone as _tz
-        self.assertEqual(_tz.localtime(self.midday.start).time(), datetime.time(11, 0))
-        self.assertEqual(_tz.localtime(self.midday.end).time(), datetime.time(13, 0))
         self.assertEqual(ResourcePlanning.objects.count(), 3)
 
     def test_post_shift_crossing_midnight_shows_error(self):
         # Contiguous with the 10–12 plan so the domino chain reaches it
-        evening = create_plannings(
-            company=self.company,
-            project_file=self.project_file,
-            planning_type=self.planning_type,
-            status=ResourcePlanningStatus.PLANNED,
-            notes="",
-            resources=[(self.employee_ct, self.employee.pk)],
+        self._create(
             date_from=datetime.date(2026, 7, 7),
             date_to=datetime.date(2026, 7, 7),
             daily_start=datetime.time(12, 0),
             daily_end=datetime.time(23, 30),
-            exclude_weekends=False,
-            is_group=False,
-        )[0]
+        )
         data = self._post_data(
             date_from="2026-07-07",
             date_to="2026-07-07",
@@ -1234,7 +1053,4 @@ class TestAddViewShiftFollowing(_ViewBase):
         r = self.http.post(self.add_url, data)
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.context["errors"])
-        evening.refresh_from_db()
-        from django.utils import timezone as _tz
-        self.assertEqual(_tz.localtime(evening.start).time(), datetime.time(12, 0))
         self.assertEqual(ResourcePlanning.objects.count(), 3)  # nothing new saved

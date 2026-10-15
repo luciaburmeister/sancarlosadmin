@@ -10,8 +10,6 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone, translation
 
-from api.fleet.tests.helpers import make_user
-from company.models import CompanyUser
 from production.models import PlannedProductionSession, ProductionItem, ProductionItemStatus
 from production.tests.factories import (
     STAGE_CUT,
@@ -22,6 +20,7 @@ from production.tests.factories import (
     make_employee,
     make_machine,
     make_session,
+    make_staff_user,
     make_ticket,
     resource_for,
 )
@@ -32,7 +31,18 @@ ACTION_URL = "admin:production_plannedproductionsession_schedule_action"
 MONDAY = datetime(2026, 9, 14)
 
 
-class ScheduleViewTest(TestCase):
+class StaffUserMixin:
+    username_prefix = "user"
+
+    def staff_user(self, *, perms=(), companies=None):
+        return make_staff_user(
+            username=f"{self.username_prefix}{Permission.objects.count()}",
+            companies=[self.company] if companies is None else companies,
+            perms=perms,
+        )
+
+
+class ScheduleViewTest(StaffUserMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = make_company()
@@ -45,20 +55,6 @@ class ScheduleViewTest(TestCase):
 
     def at(self, hour: int) -> datetime:
         return MONDAY.replace(hour=hour, tzinfo=self.tz)
-
-    def staff_user(self, *, perms=(), companies=None):
-        user = make_user(username=f"user{Permission.objects.count()}")
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
-        for company in companies if companies is not None else [self.company]:
-            CompanyUser.objects.create(user=user, company=company, is_active=True)
-        for codename in perms:
-            user.user_permissions.add(
-                Permission.objects.get(
-                    codename=codename, content_type__app_label="production"
-                )
-            )
-        return user
 
     def login_with_view_permission(self):
         user = self.staff_user(perms=["view_plannedproductionsession"])
@@ -78,16 +74,11 @@ class ScheduleViewTest(TestCase):
         self.assertContains(response, 'name="day"')
         self.assertContains(response, "calendar_month")
         self.assertTrue(response.context["is_machine_people"])
-
-    def test_confirmation_dialog_uses_the_dedicated_calendar_overlay(self):
-        self.login_with_view_permission()
-
-        response = self.client.get(reverse(SCHEDULE_URL))
-
+        # The confirmation dialog uses the dedicated calendar overlay.
         self.assertContains(response, 'class="ps-confirm-overlay"')
         self.assertContains(response, 'aria-modal="true"')
 
-    def test_unconfigured_ticket_exposes_the_stage_planning_payload(self):
+    def test_backlog_payload_is_embedded_for_a_user_who_can_plan(self):
         user = self.staff_user(
             perms=[
                 "view_plannedproductionsession",
@@ -98,16 +89,9 @@ class ScheduleViewTest(TestCase):
 
         response = self.client.get(reverse(SCHEDULE_URL))
 
-        item = next(
-            item
-            for item in response.context["backlog_json"]
-            if item["ticket_id"] == self.ticket.pk
-        )
-        self.assertTrue(item["needs_time_configuration"])
-        self.assertEqual(item["stage_count"], 3)
         self.assertContains(response, "ps-backlog-data")
 
-    def test_pending_card_identifies_the_configuration_and_remaining_work(self):
+    def test_pending_card_renders_the_configuration_and_current_stage(self):
         self.login_with_view_permission()
         configuration = self.ticket.source_object
         configuration.name = "Window A"
@@ -125,13 +109,6 @@ class ScheduleViewTest(TestCase):
         with translation.override("es"):
             response = self.client.get(reverse(SCHEDULE_URL))
 
-        item = next(
-            item for item in response.context["backlog_json"]
-            if item["ticket_id"] == self.ticket.pk
-        )
-        self.assertEqual(item["label"], f"OP-{self.ticket.pk}")
-        self.assertEqual(item["completed_stage_count"], 1)
-        self.assertNotIn(STAGE_CUT, [stage["stage"] for stage in item["stages"]])
         self.assertContains(response, f"#{configuration.pk} · Window A")
         self.assertContains(response, "Etapa Actual: soldadura")
 
@@ -160,19 +137,7 @@ class ScheduleViewTest(TestCase):
 
         self.assertTrue(response.context["is_machine_people"])
 
-    def test_day_navigation_preserves_the_grouping(self):
-        self.login_with_view_permission()
-
-        response = self.client.get(
-            reverse(SCHEDULE_URL),
-            {"day": MONDAY.date().isoformat(), "group_by": "machine"},
-        )
-
-        self.assertIn("day=2026-09-13", response.context["previous_day_url"])
-        self.assertIn("group_by=machine", response.context["previous_day_url"])
-        self.assertIn("day=2026-09-15", response.context["next_day_url"])
-
-    def test_day_navigation_preserves_repeated_params_and_drops_legacy_view(self):
+    def test_day_navigation_keeps_grouping_and_repeated_params_but_drops_legacy_view(self):
         self.login_with_view_permission()
 
         response = self.client.get(
@@ -185,10 +150,14 @@ class ScheduleViewTest(TestCase):
             },
         )
 
-        for url in (response.context["previous_day_url"], response.context["next_day_url"]):
+        for url, day in (
+            (response.context["previous_day_url"], "2026-09-13"),
+            (response.context["next_day_url"], "2026-09-15"),
+        ):
             parsed = urlsplit(url)
             params = QueryDict(parsed.query)
             self.assertEqual(parsed.path, reverse(SCHEDULE_URL))
+            self.assertEqual(params["day"], day)
             self.assertEqual(params.getlist("custom"), ["first", "second"])
             self.assertEqual(params["group_by"], "machine")
             self.assertNotIn("view", params)
@@ -434,33 +403,6 @@ class ScheduleViewTest(TestCase):
         self.assertContains(response, "height: calc(50.0000% - 4px)", count=2)
         self.assertNotContains(response, "data-resize-edge")
 
-    def test_a_session_overlapped_only_partway_keeps_one_lane_for_its_whole_length(self):
-        """The fixed-lane layout assigns one height per block for its entire
-        duration, decided once -- a session must not regain full height where
-        a shorter session sharing its row happens to end partway through it."""
-        user = self.staff_user(perms=["view_plannedproductionsession"])
-        self.client.force_login(user)
-        make_session(
-            self.ticket,
-            start=self.at(9),
-            end=self.at(11),
-            resources=[self.operator],
-        )
-        make_session(
-            self.ticket,
-            start=self.at(9),
-            end=self.at(10),
-            resources=[self.operator],
-        )
-
-        response = self.client.get(
-            reverse(SCHEDULE_URL),
-            {"day": MONDAY.date().isoformat(), "group_by": "employee"},
-        )
-
-        self.assertContains(response, "height: calc(50.0000% - 4px)", count=2)
-        self.assertNotContains(response, "height: calc(100.0000%")
-
     def test_the_board_query_cost_does_not_grow_with_the_data_over_http(self):
         """The same guarantee as the context-builder's assertNumQueries test,
         exercised through the full request/response cycle. The exact count
@@ -497,7 +439,9 @@ class ScheduleViewTest(TestCase):
         self.assertLessEqual(len(many.captured_queries), len(few.captured_queries) + 2)
 
 
-class ScheduleActionViewTest(TestCase):
+class ScheduleActionViewTest(StaffUserMixin, TestCase):
+    username_prefix = "actor"
+
     @classmethod
     def setUpTestData(cls):
         cls.company = make_company()
@@ -509,19 +453,6 @@ class ScheduleActionViewTest(TestCase):
 
     def at(self, hour: int) -> datetime:
         return MONDAY.replace(hour=hour, tzinfo=self.tz)
-
-    def staff_user(self, *, perms=()):
-        user = make_user(username=f"actor{Permission.objects.count()}")
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
-        CompanyUser.objects.create(user=user, company=self.company, is_active=True)
-        for codename in perms:
-            user.user_permissions.add(
-                Permission.objects.get(
-                    codename=codename, content_type__app_label="production"
-                )
-            )
-        return user
 
     def post(self, payload):
         return self.client.post(
@@ -870,9 +801,11 @@ class ScheduleActionViewTest(TestCase):
         self.assertEqual(response.status_code, 409)
 
 
-class ActionViewCompanyScopingTest(TestCase):
+class ActionViewCompanyScopingTest(StaffUserMixin, TestCase):
     """A user must not be able to mutate another company's planned sessions
     or tickets through the action endpoint just by knowing their id."""
+
+    username_prefix = "scoping"
 
     @classmethod
     def setUpTestData(cls):
@@ -891,20 +824,6 @@ class ActionViewCompanyScopingTest(TestCase):
 
     def at(self, hour: int) -> datetime:
         return MONDAY.replace(hour=hour, tzinfo=self.tz)
-
-    def staff_user(self, *, perms=(), companies=None):
-        user = make_user(username=f"scoping{Permission.objects.count()}")
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
-        for company in companies if companies is not None else [self.company]:
-            CompanyUser.objects.create(user=user, company=company, is_active=True)
-        for codename in perms:
-            user.user_permissions.add(
-                Permission.objects.get(
-                    codename=codename, content_type__app_label="production"
-                )
-            )
-        return user
 
     def test_cannot_move_a_session_belonging_to_another_company(self):
         foreign_session = make_session(

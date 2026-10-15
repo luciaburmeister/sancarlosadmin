@@ -18,8 +18,6 @@ from datetime import timedelta
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
-from django.contrib.messages.middleware import MessageMiddleware
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import translation
@@ -32,8 +30,8 @@ from assets.models import (
     AssetPlanningRequestDraftStatus,
     ServiceType,
 )
+from assets.tests.factories import make_admin_post_request, make_project_file
 from company.models import CompanyUser
-from management.models import ProjectFile
 from sales.models import Client
 from api.fleet.tests.helpers import make_company, make_employee, make_user, make_zone
 
@@ -46,9 +44,7 @@ class DraftAdminFixtureMixin:
         self.company = make_company()
         self.to_zone = make_zone(self.company, name="To Zone")
         self.sales_client = Client.objects.create(name="Client 1", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="Project 1", client=self.sales_client, company=self.company,
-        )
+        self.project_file = make_project_file(self.company, client=self.sales_client)
         self.superuser = User.objects.create_superuser(username="admin", password="x", email="a@a.com")
         make_employee(self.company, self.superuser)
 
@@ -173,12 +169,7 @@ class ChangeViewDraftPanelTests(DraftAdminFixtureMixin, TestCase):
 
 class ResponseAddProcessesDraftTests(DraftAdminFixtureMixin, TestCase):
     def _request_with_draft_id(self, draft_id):
-        req = RequestFactory().post(f"/?draft_id={draft_id}")
-        SessionMiddleware(lambda r: None).process_request(req)
-        req.session.save()
-        MessageMiddleware(lambda r: None).process_request(req)
-        req.user = self.superuser
-        return req
+        return make_admin_post_request(self.superuser, path=f"/?draft_id={draft_id}")
 
     def test_saving_the_request_marks_the_draft_processed_and_links_it(self):
         draft = self._make_draft()
@@ -209,11 +200,7 @@ class ResponseAddProcessesDraftTests(DraftAdminFixtureMixin, TestCase):
             estimated_duration=timedelta(hours=1),
         )
         admin_instance = AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=AdminSite())
-        req = RequestFactory().post("/")
-        SessionMiddleware(lambda r: None).process_request(req)
-        req.session.save()
-        MessageMiddleware(lambda r: None).process_request(req)
-        req.user = self.superuser
+        req = make_admin_post_request(self.superuser)
         admin_instance.response_add(req, obj)
 
         draft.refresh_from_db()

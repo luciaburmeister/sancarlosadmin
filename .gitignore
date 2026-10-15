@@ -48,3 +48,9 @@ company/management/commands/setup_fislav.py
 
 # Claude Code local settings
 .claude/
+
+# coverage.py
+.coverage
+.coverage.*
+htmlcov/
+coverage.json

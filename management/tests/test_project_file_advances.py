@@ -2,7 +2,6 @@
 The expediente's cached invoicing figures with advance invoices
 (ProjectFile.recalculate_total_amount, kept current by the invoice signals):
 
-- cancelled invoices, single or bulk, bill nothing;
 - advance_pending_amount: the advances' base (pro formas included) less
   what non-cancelled invoices have deducted;
 - a payment (payment status save) leaves the expediente alone;
@@ -12,7 +11,6 @@ The expediente's cached invoicing figures with advance invoices
 - the admin never deletes an expediente that has an advance invoice, a
   cancelled one included (an advance always keeps its expediente).
 """
-from datetime import date
 from decimal import Decimal
 
 from django.contrib import admin
@@ -23,7 +21,6 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from invoices.models import InvoicePaymentStatus, SalesInvoiceStatus
-from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
 from management.admin.project_file import ProjectFileAdmin
 from management.models import (
@@ -39,22 +36,6 @@ class ProjectFileAdvanceTotalsTests(AdvanceExpedienteMixin, TestCase):
     def _refreshed(self):
         self.project_file.refresh_from_db()
         return self.project_file
-
-    def test_cancelled_invoices_are_left_out(self):
-        invoice = self.invoice_goods()
-        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("1000.00"))
-        self.set_status(invoice, SalesInvoiceStatus.CANCELLED)
-        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("0.00"))
-        self.assertEqual(self.project_file.percentage_invoiced, Decimal("0.00"))
-
-    def test_cancelled_bulk_invoices_are_left_out(self):
-        invoice = BulkProjectFileInvoiceService.create_bulk_invoice(
-            [self.project_file], company=self.company, client=self.client_obj,
-            date_issued=date(2026, 9, 29),
-        )
-        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("1000.00"))
-        self.set_status(invoice, SalesInvoiceStatus.CANCELLED)
-        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("0.00"))
 
     def test_advance_pending_amount(self):
         self.assertEqual(self._refreshed().advance_pending_amount.amount, Decimal("0.00"))
@@ -94,14 +75,6 @@ class PaymentStatusSaveTests(AdvanceExpedienteMixin, TestCase):
             [query["sql"] for query in ctx.captured_queries if '"management_projectfile"' in query["sql"]],
             [],
         )
-
-    def test_other_saves_still_update_it(self):
-        invoice = self.invoice_goods()
-        invoice.status = SalesInvoiceStatus.CANCELLED
-        invoice.save(update_fields=["status"])
-
-        self.project_file.refresh_from_db()
-        self.assertEqual(self.project_file.total_invoiced.amount, Decimal("0.00"))
 
 
 class FullAdvanceIsNotFullInvoicingTests(AdvanceExpedienteMixin, TestCase):

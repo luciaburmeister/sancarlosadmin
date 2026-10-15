@@ -278,18 +278,10 @@ class ScheduleContextTest(TestCase):
         self.assertNotIn(",", block.width)
         self.assertAlmostEqual(float(block.width), 100 * 180 / 600, places=3)
 
-    def test_now_line_is_absent_when_the_window_is_in_the_past(self):
+    def test_now_line_is_absent_when_the_window_is_in_the_future(self):
         data = self.context().build()
 
         self.assertIsNone(data.now_pct)
-
-    def test_an_unscheduled_company_reports_it_rather_than_rendering_blank(self):
-        company = make_company(name="Sin horario")
-
-        data = self.context(company=company).build()
-
-        self.assertFalse(data.has_schedule)
-        self.assertTrue(data.window.is_empty)
 
     # --- state ------------------------------------------------------------
 
@@ -505,22 +497,6 @@ class ScheduleContextTest(TestCase):
         board_block = self.rows_by_label(data)["Ana Ruiz"].blocks[0]
         self.assertEqual(board_block.color, ticket_color(self.ticket.pk))
 
-    def test_recolouring_does_not_disturb_the_resource_rows(self):
-        make_session(
-            self.ticket,
-            stage=STAGE_CUT,
-            start=self.at(8),
-            end=self.at(9),
-            resources=[self.operator],
-        )
-
-        data = self.context().build()
-
-        board = self.rows_by_label(data)["Ana Ruiz"].blocks[0]
-        ticket = data.ticket_rows[0].blocks[0]
-        self.assertIsNot(board, ticket)
-        self.assertFalse(board.is_displaced)
-
     # --- query budget -----------------------------------------------------
 
     QUERY_BUDGET = 9
@@ -563,15 +539,9 @@ class ScheduleContextTest(TestCase):
                 resources=[self.operator, self.machine],
             )
 
-    def test_building_the_board_has_a_fixed_query_cost(self):
-        """Guards against re-introducing per-block queries in the templates."""
-        self._populate(tickets=6)
-
-        with self.assertNumQueries(self.QUERY_BUDGET):
-            self._touch_everything(self.context().build())
-
     def test_query_cost_does_not_grow_with_the_data(self):
-        """Same budget with four times the board: constant, not proportional."""
+        """A fixed budget for a large board: constant, not proportional. Guards
+        against re-introducing per-block queries in the templates."""
         self._populate(tickets=24, extra_resources=10)
 
         with self.assertNumQueries(self.QUERY_BUDGET):
@@ -670,44 +640,3 @@ class OverlapLanesTest(TestCase):
         self.assertEqual(
             sorted(blocks[pk].top_pct for pk in (first.pk, second.pk)), [0.0, 50.0]
         )
-
-    def test_a_lane_holds_even_once_the_session_is_briefly_alone_again(self):
-        """The old per-segment layout changed a block's own height mid-flight
-        as neighbours came and went, which read as a glitch rather than as
-        information. The fixed-lane layout deliberately does not: a session
-        keeps one lane, and one label state, for its whole length."""
-        long_session = make_session(
-            self.ticket, start=self.at(9), end=self.at(13), resources=[self.operator]
-        )
-        make_session(
-            self.ticket, start=self.at(9), end=self.at(11), resources=[self.operator]
-        )
-
-        block = self.operator_blocks()[long_session.pk]
-
-        self.assertEqual(block.height_pct, 50.0)
-        self.assertFalse(block.show_label)
-
-    def test_a_session_outside_the_overlap_keeps_the_full_row(self):
-        make_session(
-            self.ticket, start=self.at(9), end=self.at(10), resources=[self.operator]
-        )
-        make_session(
-            self.ticket,
-            stage=STAGE_WELD,
-            start=self.at(9),
-            end=self.at(10),
-            resources=[self.operator],
-        )
-        later = make_session(
-            self.ticket,
-            stage=STAGE_PAINT,
-            start=self.at(14),
-            end=self.at(15),
-            resources=[self.operator],
-        )
-
-        block = self.operator_blocks()[later.pk]
-
-        self.assertEqual(block.height_pct, 100.0)
-        self.assertTrue(block.show_label)

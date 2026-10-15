@@ -2,27 +2,33 @@
 from datetime import date
 from decimal import Decimal
 
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from djmoney.money import Money
 
-from company.models import Company
-from invoices.models import AppliedTax, TaxType
+from invoices.models import TaxType
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from management.models import ProjectFile, WorkEntry, WorkEntryType
-from sales.models import Client
+from invoices.tests.factories import (
+    apply_tax,
+    build_api_items,
+    build_wizard_items,
+    create_invoice,
+    make_client,
+    make_company,
+    make_project_file,
+)
+from management.models import WorkEntry, WorkEntryType
 
 
 class _WorkEntryInvoicingBase(TestCase):
     """One project file with a single 2 × 50 € work entry taxed at 21 %."""
 
     def setUp(self):
-        self.company = Company.objects.create(name="Taller Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Work", company=self.company, client=self.client_obj,
+        self.company = make_company(name="Taller Co")
+        self.client_obj = make_client(company=self.company)
+        self.project_file = make_project_file(
+            company=self.company, client=self.client_obj, name="PF Work",
         )
         self.entry_type = WorkEntryType.objects.create(company=self.company, name="Porte")
         self.iva21 = TaxType.objects.create(tax_name="IVA", country="ES", percentage_options=[21])
@@ -36,13 +42,9 @@ class _WorkEntryInvoicingBase(TestCase):
             unit_price=Money("50.00", "EUR"),
             date=date(2026, 9, 1),
         )
-        AppliedTax.objects.create(
-            content_type=ContentType.objects.get_for_model(WorkEntry),
-            object_id=self.entry.pk,
-            tax_type=self.iva21,
-            selected_percentage=Decimal("21"),
-            base_amount=Decimal("100.00"),
-            calculated_amount=Decimal("21.00"),
+        apply_tax(
+            self.entry, tax_type=self.iva21,
+            base=Decimal("100.00"), calculated=Decimal("21.00"),
         )
         self.source_id = f"work_entry_{self.entry.pk}"
         self.summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
@@ -57,13 +59,9 @@ class _WorkEntryInvoicingBase(TestCase):
         }
 
     def _create_invoice(self, items_data, day=1):
-        return ProjectFileInvoiceService.create_invoice_from_project_file(
-            project_file=self.project_file,
-            company=self.company,
-            client=self.client_obj,
-            date_issued=date(2026, 9, day),
-            due_date=date(2026, 10, day),
-            items_data=items_data,
+        return create_invoice(
+            project_file=self.project_file, items=items_data,
+            date_issued=date(2026, 9, day), due_date=date(2026, 10, day),
         )
 
 
@@ -79,16 +77,7 @@ class SummaryTests(_WorkEntryInvoicingBase):
 
 class LineBuilderTests(_WorkEntryInvoicingBase):
     def test_wizard_emits_work_entry_line(self):
-        from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
-
-        view = ProjectFileInvoiceWizardView(model_admin=None)
-        view.invoicing_summary = self.summary
-        view.get_cleaned_data_for_step = lambda step: {
-            "invoice_mode": "percentage",
-            "percentage": Decimal("100"),
-            "_calculated_subtotal": self.summary["remaining_subtotal"],
-        }
-        items = view._build_items_initial()
+        items = build_wizard_items(self.summary)
         self.assertEqual(len(items), 1)
         line = items[0]
         self.assertEqual(line["source_id"], self.source_id)
@@ -97,9 +86,7 @@ class LineBuilderTests(_WorkEntryInvoicingBase):
         self.assertEqual(line["_tax_amount"], Decimal("21.00"))
 
     def test_api_builder_emits_work_entry_line(self):
-        from api.billing.serializers import build_items_from_summary
-
-        items = build_items_from_summary(self.summary, "percentage", Decimal("50"), None)
+        items = build_api_items(self.summary, percentage=Decimal("50"))
         self.assertEqual([i["source_id"] for i in items], [self.source_id])
         self.assertEqual(items[0]["unit_price"], Decimal("50.00"))
 

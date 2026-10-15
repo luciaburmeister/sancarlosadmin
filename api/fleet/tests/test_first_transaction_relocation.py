@@ -16,13 +16,12 @@ from django.test import TestCase
 
 from assets.models import AssetTransaction, TransactionTypeChoices
 from api.fleet.tests.helpers import (
-    make_company,
-    make_user,
-    make_employee,
-    make_asset_type,
+    DriverFixtureMixin,
     make_asset,
-    make_zone,
+    make_asset_type,
     make_planning,
+    make_zone,
+    run_strategy,
 )
 
 ZONE_LAT = 40.416775
@@ -34,27 +33,21 @@ NEARBY_LAT = ZONE_LAT + 0.009
 FAR_LAT = ZONE_LAT + 0.025
 
 
-class MovementFirstTransactionRelocationTests(TestCase):
-    def _run_movement(self, asset, employee, user, latitude, longitude, zone_id=None):
-        from api.fleet.views.assets import MovementStrategy
+def _run(transaction_type, asset, employee, user, latitude, longitude):
+    """Run the strategy against a fresh planning, with no zone_id so the zone is
+    auto-detected from the GPS point."""
+    planning = make_planning(asset.company, asset=asset, assigned_to=employee)
+    return run_strategy(transaction_type, asset, employee, user, {
+        "latitude": latitude,
+        "longitude": longitude,
+        "matricula": "1234ABC",
+        "planning_id": planning.id,
+    })
 
-        planning = make_planning(asset.company, asset=asset, assigned_to=employee)
-        data = {
-            "transaction_type": "movement",
-            "latitude": latitude,
-            "longitude": longitude,
-            "matricula": "1234ABC",
-            "planning_id": planning.id,
-        }
-        if zone_id is not None:
-            data["zone_id"] = zone_id
-        strategy = MovementStrategy(data, asset, employee, user)
-        return strategy.execute()
 
+class MovementFirstTransactionRelocationTests(DriverFixtureMixin, TestCase):
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
 
     # Unconfirmed zone, GPS ~1km off: must succeed and relocate the zone.
@@ -62,7 +55,7 @@ class MovementFirstTransactionRelocationTests(TestCase):
         zone = make_zone(self.company, lat=ZONE_LAT, lon=ZONE_LON, confirmed=False)
         asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=zone)
 
-        response = self._run_movement(asset, self.employee, self.user, NEARBY_LAT, ZONE_LON)
+        response = _run("movement", asset, self.employee, self.user, NEARBY_LAT, ZONE_LON)
         body = json.loads(response.content)
 
         self.assertTrue(body.get("success"))
@@ -77,7 +70,7 @@ class MovementFirstTransactionRelocationTests(TestCase):
         zone = make_zone(self.company, lat=ZONE_LAT, lon=ZONE_LON, confirmed=False)
         asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=zone)
 
-        response = self._run_movement(asset, self.employee, self.user, FAR_LAT, ZONE_LON)
+        response = _run("movement", asset, self.employee, self.user, FAR_LAT, ZONE_LON)
 
         self.assertEqual(response.status_code, 400)
         zone.refresh_from_db()
@@ -89,7 +82,7 @@ class MovementFirstTransactionRelocationTests(TestCase):
         zone = make_zone(self.company, lat=ZONE_LAT, lon=ZONE_LON, confirmed=True)
         asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=zone)
 
-        response = self._run_movement(asset, self.employee, self.user, NEARBY_LAT, ZONE_LON)
+        response = _run("movement", asset, self.employee, self.user, NEARBY_LAT, ZONE_LON)
 
         self.assertEqual(response.status_code, 400)
 
@@ -99,7 +92,7 @@ class MovementFirstTransactionRelocationTests(TestCase):
         original_confirmed_at = zone.location_confirmed_at
         asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=zone)
 
-        response = self._run_movement(asset, self.employee, self.user, ZONE_LAT, ZONE_LON)
+        response = _run("movement", asset, self.employee, self.user, ZONE_LAT, ZONE_LON)
         body = json.loads(response.content)
 
         self.assertTrue(body.get("success"))
@@ -110,27 +103,9 @@ class MovementFirstTransactionRelocationTests(TestCase):
         self.assertAlmostEqual(lon, ZONE_LON, places=4)
 
 
-class DeliveryFirstTransactionRelocationTests(TestCase):
-    def _run_delivery(self, asset, employee, user, latitude, longitude, zone_id=None):
-        from api.fleet.views.assets import DeliveryStrategy
-
-        planning = make_planning(asset.company, asset=asset, assigned_to=employee)
-        data = {
-            "transaction_type": "delivery",
-            "latitude": latitude,
-            "longitude": longitude,
-            "matricula": "1234ABC",
-            "planning_id": planning.id,
-        }
-        if zone_id is not None:
-            data["zone_id"] = zone_id
-        strategy = DeliveryStrategy(data, asset, employee, user)
-        return strategy.execute()
-
+class DeliveryFirstTransactionRelocationTests(DriverFixtureMixin, TestCase):
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
+        super().setUp()
         self.asset_type = make_asset_type(self.company)
         self.asset = make_asset(self.company, self.asset_type, employee=self.employee)
 
@@ -139,7 +114,7 @@ class DeliveryFirstTransactionRelocationTests(TestCase):
     def test_unconfirmed_zone_within_2km_succeeds_and_relocates(self):
         dest_zone = make_zone(self.company, name="Destino", lat=ZONE_LAT, lon=ZONE_LON, confirmed=False)
 
-        response = self._run_delivery(self.asset, self.employee, self.user, NEARBY_LAT, ZONE_LON)
+        response = _run("delivery", self.asset, self.employee, self.user, NEARBY_LAT, ZONE_LON)
         body = json.loads(response.content)
 
         self.assertTrue(body.get("success"))
@@ -153,7 +128,7 @@ class DeliveryFirstTransactionRelocationTests(TestCase):
     def test_unconfirmed_zone_beyond_2km_still_fails(self):
         dest_zone = make_zone(self.company, name="Destino", lat=ZONE_LAT, lon=ZONE_LON, confirmed=False)
 
-        response = self._run_delivery(self.asset, self.employee, self.user, FAR_LAT, ZONE_LON)
+        response = _run("delivery", self.asset, self.employee, self.user, FAR_LAT, ZONE_LON)
 
         self.assertEqual(response.status_code, 400)
         dest_zone.refresh_from_db()

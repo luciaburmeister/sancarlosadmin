@@ -1,8 +1,7 @@
 from django.test import TestCase
 from company.models import Company
-from materials.models import Material, Component, Category, Provider
-from configurator.models import ProductTemplate, Configuration, ConfigurationItem
-from decimal import Decimal
+from materials.models import Material, Component, Category
+
 
 class ComponentPricingTestCase(TestCase):
     def setUp(self):
@@ -117,53 +116,26 @@ class ComponentPricingTestCase(TestCase):
         self.assertEqual(component.cost_per_unit.amount, 4.0)
 
     def test_save_with_context_dependent_rule(self):
-        """
-        Verify that Component.save() (no context) doesn't crash if a rule requires
-        missing variables (e.g. 'width'). It should just skip that rule.
-        """
+        """Component.save() has no dimension context: a rule whose condition
+        needs one (``width``) is skipped and the base cost stands."""
         from materials.models import ComponentPriceRule
-        
+
         component = Component.objects.create(
             name="ContextDependentComponent",
             company=self.company,
         )
-        component.materials.add(self.material1) # Cost 10.0
-        
-        # Rule: width > 1000 -> price = 50
-        # NOTE: With new logic, safe_eval might fail if vars missing.
-        # But 'test' in loop isn't checking condition anymore?
-        # User Code:
-        # for rule in rules:
-        #    rule.unit_price = to_money(rule.calculate_price(eval_context))
-        #
-        # calculate_price uses safe_eval. If safe_eval fails (missing var), it raises ValueError?
-        # Wait, previous logic caught Exception. The user's code REMOVED the try/except block around calculate_price?
-        # Let's assume it might crash if I don't fix it, OR the user wants it to crash?
-        # User said "Make tests". I will update this test to expect success IF the user code handles it,
-        # or expects failure if it doesn't.
-        # Looking at user code: No try/except in loop. `calculate_price` calls `safe_eval`.
-        # `safe_eval` raises ValueError if var missing.
-        # So this WILL crash. I should probably update the test to expect crash or SKIP if I can't change logic.
-        # BUT, `unit_price_expression` usually depends on prices, `condition` depends on dimensions.
-        # The user's code calculates price for ALL rules.
-        # If `unit_price_expression` uses 'width', it crashes. 
-        # If only `condition` uses 'width', `calculate_price` doesn't check condition!
-        # So if `unit_price_expression` is static or price-based, it's fine.
-        
-        rule = ComponentPriceRule.objects.create(
+        component.materials.add(self.material1)  # Cost 10.0
+
+        ComponentPriceRule.objects.create(
             component=component,
             condition="width > 1000",
-            unit_price_expression="50", # Safe expression
+            unit_price_expression="50",
             priority=1,
             unit_price=0
         )
-        
-        # This should pass because expression "50" doesn't need context
-        try:
-            component.save()
-        except ValueError as e:
-            self.fail(f"Component.save() raised ValueError: {e}")
-            
+
+        component.save()
+
         self.assertEqual(component.cost_per_unit.amount, 10.0)
 
     def test_rule_change_updates_rule_price(self):

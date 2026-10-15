@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from django.test import TestCase
 from django.utils import timezone
 
-from company.models import WeekdayChoices
 from production.services.planning_conflicts import (
     BLOCK,
     WARN,
@@ -155,6 +154,8 @@ class ConflictCheckerTest(TestCase):
         self.assertEqual(conflict.resource_id, specialist.pk)
 
     def test_empty_stage_list_means_unrestricted(self):
+        # Checker-only rule: the service is stricter for single-stage planning
+        # (require_explicit_stage=True), see test_production_planning_service.py.
         generalist = resource_for(
             make_employee(self.company, first_name="Todo", last_name="Terreno", stages=[])
         )

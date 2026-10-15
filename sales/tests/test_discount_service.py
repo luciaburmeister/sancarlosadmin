@@ -10,22 +10,20 @@ Covers:
 """
 from decimal import Decimal
 
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from company.models import Company
-from configurator.models import Configuration, ProductTemplate
-from inventory.models import InventoryItem
-from invoices.models import AppliedTax, TaxType
-from sales.models import (
-    Client,
-    DiscountLevel,
-    DiscountPolicy,
-    DiscountRule,
-    Quote,
-    QuoteInventoryItem,
-)
+from configurator.models import ProductTemplate
+from sales.models import DiscountLevel, QuoteInventoryItem
 from sales.services.discount_service import DiscountService
+from sales.tests.factories import (
+    make_client,
+    make_company,
+    make_configuration,
+    make_discount_policy,
+    make_inventory_item,
+    make_quote,
+    make_quote_inventory_line,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -65,23 +63,25 @@ class TestDiscountServiceComputeEffectivePct(TestCase):
         pct, _ = DiscountService.compute_effective_pct(rules, {})
         self.assertEqual(pct, Decimal("15.00"))
 
-    def test_accumulated_rules(self):
-        """Two accumulated rules: 10% then 5% on accumulated = 14.50%."""
-        rules = [
-            self._make_rule("R1", 10, mode="accumulated"),
-            self._make_rule("R2", 5, mode="accumulated"),
+    def test_accumulated_rules_cascade_on_the_running_total(self):
+        """Without ``base`` the cascade runs on 100 and the rates are exact:
+        an accumulated rule applies to what the previous rules left."""
+        cases = [
+            # (first rule, second rule) -> effective pct
+            (("R1", 10, "accumulated"), ("R2", 5, "accumulated"), "14.50"),
+            # net 10% then 5% of the remaining 90 = 4.50
+            (("R1", 10, "net"), ("R2", 5, "accumulated"), "14.50"),
+            # net 35% then 3% of the remaining 65 = 1.95
+            (("R1", 35, "net"), ("R2", 3, "accumulated"), "36.95"),
         ]
-        pct, _ = DiscountService.compute_effective_pct(rules, {})
-        self.assertEqual(pct, Decimal("14.50"))
-
-    def test_mixed_net_and_accumulated(self):
-        """Net 10% then accumulated 5%: accumulated base = 90, 5% of 90 = 4.50, total = 14.50."""
-        rules = [
-            self._make_rule("R1", 10, mode="net"),
-            self._make_rule("R2", 5, mode="accumulated"),
-        ]
-        pct, _ = DiscountService.compute_effective_pct(rules, {})
-        self.assertEqual(pct, Decimal("14.50"))
+        for first, second, expected in cases:
+            with self.subTest(first=first, second=second):
+                rules = [
+                    self._make_rule(first[0], first[1], mode=first[2]),
+                    self._make_rule(second[0], second[1], mode=second[2]),
+                ]
+                pct, _ = DiscountService.compute_effective_pct(rules, {})
+                self.assertEqual(pct, Decimal(expected))
 
     def test_condition_filters_rules(self):
         """Rules whose condition evaluates to False are skipped."""
@@ -137,15 +137,6 @@ class TestDiscountServiceComputeEffectivePct(TestCase):
         self.assertEqual(pct, Decimal("35.00"))
         self.assertEqual(len(breakdown), 1)
 
-    def test_effective_pct_without_base_keeps_percentage_cascade(self):
-        """Without ``base`` the cascade still runs on 100 and the rates are exact."""
-        rules = [
-            self._make_rule("R1", 35),
-            self._make_rule("R2", 3, mode="accumulated"),
-        ]
-        pct, _ = DiscountService.compute_effective_pct(rules, {})
-        self.assertEqual(pct, Decimal("36.95"))
-
 
 # ---------------------------------------------------------------------------
 # Integration tests for the two-phase pipeline
@@ -156,63 +147,25 @@ class _DiscountPipelineBase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Discount Test Co")
-        cls.product = ProductTemplate.objects.create(
-            name="Test Product", company=cls.company,
-        )
-        cls.iva, _ = TaxType.objects.get_or_create(
-            tax_name="IVA",
-            country="ES",
-            defaults={
-                "behavior": "add",
-                "percentage_options": [0, 10, 21],
-                "default_percentage": 21,
-            },
-        )
+        cls.company = make_company(name="Discount Test Co")
+        cls.product = ProductTemplate.objects.create(name="Test Product", company=cls.company)
 
-    def _make_client(self, name="Discount Client"):
-        return Client.objects.create(name=name, company=self.company)
+    def _make_client(self):
+        return make_client(company=self.company, name="Discount Client")
 
     def _make_quote(self, client=None):
-        return Quote.objects.create(
-            client=client or self._make_client(),
-            company=self.company,
+        return make_quote(
+            company=self.company, client=client or self._make_client(),
             project_name="Discount Pipeline Test",
         )
 
     def _make_inv_item(self, quote, unit_price, quantity, name="Test Item"):
-        inv = InventoryItem.objects.create(
-            name=name,
-            company=self.company,
-            selling_price=unit_price,
-        )
-        return QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=inv,
-            quantity=quantity,
-            unit_price=unit_price,
-        )
+        item = make_inventory_item(company=self.company, name=name, selling_price=unit_price)
+        return make_quote_inventory_line(quote=quote, item=item, quantity=quantity, unit_price=unit_price)
 
     def _make_policy(self, rules_spec, assign_to_quote=None, assign_to_client=None, name="Test Policy"):
-        """Create a DiscountPolicy with rules.
-
-        rules_spec: list of dicts with keys: name, percentage, level,
-                    and optionally: mode, condition, order.
-        """
-        policy = DiscountPolicy.objects.create(
-            name=name, company=self.company, is_active=True,
-        )
-        for i, spec in enumerate(rules_spec):
-            DiscountRule.objects.create(
-                policy=policy,
-                name=spec["name"],
-                percentage=Decimal(str(spec["percentage"])),
-                level=spec.get("level", DiscountLevel.BASKET),
-                mode=spec.get("mode", "net"),
-                condition=spec.get("condition", ""),
-                order=spec.get("order", i),
-                is_active=True,
-            )
+        """A policy with ``rules_spec`` (make_discount_rule kwargs), assigned as asked."""
+        policy = make_discount_policy(company=self.company, name=name, rules=rules_spec)
         if assign_to_quote:
             assign_to_quote.discount_policies.add(policy)
         if assign_to_client:
@@ -245,21 +198,9 @@ class TestLineItemDiscounts(_DiscountPipelineBase):
         self.assertEqual(item1.line_total.amount, Decimal("180.00"))  # 100*2*0.9
         self.assertEqual(item2.line_total.amount, Decimal("180.00"))  # 50*4*0.9
 
-    def test_line_item_discount_reduces_subtotal(self):
-        """Subtotal is computed from discounted line items."""
-        quote = self._make_quote()
-        self._make_inv_item(quote, Decimal("100.00"), Decimal("1"))
-
-        self._make_policy(
-            [{"name": "20% line", "percentage": 20, "level": DiscountLevel.LINE_ITEM}],
-            assign_to_quote=quote,
-        )
-
-        quote.recalc_totals()
+        # The subtotal is computed from the discounted line items.
         quote.refresh_from_db()
-
-        # subtotal should be 80 (100 * 1 * 0.8)
-        self.assertEqual(quote.subtotal_price.amount, Decimal("80.00"))
+        self.assertEqual(quote.subtotal_price.amount, Decimal("360.00"))
 
     def test_no_line_item_rules_leaves_discount_untouched(self):
         """If there are no line-item rules, existing per-item discounts are preserved."""
@@ -333,14 +274,6 @@ class TestBasketDiscounts(_DiscountPipelineBase):
         self.assertEqual(quote.subtotal_price.amount, Decimal("200.00"))
         self.assertEqual(quote.discount_amount.amount, Decimal("20.00"))
         self.assertEqual(quote.discounted_subtotal.amount, Decimal("180.00"))
-
-    def test_backwards_compat_default_level_is_basket(self):
-        """Rules without an explicit level default to BASKET."""
-        rule = DiscountRule(
-            name="legacy",
-            percentage=Decimal("5"),
-        )
-        self.assertEqual(rule.level, DiscountLevel.BASKET)
 
 
 class TestMixedDiscounts(_DiscountPipelineBase):
@@ -458,23 +391,12 @@ class TestMultiplePolicyOrdering(_DiscountPipelineBase):
 class TestLineItemsBasketDiscounts(_DiscountPipelineBase):
     """LINE_ITEMS_BASKET rules apply only to the line items subtotal, excluding configurations."""
 
-    def _make_config(self, quote, subtotal):
-        return Configuration.objects.create(
-            company=self.company,
-            client=quote.client,
-            quote=quote,
-            product=self.product,
-            name=f"Config {subtotal}",
-            subtotal_price=subtotal,
-            total_price=subtotal,
-        )
-
     def test_excludes_configurations_from_base(self):
         """A 10% line-items-basket rule discounts only the inventory item subtotal,
         leaving the configuration subtotal untouched."""
         quote = self._make_quote()
         self._make_inv_item(quote, Decimal("200.00"), Decimal("1"))
-        self._make_config(quote, Decimal("300.00"))
+        make_configuration(quote=quote, subtotal=Decimal("300.00"), product=self.product)
 
         self._make_policy(
             [{"name": "10% line items basket", "percentage": 10, "level": DiscountLevel.LINE_ITEMS_BASKET}],
@@ -497,7 +419,7 @@ class TestLineItemsBasketDiscounts(_DiscountPipelineBase):
         """LINE_ITEMS_BASKET and BASKET discounts both apply and add up."""
         quote = self._make_quote()
         self._make_inv_item(quote, Decimal("200.00"), Decimal("1"))
-        self._make_config(quote, Decimal("300.00"))
+        make_configuration(quote=quote, subtotal=Decimal("300.00"), product=self.product)
 
         self._make_policy(
             [

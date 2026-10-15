@@ -8,33 +8,24 @@ taxes the user just entered alone.
 from decimal import Decimal
 
 from django.contrib.auth.models import User
-from django.contrib.contenttypes.models import ContentType
 from django.forms.widgets import MultiWidget
 from django.test import TestCase
 from django.urls import reverse
 
-from company.models import Company
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from invoices.models import AppliedTax, TaxType
-from invoices.services.delivery_order_service import DeliveryOrderService
-from management.models import ProjectFile
-from sales.models import Client, DeliveryOrderItem, Quote, QuoteStatus
+from invoices.tests.factories import (
+    ExpedienteMixin,
+    discounted_quote,
+    do_line,
+    financed_quote,
+)
+from sales.models import DeliveryOrderItem
 
 
-class _AdminEditBase(TestCase):
+class _AdminEditBase(ExpedienteMixin, TestCase):
+    project_file_name = "PF Admin Edit"
 
     def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Admin Edit", company=self.company, client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"},
-        )
-        self.config_ct = ContentType.objects.get_for_model(Configuration)
-
+        super().setUp()
         self.superuser = User.objects.create_superuser(
             username="admin", email="admin@example.com", password="pw",
         )
@@ -42,46 +33,9 @@ class _AdminEditBase(TestCase):
 
     def _financed_do(self):
         """1000 gross, 10% standard + 5% financing, 21% IVA → total 1028.50."""
-        quote = Quote.objects.create(
-            project_name="Quote", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("150.00"),
-            discounted_subtotal=Decimal("850.00"),
-            tax_amount=Decimal("178.50"),
-            total_price=Decimal("1028.50"),
-            discount_breakdown=[
-                {"rule_name": "10%", "kind": "standard", "level": "basket",
-                 "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-                {"rule_name": "Financiación 5%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "5.00",
-                 "base": "1000.00", "amount": "50.00"},
-            ],
-        )
-        config = Configuration.objects.create(
-            name="Config", company=self.company, product=self.product,
-            client=self.client_obj, quote=quote, project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=Decimal("1000.00"), total_price=Decimal("1210.00"),
-        )
-        AppliedTax.objects.create(
-            content_type=self.config_ct, object_id=config.pk, tax_type=self.iva21,
-            selected_percentage=Decimal("21"), base_amount=Decimal("1000.00"),
-            calculated_amount=Decimal("210.00"),
-        )
-        do = DeliveryOrderService.create_delivery_order(
-            project_file=self.project_file, company=self.company,
-            client=self.client_obj,
-            items_data=[{
-                "source_content_type_id": self.config_ct.id,
-                "source_object_id": config.pk,
-                "description": config.name,
-                "quantity": Decimal("1"),
-                "unit_price": Decimal("1000.00"),
-                "discount_percentage": Decimal("0.00"),
-            }],
-        )
+        quote = financed_quote(project_file=self.project_file)
+        config = self._make_config(quote, "1000.00", total=Decimal("1210.00"))
+        do = self._create_do([do_line(config, unit_price="1000.00")])
         return do, quote
 
     def _change_url(self, do):
@@ -212,25 +166,9 @@ class AdminLegacyDeliveryOrderTests(_AdminEditBase):
     def _legacy_do(self):
         from sales.models import DeliveryOrder, DeliveryOrderStatus
 
-        quote = Quote.objects.create(
-            project_name="Quote", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.ACCEPTED,
-            subtotal_price=Decimal("1000.00"),
-            discount_amount=Decimal("100.00"),
-            discounted_subtotal=Decimal("900.00"),
-            tax_amount=Decimal("189.00"),
-            total_price=Decimal("1089.00"),
-            discount_breakdown=[
-                {"rule_name": "Financiación 10%", "kind": "financing",
-                 "level": "basket", "mode": "net", "percentage": "10.00",
-                 "base": "1000.00", "amount": "100.00"},
-            ],
-        )
-        config = Configuration.objects.create(
-            name="Config", company=self.company, product=self.product,
-            client=self.client_obj, quote=quote, project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=Decimal("1000.00"), total_price=Decimal("1210.00"),
+        quote = discounted_quote(project_file=self.project_file, kind="financing")
+        config = self._make_config(
+            quote, "1000.00", total=Decimal("1210.00"), tax_pct=None,
         )
         do = DeliveryOrder.objects.create(
             company=self.company, client=self.client_obj,

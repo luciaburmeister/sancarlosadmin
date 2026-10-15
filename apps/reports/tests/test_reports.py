@@ -1,4 +1,3 @@
-import json
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -156,6 +155,71 @@ def _invoice_spec(**overrides):
     }
     data.update(overrides)
     return ReportSpec.from_dict(data)
+
+
+def _dataset_user(company, *perms, username, **user_kwargs):
+    """A staff user active in ``company`` holding ``perms`` ("app_label.codename")."""
+    user_kwargs.setdefault("is_staff", True)
+    user = User.objects.create_user(username=username, password="pass", **user_kwargs)
+    if company is not None:
+        CompanyUser.objects.create(user=user, company=company, is_active=True)
+    for perm in perms:
+        app_label, codename = perm.split(".")
+        user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label=app_label, codename=codename
+            )
+        )
+    return user
+
+
+def _agg(measure, function, alias):
+    return {"measure": measure, "function": function, "alias": alias}
+
+
+def _spec(dataset, dimensions=(), aggregations=(), **overrides):
+    """A chartless, unfiltered spec on ``dataset``; any key can be overridden."""
+    data = {
+        "dataset": dataset,
+        "dimensions": list(dimensions),
+        "aggregations": list(aggregations),
+        "filters": [],
+        "parameters": [],
+        "chart": "none",
+        "chart_label_dimension": None,
+        "chart_value_aggregation": None,
+    }
+    data.update(overrides)
+    return ReportSpec.from_dict(data)
+
+
+def _classifier(domain, confidence=0.95, needs_clarification=False, source="openai"):
+    classifier = MagicMock()
+    classifier.classify.return_value = ReportClassification(
+        domain=domain,
+        confidence=confidence,
+        needs_clarification=needs_clarification,
+        source=source,
+    )
+    return classifier
+
+
+class ReportTestCase(TestCase):
+    """Resets the active company after each test.
+
+    ``spec_defaults`` holds the ``_spec`` arguments (dataset, dimensions,
+    aggregations) a dataset class builds most of its reports from;
+    ``self._spec(**overrides)`` layers per-test changes on top.
+    """
+
+    spec_defaults = {}
+
+    def tearDown(self):
+        ActiveCompany.set_current_ids(None)
+        super().tearDown()
+
+    def _spec(self, **overrides):
+        return _spec(**{**self.spec_defaults, **overrides})
 
 
 class GroupedChartMeasureTests(TestCase):
@@ -354,22 +418,14 @@ class ReportSpecParserTests(TestCase):
         self.assertEqual(spec.parameters, [])
 
 
-class ReportCompilerTests(TestCase):
+class ReportCompilerTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company_a = Company.objects.create(name="Alpha Co", tax_identifier="A1")
         cls.company_b = Company.objects.create(name="Beta Co", tax_identifier="B1")
-        cls.user = User.objects.create_user(
-            username="reporter",
-            password="pass",
-            is_staff=True,
+        cls.user = _dataset_user(
+            cls.company_a, "invoices.view_salesinvoice", username="reporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company_a, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="invoices",
-            codename="view_salesinvoice",
-        )
-        cls.user.user_permissions.add(perm)
 
         client_a = Client.objects.create(company=cls.company_a, name="Client A")
         client_b = Client.objects.create(company=cls.company_b, name="Client B")
@@ -389,9 +445,6 @@ class ReportCompilerTests(TestCase):
             date_issued=date(2024, 1, 15),
             status=SalesInvoiceStatus.FINAL,
         )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
 
     def test_compiler_rejects_unknown_dimension(self):
         spec = _invoice_spec(
@@ -424,8 +477,7 @@ class ReportCompilerTests(TestCase):
         self.assertEqual(totals.get(SalesInvoiceStatus.FINAL), 100.0)
 
     def test_permission_refusal_without_view_salesinvoice(self):
-        bare = User.objects.create_user(username="noperm", password="pass")
-        CompanyUser.objects.create(user=bare, company=self.company_a, is_active=True)
+        bare = _dataset_user(self.company_a, username="noperm", is_staff=False)
         ActiveCompany.set_current_ids([self.company_a.pk])
         with self.assertRaises(ReportPermissionDenied):
             ReportCompiler().compile(_invoice_spec(), bare)
@@ -628,19 +680,9 @@ class ClientsDatasetAndRelationsTests(TestCase):
     def setUpTestData(cls):
         cls.company_a = Company.objects.create(name="Alpha Co", tax_identifier="A1")
         cls.company_b = Company.objects.create(name="Beta Co", tax_identifier="B1")
-        cls.user = User.objects.create_user(
-            username="client-reporter",
-            password="pass",
-            is_staff=True,
+        cls.user = _dataset_user(
+            cls.company_a, "sales.view_client", username="client-reporter"
         )
-        CompanyUser.objects.create(
-            user=cls.user, company=cls.company_a, is_active=True
-        )
-        perm = Permission.objects.get(
-            content_type__app_label="sales",
-            codename="view_client",
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.client_a1 = Client.objects.create(
             company=cls.company_a, name="Client A1", is_insured=True
@@ -690,12 +732,7 @@ class ClientsDatasetAndRelationsTests(TestCase):
         self.assertIsNone(row)
 
     def test_get_by_id_denies_without_permission(self):
-        other_user = User.objects.create_user(
-            username="no-perm", password="pass", is_staff=True
-        )
-        CompanyUser.objects.create(
-            user=other_user, company=self.company_a, is_active=True
-        )
+        other_user = _dataset_user(self.company_a, username="no-perm")
         with self.assertRaises(ReportPermissionDenied):
             ReportCompiler().get_by_id(
                 ReportDomain.CLIENTS, self.client_a1.pk, other_user
@@ -726,22 +763,14 @@ class RelationTraversalTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Traverse Co", tax_identifier="T1")
-        cls.user = User.objects.create_user(
-            username="traverser", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company,
+            "sales.view_client",
+            "management.view_projectfile",
+            "sales.view_quote",
+            "invoices.view_salesinvoice",
+            username="traverser",
         )
-        CompanyUser.objects.create(
-            user=cls.user, company=cls.company, is_active=True
-        )
-        for app_label, codename in (
-            ("sales", "view_client"),
-            ("management", "view_projectfile"),
-            ("sales", "view_quote"),
-            ("invoices", "view_salesinvoice"),
-        ):
-            perm = Permission.objects.get(
-                content_type__app_label=app_label, codename=codename
-            )
-            cls.user.user_permissions.add(perm)
 
         cls.client_obj = Client.objects.create(
             company=cls.company, name="Traverse Client"
@@ -805,16 +834,9 @@ class RelationTraversalTests(TestCase):
             )
 
     def test_denies_without_target_permission(self):
-        limited_user = User.objects.create_user(
-            username="limited-traverser", password="pass", is_staff=True
+        limited_user = _dataset_user(
+            self.company, "sales.view_client", username="limited-traverser"
         )
-        CompanyUser.objects.create(
-            user=limited_user, company=self.company, is_active=True
-        )
-        perm = Permission.objects.get(
-            content_type__app_label="sales", codename="view_client"
-        )
-        limited_user.user_permissions.add(perm)
         with self.assertRaises(ReportPermissionDenied):
             ReportCompiler().traverse_relation(
                 ReportDomain.CLIENTS,
@@ -824,20 +846,15 @@ class RelationTraversalTests(TestCase):
             )
 
 
-class SalesInvoiceAmountRemainingTests(TestCase):
+class SalesInvoiceAmountRemainingTests(ReportTestCase):
     """amount_remaining must reflect payments applied, not just total_amount."""
 
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Debt Co", tax_identifier="DEBT1")
-        cls.user = User.objects.create_user(
-            username="debtreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "invoices.view_salesinvoice", username="debtreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="invoices", codename="view_salesinvoice"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.client_obj = Client.objects.create(company=cls.company, name="Debtor")
         cls.unpaid_invoice = SalesInvoice.objects.create(
@@ -869,9 +886,6 @@ class SalesInvoiceAmountRemainingTests(TestCase):
             related_object=cls.partially_paid_invoice,
             amount_applied=Money("120.00", "EUR"),
         )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
 
     def test_amount_remaining_subtracts_applied_payments(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -925,18 +939,13 @@ class SalesInvoiceAmountRemainingTests(TestCase):
         self.assertEqual(result.rows[0]["remaining"], 380.0)
 
 
-class InventoryDatasetTests(TestCase):
+class InventoryDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Inv Co", tax_identifier="INV1")
-        cls.user = User.objects.create_user(
-            username="invreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "inventory.view_inventoryitem", username="invreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="inventory", codename="view_inventoryitem"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.warehouse = Warehouse.objects.create(
             company=cls.company, code="WH1", name="Main Warehouse"
@@ -962,30 +971,11 @@ class InventoryDatasetTests(TestCase):
             quantity_change=-20,
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.INVENTORY,
-            "dimensions": ["code"],
-            "aggregations": [
-                {"measure": "*", "function": "count", "alias": "n"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noinvperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.INVENTORY,
+        "dimensions": ["code"],
+        "aggregations": [_agg("*", "count", "n")],
+    }
 
     def test_stock_on_hand_computed_via_report(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -1088,20 +1078,15 @@ class InventoryDatasetTests(TestCase):
         self.assertEqual(len(result_matching.rows), 1)
 
 
-class QuotesDatasetInvoicedFilterTests(TestCase):
+class QuotesDatasetInvoicedFilterTests(ReportTestCase):
     """A quote is 'invoiced' only via its project file's cached total."""
 
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Quote Co", tax_identifier="Q1")
-        cls.user = User.objects.create_user(
-            username="quotereporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "sales.view_quote", username="quotereporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="sales", codename="view_quote"
-        )
-        cls.user.user_permissions.add(perm)
 
         client = Client.objects.create(company=cls.company, name="Quote Client")
 
@@ -1144,25 +1129,11 @@ class QuotesDatasetInvoicedFilterTests(TestCase):
             subtotal_amount=Money("500.00", "EUR"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.QUOTES,
-            "dimensions": ["client"],
-            "aggregations": [
-                {"measure": "*", "function": "count", "alias": "n"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
+    spec_defaults = {
+        "dataset": ReportDomain.QUOTES,
+        "dimensions": ["client"],
+        "aggregations": [_agg("*", "count", "n")],
+    }
 
     def test_is_invoiced_false_excludes_quotes_with_invoiced_project_files(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -1198,20 +1169,15 @@ class QuotesDatasetInvoicedFilterTests(TestCase):
         self.assertEqual(result.rows[0]["n"], 1)
 
 
-class ProjectFilesDatasetTests(TestCase):
+class ProjectFilesDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(
             name="Expediente Co", tax_identifier="EXP1"
         )
-        cls.user = User.objects.create_user(
-            username="pfreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "management.view_projectfile", username="pfreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="management", codename="view_projectfile"
-        )
-        cls.user.user_permissions.add(perm)
 
         client = Client.objects.create(company=cls.company, name="Expediente Client")
 
@@ -1231,30 +1197,11 @@ class ProjectFilesDatasetTests(TestCase):
             total_amount=Money("800.00", "EUR"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.PROJECT_FILES,
-            "dimensions": ["reference"],
-            "aggregations": [
-                {"measure": "*", "function": "count", "alias": "n"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nopfperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.PROJECT_FILES,
+        "dimensions": ["reference"],
+        "aggregations": [_agg("*", "count", "n")],
+    }
 
     def test_not_invoiced_filter_only_returns_pending_project_file(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -1284,20 +1231,15 @@ class ProjectFilesDatasetTests(TestCase):
         self.assertEqual(result.rows[0]["total"], 1800.0)
 
 
-class PurchasingDatasetTests(TestCase):
+class PurchasingDatasetTests(ReportTestCase):
     """Accounts payable: what we owe providers, net of payments applied."""
 
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="AP Co", tax_identifier="AP1")
-        cls.user = User.objects.create_user(
-            username="apreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "invoices.view_invoice", username="apreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="invoices", codename="view_invoice"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.provider = Provider.objects.create(company=cls.company, name="Perfiles SA")
         cls.unpaid_invoice = Invoice.objects.create(
@@ -1336,34 +1278,39 @@ class PurchasingDatasetTests(TestCase):
         cls.unpaid_invoice.cost_center = cls.workshop
         cls.unpaid_invoice.save(update_fields=["cost_center"])
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
+        # Confirmation-status fixtures live in their own company: invoices
+        # default to PENDING, so sharing a company would leak PROV-* rows.
+        cls.confirm_company = Company.objects.create(
+            name="Confirm Co", tax_identifier="CFM1"
+        )
+        CompanyUser.objects.create(
+            user=cls.user, company=cls.confirm_company, is_active=True
+        )
+        confirm_provider = Provider.objects.create(
+            company=cls.confirm_company, name="Perfiles SA"
+        )
+        Invoice.objects.create(
+            company=cls.confirm_company,
+            provider=confirm_provider,
+            invoice_number="CONF-1",
+            date_issued=date(2024, 1, 1),
+            total_amount=Money("100.00", "EUR"),
+            confirmation_status=ConfirmationStatus.PENDING,
+        )
+        Invoice.objects.create(
+            company=cls.confirm_company,
+            provider=confirm_provider,
+            invoice_number="CONF-2",
+            date_issued=date(2024, 1, 2),
+            total_amount=Money("200.00", "EUR"),
+            confirmation_status=ConfirmationStatus.APPROVED,
+        )
 
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.PURCHASING,
-            "dimensions": ["provider"],
-            "aggregations": [
-                {
-                    "measure": "amount_remaining",
-                    "function": "sum",
-                    "alias": "owed",
-                }
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noapperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.PURCHASING,
+        "dimensions": ["provider"],
+        "aggregations": [_agg("amount_remaining", "sum", "owed")],
+    }
 
     def test_cost_center_filter_and_dimension(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -1390,23 +1337,37 @@ class PurchasingDatasetTests(TestCase):
         self.assertEqual(len(result.rows), 1)
         self.assertEqual(result.rows[0]["owed"], 500.0)
 
+    def test_filters_to_pending_confirmation_only(self):
+        ActiveCompany.set_current_ids([self.confirm_company.pk])
+        spec = self._spec(
+            dimensions=["invoice_number"],
+            aggregations=[_agg("*", "count", "n")],
+            filters=[
+                {
+                    "field": "confirmation_status",
+                    "op": "eq",
+                    "value": "pending",
+                    "parameter": None,
+                }
+            ],
+        )
+        result = ReportCompiler().compile(spec, self.user)
+        self.assertEqual(
+            [row["invoice_number"] for row in result.rows], ["CONF-1"]
+        )
 
-class PurchaseOrdersDatasetTests(TestCase):
+
+class PurchaseOrdersDatasetTests(ReportTestCase):
     """Orders sent to providers: amount, quantities, billing and receipt."""
 
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="PO Co", tax_identifier="PO1")
         cls.other = Company.objects.create(name="Other Co", tax_identifier="PO2")
-        cls.user = User.objects.create_user(
-            username="poreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "purchasing.view_purchaseorder", username="poreporter"
         )
         cls.rejecter = User.objects.create_user(username="porejecter", password="pass")
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="purchasing", codename="view_purchaseorder"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.warehouse = Warehouse.objects.create(
             company=cls.company, code="POWH", name="PO Warehouse"
@@ -1494,30 +1455,11 @@ class PurchaseOrdersDatasetTests(TestCase):
             status=PurchaseOrderStatus.APPROVED,
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.PURCHASE_ORDERS,
-            "dimensions": ["provider"],
-            "aggregations": [
-                {"measure": "total_amount", "function": "sum", "alias": "total"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nopoperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.PURCHASE_ORDERS,
+        "dimensions": ["provider"],
+        "aggregations": [_agg("total_amount", "sum", "total")],
+    }
 
     def test_total_is_not_multiplied_by_the_number_of_lines(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -1648,7 +1590,7 @@ class PurchaseOrdersDatasetTests(TestCase):
         self.assertEqual(chart_type, "none")
 
 
-class MultiCompanyFilterTests(TestCase):
+class MultiCompanyFilterTests(ReportTestCase):
     """Naming multiple companies/clients must OR them, not pick one.
 
     Regression: two ANDed filters on the same field match nothing, and
@@ -1659,15 +1601,10 @@ class MultiCompanyFilterTests(TestCase):
     def setUpTestData(cls):
         cls.company_a = Company.objects.create(name="Aluares", tax_identifier="ALU1")
         cls.company_b = Company.objects.create(name="San Carlos", tax_identifier="SC1")
-        cls.user = User.objects.create_user(
-            username="multico", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company_a, "invoices.view_salesinvoice", username="multico"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company_a, is_active=True)
         CompanyUser.objects.create(user=cls.user, company=cls.company_b, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="invoices", codename="view_salesinvoice"
-        )
-        cls.user.user_permissions.add(perm)
 
         client_a = Client.objects.create(company=cls.company_a, name="Client A")
         client_b = Client.objects.create(company=cls.company_b, name="Client B")
@@ -1687,9 +1624,6 @@ class MultiCompanyFilterTests(TestCase):
             date_issued=date(2026, 1, 1),
             status=SalesInvoiceStatus.FINAL,
         )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
 
     def _spec(self, value):
         return _invoice_spec(
@@ -1782,7 +1716,7 @@ class MultiCompanyFilterTests(TestCase):
         )
 
 
-class NameResolverTests(TestCase):
+class NameResolverTests(ReportTestCase):
     def test_matches_typo_and_case(self):
         names = ["San Carlos Aluminio S.L.", "Beta Co", "Alpha"]
         self.assertEqual(
@@ -1794,89 +1728,53 @@ class NameResolverTests(TestCase):
             "San Carlos Aluminio S.L.",
         )
 
-    def test_unknown_client_is_not_rewritten_as_company(self):
-        company = Company.objects.create(name="San Carlos Plant", tax_identifier="SC1")
-        user = User.objects.create_user(username="resolver", password="pass")
-        CompanyUser.objects.create(user=user, company=company, is_active=True)
-        ActiveCompany.set_current_ids([company.pk])
-        Client.objects.create(company=company, name="Other Client")
+    def test_unknown_client_filter_is_dropped_with_a_warning(self):
+        # An unknown client name is dropped (never rewritten as the company
+        # name, never left to produce an empty result) and reported once.
+        for company_name, tax_id, username, known_client, value in (
+            ("San Carlos Plant", "SC1", "resolver", "Other Client", "san carlos plant"),
+            ("Only Plant", "OP1", "dropclient", "Local Client", "Facility Manager Service"),
+        ):
+            with self.subTest(value=value):
+                company = Company.objects.create(name=company_name, tax_identifier=tax_id)
+                user = _dataset_user(company, username=username, is_staff=False)
+                ActiveCompany.set_current_ids([company.pk])
+                Client.objects.create(company=company, name=known_client)
 
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.SALES_INVOICES,
-                "dimensions": ["status"],
-                "aggregations": [
-                    {"measure": "*", "function": "count", "alias": "n"}
-                ],
-                "filters": [
+                spec = ReportSpec.from_dict(
                     {
-                        "field": "client",
-                        "op": "eq",
-                        "value": "san carlos plant",
-                        "parameter": None,
+                        "dataset": ReportDomain.SALES_INVOICES,
+                        "dimensions": ["status"],
+                        "aggregations": [
+                            {"measure": "*", "function": "count", "alias": "n"}
+                        ],
+                        "filters": [
+                            {
+                                "field": "client",
+                                "op": "eq",
+                                "value": value,
+                                "parameter": None,
+                            }
+                        ],
+                        "parameters": [],
+                        "chart": "none",
+                        "chart_label_dimension": None,
+                        "chart_value_aggregation": None,
                     }
-                ],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
-        )
-        resolved, warnings = resolve_spec_names(spec, user)
-        self.assertEqual(resolved.filters, [])
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("san carlos plant", warnings[0])
-        ActiveCompany.set_current_ids(None)
-
-    def test_drops_unknown_client_instead_of_empty_result(self):
-        company = Company.objects.create(name="Only Plant", tax_identifier="OP1")
-        user = User.objects.create_user(username="dropclient", password="pass")
-        CompanyUser.objects.create(user=user, company=company, is_active=True)
-        ActiveCompany.set_current_ids([company.pk])
-        Client.objects.create(company=company, name="Local Client")
-
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.SALES_INVOICES,
-                "dimensions": ["status"],
-                "aggregations": [
-                    {"measure": "*", "function": "count", "alias": "n"}
-                ],
-                "filters": [
-                    {
-                        "field": "client",
-                        "op": "eq",
-                        "value": "Facility Manager Service",
-                        "parameter": None,
-                    }
-                ],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
-        )
-        resolved, warnings = resolve_spec_names(spec, user)
-        self.assertEqual(resolved.filters, [])
-        self.assertEqual(len(warnings), 1)
-        ActiveCompany.set_current_ids(None)
+                )
+                resolved, warnings = resolve_spec_names(spec, user)
+                self.assertEqual(resolved.filters, [])
+                self.assertEqual(len(warnings), 1)
+                self.assertIn(value, warnings[0])
 
 
 class DatasetAccessTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Access Co", tax_identifier="AC1")
-        cls.user = User.objects.create_user(
-            username="scoped",
-            password="pass",
-            is_staff=True,
+        cls.user = _dataset_user(
+            cls.company, "invoices.view_salesinvoice", username="scoped"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="invoices",
-            codename="view_salesinvoice",
-        )
-        cls.user.user_permissions.add(perm)
 
     def test_reports_only_available_datasets_flagged(self):
         access = {a.key: a.available for a in datasets_access_for_user(self.user)}
@@ -1887,7 +1785,7 @@ class DatasetAccessTests(TestCase):
         self.assertFalse(access[ReportDomain.INVENTORY])
 
     def test_no_permissions_means_nothing_available(self):
-        bare = User.objects.create_user(username="noaccess", password="pass")
+        bare = _dataset_user(None, username="noaccess", is_staff=False)
         access = datasets_access_for_user(bare)
         self.assertTrue(access)
         self.assertFalse(any(a.available for a in access))
@@ -1921,6 +1819,27 @@ class CatalogIntegrityTests(TestCase):
             self.assertEqual(
                 len(keys), len(set(keys)), f"duplicate filter key in {ds.key}"
             )
+
+    def test_every_dataset_refuses_a_user_without_its_permission(self):
+        bare = _dataset_user(None, username="nodatasetperm", is_staff=False)
+        for ds in all_datasets():
+            with self.subTest(dataset=ds.key):
+                spec = ReportSpec.from_dict(
+                    {
+                        "dataset": ds.key,
+                        "dimensions": [],
+                        "aggregations": [
+                            {"measure": "*", "function": "count", "alias": "n"}
+                        ],
+                        "filters": [],
+                        "parameters": [],
+                        "chart": "none",
+                        "chart_label_dimension": None,
+                        "chart_value_aggregation": None,
+                    }
+                )
+                with self.assertRaises(ReportPermissionDenied):
+                    ReportCompiler().compile(spec, bare)
 
 
 class ClassifierFactoryTests(TestCase):
@@ -2081,28 +2000,16 @@ class ClaudeReportSpecGeneratorTests(TestCase):
         self.assertEqual(result.spec.filters, [])
 
 
-class ReportCreationGateTests(TestCase):
+class ReportCreationGateTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Gate Co", tax_identifier="G1")
-        cls.user = User.objects.create_user(
+        cls.user = _dataset_user(
+            cls.company,
+            "reports.use_reports",
+            "invoices.view_salesinvoice",
             username="creator",
-            password="pass",
-            is_staff=True,
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        for app_label, codename in (
-            ("reports", "use_reports"),
-            ("invoices", "view_salesinvoice"),
-        ):
-            perm = Permission.objects.get(
-                content_type__app_label=app_label,
-                codename=codename,
-            )
-            cls.user.user_permissions.add(perm)
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
 
     def test_create_without_a_company_key_names_the_company(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -2162,13 +2069,7 @@ class ReportCreationGateTests(TestCase):
         )
 
     def test_unsupported_domain_does_not_generate_spec(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.UNSUPPORTED,
-            confidence=0.99,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.UNSUPPORTED, confidence=0.99)
         openai = MagicMock()
         suggestion_service = MagicMock()
         suggestion_service.suggest.return_value = []
@@ -2183,13 +2084,7 @@ class ReportCreationGateTests(TestCase):
         openai.generate.assert_not_called()
 
     def test_low_confidence_does_not_generate_spec(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.2,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.SALES_INVOICES, confidence=0.2)
         openai = MagicMock()
         suggestion_service = MagicMock()
         suggestion_service.suggest.return_value = []
@@ -2203,12 +2098,8 @@ class ReportCreationGateTests(TestCase):
         openai.generate.assert_not_called()
 
     def test_needs_clarification_populates_suggestions(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=True,
-            source="jev",
+        classifier = _classifier(
+            ReportDomain.SALES_INVOICES, needs_clarification=True, source="jev"
         )
         openai = MagicMock()
         suggestion_service = MagicMock()
@@ -2236,13 +2127,7 @@ class ReportCreationGateTests(TestCase):
         )
 
     def test_create_saves_spec_from_openai(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.SALES_INVOICES)
         openai = MagicMock()
         openai.generate.return_value = (
             _invoice_spec(),
@@ -2301,13 +2186,7 @@ class ReportCreationGateTests(TestCase):
         return report
 
     def test_apply_waits_for_confirmation_and_describes_the_spec(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.SALES_INVOICES)
         spec = _invoice_spec(
             dimensions=["payment_method"],
             chart_label_dimension="payment_method",
@@ -2323,13 +2202,7 @@ class ReportCreationGateTests(TestCase):
         self.assertEqual(report.spec["dimensions"], ["payment_method"])
 
     def test_apply_records_a_catalog_gap_without_substituting_a_spec(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.SALES_INVOICES)
         openai = MagicMock()
         openai.generate.return_value = SpecGeneration(
             spec=None,
@@ -2345,13 +2218,7 @@ class ReportCreationGateTests(TestCase):
         self.assertEqual(report.generation_error, "No field for payment terms.")
 
     def _service_for_company_choice(self):
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.SALES_INVOICES)
         openai = MagicMock()
         openai.generate.return_value = (_invoice_spec(), "Invoices by status")
         return ReportCreationService(classifier=classifier, spec_generator=openai)
@@ -2424,25 +2291,11 @@ class ReportCreationGateTests(TestCase):
         )
 
     def test_classified_domain_without_permission_raises_friendly_message(self):
-        bare = User.objects.create_user(
-            username="unauthorized",
-            password="pass",
-            is_staff=True,
+        bare = _dataset_user(
+            self.company, "reports.use_reports", username="unauthorized"
         )
-        CompanyUser.objects.create(user=bare, company=self.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="reports",
-            codename="use_reports",
-        )
-        bare.user_permissions.add(perm)
 
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.QUOTES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
+        classifier = _classifier(ReportDomain.QUOTES)
         openai = MagicMock()
         service = ReportCreationService(classifier=classifier, spec_generator=openai)
         ActiveCompany.set_current_ids([self.company.pk])
@@ -2452,13 +2305,7 @@ class ReportCreationGateTests(TestCase):
         openai.generate.assert_not_called()
 
     def test_jev_client_kwarg_still_accepted(self):
-        jev = MagicMock()
-        jev.classify.return_value = ReportClassification(
-            domain=ReportDomain.UNSUPPORTED,
-            confidence=1.0,
-            needs_clarification=False,
-            source="jev",
-        )
+        jev = _classifier(ReportDomain.UNSUPPORTED, confidence=1.0, source="jev")
         openai = MagicMock()
         suggestion_service = MagicMock()
         suggestion_service.suggest.return_value = []
@@ -2473,32 +2320,16 @@ class ReportCreationGateTests(TestCase):
         openai.generate.assert_not_called()
 
 
-class ReportRegenerateTests(TestCase):
+class ReportRegenerateTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Regen Co", tax_identifier="RG1")
-        cls.owner = User.objects.create_user(
-            username="regenowner", password="pass", is_staff=True
+        perms = ("reports.use_reports", "invoices.view_salesinvoice")
+        cls.owner = _dataset_user(cls.company, *perms, username="regenowner")
+        cls.other = _dataset_user(cls.company, *perms, username="regenother")
+        cls.superuser = _dataset_user(
+            cls.company, *perms, username="regensuper", is_superuser=True
         )
-        cls.other = User.objects.create_user(
-            username="regenother", password="pass", is_staff=True
-        )
-        cls.superuser = User.objects.create_user(
-            username="regensuper", password="pass", is_staff=True, is_superuser=True
-        )
-        for u in (cls.owner, cls.other, cls.superuser):
-            CompanyUser.objects.create(user=u, company=cls.company, is_active=True)
-            for app_label, codename in (
-                ("reports", "use_reports"),
-                ("invoices", "view_salesinvoice"),
-            ):
-                perm = Permission.objects.get(
-                    content_type__app_label=app_label, codename=codename
-                )
-                u.user_permissions.add(perm)
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
 
     def _report(self):
         return Report.objects.create(
@@ -2519,72 +2350,44 @@ class ReportRegenerateTests(TestCase):
         with self.assertRaises(PermissionDenied):
             service.regenerate(report=report, prompt="new prompt", user=self.other)
 
-    def test_owner_can_regenerate_own_report(self):
-        report = self._report()
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
-        openai = MagicMock()
-        openai.generate.return_value = (_invoice_spec(), "Updated name")
-        service = ReportCreationService(classifier=classifier, spec_generator=openai)
-        ActiveCompany.set_current_ids([self.company.pk])
-        result = service.regenerate(
-            report=report, prompt="updated prompt", user=self.owner
-        )
-        self.assertIsNotNone(result.report)
-        report.refresh_from_db()
-        self.assertEqual(report.name, "Updated name")
-        self.assertEqual(report.prompt, "updated prompt")
-
-    def test_superuser_can_regenerate_someone_elses_report(self):
-        report = self._report()
-        classifier = MagicMock()
-        classifier.classify.return_value = ReportClassification(
-            domain=ReportDomain.SALES_INVOICES,
-            confidence=0.95,
-            needs_clarification=False,
-            source="openai",
-        )
-        openai = MagicMock()
-        openai.generate.return_value = (_invoice_spec(), "New name")
-        service = ReportCreationService(classifier=classifier, spec_generator=openai)
-        ActiveCompany.set_current_ids([self.company.pk])
-        result = service.regenerate(
-            report=report,
-            prompt="new prompt",
-            user=self.superuser,
-            visibility=ReportVisibility.COMPANY,
-        )
-        self.assertIsNotNone(result.report)
-        report.refresh_from_db()
-        self.assertEqual(report.name, "New name")
-        self.assertEqual(report.prompt, "new prompt")
-        self.assertEqual(report.visibility, ReportVisibility.COMPANY)
+    def test_owner_and_superuser_can_regenerate(self):
+        for user, new_name, new_prompt, extra, expected_visibility in (
+            (self.owner, "Updated name", "updated prompt", {}, ReportVisibility.PRIVATE),
+            (
+                self.superuser,  # someone else's report
+                "New name",
+                "new prompt",
+                {"visibility": ReportVisibility.COMPANY},
+                ReportVisibility.COMPANY,
+            ),
+        ):
+            with self.subTest(user=user.username):
+                report = self._report()
+                classifier = _classifier(ReportDomain.SALES_INVOICES)
+                openai = MagicMock()
+                openai.generate.return_value = (_invoice_spec(), new_name)
+                service = ReportCreationService(classifier=classifier, spec_generator=openai)
+                ActiveCompany.set_current_ids([self.company.pk])
+                result = service.regenerate(
+                    report=report, prompt=new_prompt, user=user, **extra
+                )
+                self.assertIsNotNone(result.report)
+                report.refresh_from_db()
+                self.assertEqual(report.name, new_name)
+                self.assertEqual(report.prompt, new_prompt)
+                self.assertEqual(report.visibility, expected_visibility)
 
 
 class ReportAdminPermissionTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Admin Perm Co", tax_identifier="APC1")
-        cls.owner = User.objects.create_user(
-            username="ownerperm", password="pass", is_staff=True
+        perm = "reports.use_reports"
+        cls.owner = _dataset_user(cls.company, perm, username="ownerperm")
+        cls.other = _dataset_user(cls.company, perm, username="otherperm")
+        cls.superuser = _dataset_user(
+            cls.company, perm, username="superperm", is_superuser=True
         )
-        cls.other = User.objects.create_user(
-            username="otherperm", password="pass", is_staff=True
-        )
-        cls.superuser = User.objects.create_user(
-            username="superperm", password="pass", is_staff=True, is_superuser=True
-        )
-        for u in (cls.owner, cls.other, cls.superuser):
-            CompanyUser.objects.create(user=u, company=cls.company, is_active=True)
-            perm = Permission.objects.get(
-                content_type__app_label="reports", codename="use_reports"
-            )
-            u.user_permissions.add(perm)
         cls.report = Report.objects.create(
             company=cls.company,
             owner=cls.owner,
@@ -2610,25 +2413,7 @@ class ReportAdminPermissionTests(TestCase):
 
         return ReportAdmin(Report, django_admin.site)
 
-    def test_owner_can_change_and_delete(self):
-        admin_instance = self._admin()
-        request = self._request(self.owner)
-        self.assertTrue(admin_instance.has_change_permission(request, self.report))
-        self.assertTrue(admin_instance.has_delete_permission(request, self.report))
-
-    def test_non_owner_cannot_change_or_delete(self):
-        admin_instance = self._admin()
-        request = self._request(self.other)
-        self.assertFalse(admin_instance.has_change_permission(request, self.report))
-        self.assertFalse(admin_instance.has_delete_permission(request, self.report))
-
-    def test_superuser_can_change_and_delete(self):
-        admin_instance = self._admin()
-        request = self._request(self.superuser)
-        self.assertTrue(admin_instance.has_change_permission(request, self.report))
-        self.assertTrue(admin_instance.has_delete_permission(request, self.report))
-
-    def test_can_edit_annotation_matches_permission(self):
+    def test_only_owner_and_superuser_can_change_and_delete(self):
         # Company-visible so it's in every user's changelist queryset.
         company_report = Report.objects.create(
             company=self.company,
@@ -2645,9 +2430,16 @@ class ReportAdminPermissionTests(TestCase):
             (self.other, False),
             (self.superuser, True),
         ):
-            request = self._request(user)
-            row = admin_instance.get_queryset(request).get(pk=company_report.pk)
-            self.assertEqual(row._can_edit, expected, msg=user.username)
+            with self.subTest(user=user.username):
+                request = self._request(user)
+                self.assertEqual(
+                    admin_instance.has_change_permission(request, self.report), expected
+                )
+                self.assertEqual(
+                    admin_instance.has_delete_permission(request, self.report), expected
+                )
+                row = admin_instance.get_queryset(request).get(pk=company_report.pk)
+                self.assertEqual(row._can_edit, expected)
 
 
 class CreateStructuredCompletionTests(TestCase):
@@ -2778,51 +2570,11 @@ class ClaudeReportPromptSuggesterTests(TestCase):
         )
 
 
-class ReportTemplateMessagesTests(TestCase):
-    """unfold/layouts/base.html doesn't render Django messages like the
-    admin change_list template does — queued messages would otherwise only
-    surface on whatever page happens to show them next.
-    """
-
-    @staticmethod
-    def _source(name: str) -> str:
-        from pathlib import Path
-
-        from django.template.loader import get_template
-
-        return Path(get_template(name).origin.name).read_text()
-
-    def test_shared_prompt_form_partial_renders_queued_messages(self):
-        self.assertIn(
-            'include "unfold/helpers/messages.html"',
-            self._source("admin/reports/_prompt_form.html"),
-        )
-
-    def test_create_and_edit_templates_include_the_shared_prompt_form(self):
-        for name in (
-            "admin/reports/report_create.html",
-            "admin/reports/report_edit.html",
-        ):
-            self.assertIn(
-                'include "admin/reports/_prompt_form.html"', self._source(name)
-            )
-
-    def test_detail_template_renders_queued_messages(self):
-        self.assertIn(
-            'include "unfold/helpers/messages.html"',
-            self._source("admin/reports/report_detail.html"),
-        )
-
-
-class ReportGenerationTaskTests(TestCase):
+class ReportGenerationTaskTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Task Co", tax_identifier="T1")
-        cls.user = User.objects.create_user(username="task-user", password="pass")
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
+        cls.user = _dataset_user(cls.company, username="task-user", is_staff=False)
 
     def _shell_report(self):
         report = Report.objects.create(
@@ -2879,17 +2631,9 @@ class ReportCreationAsyncViewTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Async Co", tax_identifier="A1")
-        cls.user = User.objects.create_user(
-            username="async-user",
-            password="pass",
-            is_staff=True,
+        cls.user = _dataset_user(
+            cls.company, "reports.use_reports", username="async-user"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="reports",
-            codename="use_reports",
-        )
-        cls.user.user_permissions.add(perm)
 
     def setUp(self):
         self.client.force_login(self.user)
@@ -3027,18 +2771,13 @@ class ReportCreationAsyncViewTests(TestCase):
         self.assertEqual(report.status, ReportGenerationStatus.ERROR)
 
 
-class ConfigurationsDatasetTests(TestCase):
+class ConfigurationsDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Config Co", tax_identifier="CFG1")
-        cls.user = User.objects.create_user(
-            username="configreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "configurator.view_configuration", username="configreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="configurator", codename="view_configuration"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.product = ProductTemplate.objects.create(
             company=cls.company, name="Window Type A"
@@ -3058,30 +2797,11 @@ class ConfigurationsDatasetTests(TestCase):
             total_price=Money("250.00", "EUR"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.CONFIGURATIONS,
-            "dimensions": ["status"],
-            "aggregations": [
-                {"measure": "total_price", "function": "sum", "alias": "total"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noconfigperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.CONFIGURATIONS,
+        "dimensions": ["status"],
+        "aggregations": [_agg("total_price", "sum", "total")],
+    }
 
     def test_groups_by_status_and_sums_total_price(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3091,18 +2811,13 @@ class ConfigurationsDatasetTests(TestCase):
         self.assertEqual(totals[ConfigurationStatus.COMPLETED], 250.0)
 
 
-class MaterialsDatasetTests(TestCase):
+class MaterialsDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Material Co", tax_identifier="MAT1")
-        cls.user = User.objects.create_user(
-            username="materialreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "materials.view_material", username="materialreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="materials", codename="view_material"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.category = Category.objects.create(company=cls.company, name="Perfiles")
         Material.objects.create(
@@ -3120,30 +2835,11 @@ class MaterialsDatasetTests(TestCase):
             cost_per_unit=Decimal("9.00"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.MATERIALS,
-            "dimensions": [],
-            "aggregations": [
-                {"measure": "cost_per_unit", "function": "avg", "alias": "avg_cost"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nomaterialperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.MATERIALS,
+        "dimensions": [],
+        "aggregations": [_agg("cost_per_unit", "avg", "avg_cost")],
+    }
 
     def test_average_cost_per_unit(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3168,18 +2864,13 @@ class MaterialsDatasetTests(TestCase):
         self.assertEqual([row["reference_code"] for row in result.rows], ["MAT-1"])
 
 
-class AssetsDatasetTests(TestCase):
+class AssetsDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Asset Co", tax_identifier="AST1")
-        cls.user = User.objects.create_user(
-            username="assetreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "assets.view_asset", username="assetreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="assets", codename="view_asset"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.asset_type = AssetType.objects.create(company=cls.company, name="Truck")
         cls.active_asset = Asset.objects.create(
@@ -3195,30 +2886,36 @@ class AssetsDatasetTests(TestCase):
             is_active=False,
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
+        # Category fixtures live in their own company so the is_active
+        # filter above only ever sees the two trucks.
+        cls.vehicle_company = Company.objects.create(
+            name="Vehicle Co", tax_identifier="VEH1"
+        )
+        CompanyUser.objects.create(
+            user=cls.user, company=cls.vehicle_company, is_active=True
+        )
+        truck_type = AssetType.objects.create(
+            company=cls.vehicle_company,
+            name="Camión",
+            category=AssetTypeCategory.TRUCK,
+        )
+        machine_type = AssetType.objects.create(
+            company=cls.vehicle_company,
+            name="Sierra",
+            category=AssetTypeCategory.MACHINE,
+        )
+        Asset.objects.create(
+            company=cls.vehicle_company, asset_type=truck_type, name="Truck 1"
+        )
+        Asset.objects.create(
+            company=cls.vehicle_company, asset_type=machine_type, name="Machine 1"
+        )
 
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.ASSETS,
-            "dimensions": ["name"],
-            "aggregations": [
-                {"measure": "*", "function": "count", "alias": "n"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noassetperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.ASSETS,
+        "dimensions": ["name"],
+        "aggregations": [_agg("*", "count", "n")],
+    }
 
     def test_is_active_filter(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3230,19 +2927,30 @@ class AssetsDatasetTests(TestCase):
         result = ReportCompiler().compile(spec, self.user)
         self.assertEqual([row["name"] for row in result.rows], ["Truck 1"])
 
+    def test_filters_to_trucks_only(self):
+        """asset_type__category must be filterable so 'vehículos' maps to truck."""
+        ActiveCompany.set_current_ids([self.vehicle_company.pk])
+        spec = self._spec(
+            filters=[
+                {
+                    "field": "asset_category",
+                    "op": "eq",
+                    "value": "truck",
+                    "parameter": None,
+                }
+            ],
+        )
+        result = ReportCompiler().compile(spec, self.user)
+        self.assertEqual([row["name"] for row in result.rows], ["Truck 1"])
 
-class BankingDatasetTests(TestCase):
+
+class BankingDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Bank Co", tax_identifier="BNK1")
-        cls.user = User.objects.create_user(
-            username="bankreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "banking.view_banktransaction", username="bankreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="banking", codename="view_banktransaction"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.account = BankAccount.objects.create(
             company=cls.company, bank_name="BBVA"
@@ -3262,49 +2970,64 @@ class BankingDatasetTests(TestCase):
             amount=Money("300.00", "EUR"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
+        # In/out split fixtures live in their own company so the net
+        # movement above stays at 150.
+        cls.split_company = Company.objects.create(
+            name="Split Co", tax_identifier="SPLIT1"
+        )
+        CompanyUser.objects.create(
+            user=cls.user, company=cls.split_company, is_active=True
+        )
+        split_account = BankAccount.objects.create(
+            company=cls.split_company, bank_name="BBVA"
+        )
+        BankTransaction.objects.create(
+            company=cls.split_company,
+            bank_account=split_account,
+            external_id="SPLIT-IN",
+            transaction_date=date(2024, 1, 1),
+            amount=Money("200.00", "EUR"),
+        )
+        BankTransaction.objects.create(
+            company=cls.split_company,
+            bank_account=split_account,
+            external_id="SPLIT-OUT",
+            transaction_date=date(2024, 1, 2),
+            amount=Money("-80.00", "EUR"),
+        )
 
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.BANKING,
-            "dimensions": [],
-            "aggregations": [
-                {"measure": "amount", "function": "sum", "alias": "total"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nobankperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.BANKING,
+        "dimensions": [],
+        "aggregations": [_agg("amount", "sum", "total")],
+    }
 
     def test_sums_net_movement(self):
         ActiveCompany.set_current_ids([self.company.pk])
         result = ReportCompiler().compile(self._spec(), self.user)
         self.assertEqual(result.rows[0]["total"], 150.0)
 
+    def test_amount_in_and_out_are_separated(self):
+        """amount_in/amount_out must separate the signed amount by direction."""
+        ActiveCompany.set_current_ids([self.split_company.pk])
+        spec = self._spec(
+            aggregations=[
+                _agg("amount_in", "sum", "money_in"),
+                _agg("amount_out", "sum", "money_out"),
+            ],
+        )
+        result = ReportCompiler().compile(spec, self.user)
+        self.assertEqual(result.rows[0]["money_in"], 200.0)
+        self.assertEqual(result.rows[0]["money_out"], 80.0)
 
-class FinanceDatasetTests(TestCase):
+
+class FinanceDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Finance Co", tax_identifier="FIN1")
-        cls.user = User.objects.create_user(
-            username="financereporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "finance.view_taxperiod", username="financereporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="finance", codename="view_taxperiod"
-        )
-        cls.user.user_permissions.add(perm)
 
         tax_type = TaxType.objects.create(tax_name="IVA")
         rule = TaxScheduleRule.objects.create(
@@ -3327,30 +3050,11 @@ class FinanceDatasetTests(TestCase):
         cls.period.net_after_credit = Money("600.00", "EUR")
         cls.period.save()
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.FINANCE,
-            "dimensions": ["rule"],
-            "aggregations": [
-                {"measure": "net_after_credit", "function": "sum", "alias": "owed"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nofinanceperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.FINANCE,
+        "dimensions": ["rule"],
+        "aggregations": [_agg("net_after_credit", "sum", "owed")],
+    }
 
     def test_net_after_credit_measure(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3358,20 +3062,17 @@ class FinanceDatasetTests(TestCase):
         self.assertEqual(result.rows[0]["owed"], 600.0)
 
 
-class AccountingDatasetTests(TestCase):
+class AccountingDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(
             name="Accounting Co", tax_identifier="ACC1"
         )
-        cls.user = User.objects.create_user(
-            username="accountingreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company,
+            "accounting.view_journalentryline",
+            username="accountingreporter",
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="accounting", codename="view_journalentryline"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.account = CompanyAccount.objects.create(
             company=cls.company, code="430000", name="Clientes"
@@ -3390,31 +3091,20 @@ class AccountingDatasetTests(TestCase):
             debit=Money("500.00", "EUR"),
             credit=Money("0.00", "EUR"),
         )
+        JournalEntryLine.objects.create(
+            company=cls.company,
+            entry=entry,
+            account=cls.account,
+            description="Abono",
+            debit=Money("0.00", "EUR"),
+            credit=Money("120.00", "EUR"),
+        )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.ACCOUNTING,
-            "dimensions": ["account_code"],
-            "aggregations": [
-                {"measure": "debit", "function": "sum", "alias": "total_debit"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noaccperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.ACCOUNTING,
+        "dimensions": ["account_code"],
+        "aggregations": [_agg("debit", "sum", "total_debit")],
+    }
 
     def test_debit_sum_by_account(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3422,21 +3112,23 @@ class AccountingDatasetTests(TestCase):
         self.assertEqual(result.rows[0]["total_debit"], 500.0)
         self.assertIsNone(result.row_pks[0])
 
+    def test_balance_is_debit_minus_credit(self):
+        """balance must equal debit minus credit, summed across lines."""
+        ActiveCompany.set_current_ids([self.company.pk])
+        spec = self._spec(aggregations=[_agg("balance", "sum", "balance")])
+        result = ReportCompiler().compile(spec, self.user)
+        self.assertEqual(result.rows[0]["balance"], 380.0)
 
-class PayrollDatasetTests(TestCase):
+
+class PayrollDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(
             name="Payroll Co", tax_identifier="PAY1"
         )
-        cls.user = User.objects.create_user(
-            username="payrollreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "payroll.view_employeepayroll", username="payrollreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="payroll", codename="view_employeepayroll"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.employee = Employee.objects.create(
             company=cls.company,
@@ -3456,30 +3148,11 @@ class PayrollDatasetTests(TestCase):
             employer_cost=Decimal("2600.00"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.PAYROLL,
-            "dimensions": ["employee"],
-            "aggregations": [
-                {"measure": "gross_salary", "function": "sum", "alias": "total"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nopayrollperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.PAYROLL,
+        "dimensions": ["employee"],
+        "aggregations": [_agg("gross_salary", "sum", "total")],
+    }
 
     def test_gross_salary_by_employee(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3488,18 +3161,13 @@ class PayrollDatasetTests(TestCase):
         self.assertEqual(result.rows[0]["total"], 2000.0)
 
 
-class LoansDatasetTests(TestCase):
+class LoansDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Loan Co", tax_identifier="LOAN1")
-        cls.user = User.objects.create_user(
-            username="loanreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "loans.view_loaninstallment", username="loanreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="loans", codename="view_loaninstallment"
-        )
-        cls.user.user_permissions.add(perm)
 
         bank = Bank.objects.create(name="Test Bank")
         bank_account = CompanyBankAccount.objects.create(
@@ -3538,30 +3206,11 @@ class LoansDatasetTests(TestCase):
             payment_status=LoanInstallmentPaymentStatus.PAID,
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.LOANS,
-            "dimensions": ["installment_number"],
-            "aggregations": [
-                {"measure": "total_due", "function": "sum", "alias": "total"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noloanperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.LOANS,
+        "dimensions": ["installment_number"],
+        "aggregations": [_agg("total_due", "sum", "total")],
+    }
 
     def test_unpaid_filter(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3578,42 +3227,19 @@ class LoansDatasetTests(TestCase):
         result = ReportCompiler().compile(spec, self.user)
         self.assertEqual([row["installment_number"] for row in result.rows], [1])
 
-    def test_company_filter_is_recognized(self):
-        """ReportCreationService.scope_to_companies always injects a 'company' filter on
-        every spec regardless of domain — every dataset's filter_fields
-        must include it or the compiler rejects the spec outright."""
-        ActiveCompany.set_current_ids([self.company.pk])
-        spec = self._spec(
-            filters=[
-                {
-                    "field": "company",
-                    "op": "icontains",
-                    "value": "Loan Co",
-                    "parameter": None,
-                }
-            ],
-        )
-        result = ReportCompiler().compile(spec, self.user)
-        self.assertEqual(len(result.rows), 2)
-
     def test_no_row_link_since_no_standalone_admin(self):
         ActiveCompany.set_current_ids([self.company.pk])
         result = ReportCompiler().compile(self._spec(), self.user)
         self.assertTrue(all(pk is None for pk in result.row_pks))
 
 
-class VacationsDatasetTests(TestCase):
+class VacationsDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Vacation Co", tax_identifier="VAC1")
-        cls.user = User.objects.create_user(
-            username="vacationreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "vacations.view_vacationrequest", username="vacationreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="vacations", codename="view_vacationrequest"
-        )
-        cls.user.user_permissions.add(perm)
 
         cls.employee = Employee.objects.create(
             company=cls.company,
@@ -3639,30 +3265,11 @@ class VacationsDatasetTests(TestCase):
             reason=AbsenceReason.PERSONAL,
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.VACATIONS,
-            "dimensions": ["status"],
-            "aggregations": [
-                {"measure": "requested_days", "function": "sum", "alias": "days"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="novacationperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.VACATIONS,
+        "dimensions": ["status"],
+        "aggregations": [_agg("requested_days", "sum", "days")],
+    }
 
     def test_groups_by_status(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3674,20 +3281,15 @@ class VacationsDatasetTests(TestCase):
         self.assertEqual(totals[VacationRequestStatus.PENDING], 1.0)
 
 
-class FeedbackDatasetTests(TestCase):
+class FeedbackDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(
             name="Feedback Co", tax_identifier="FBK1"
         )
-        cls.user = User.objects.create_user(
-            username="feedbackreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "feedback.view_feedbackresponse", username="feedbackreporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="feedback", codename="view_feedbackresponse"
-        )
-        cls.user.user_permissions.add(perm)
 
         client = Client.objects.create(company=cls.company, name="Feedback Client")
         quote = Quote.objects.create(
@@ -3701,30 +3303,11 @@ class FeedbackDatasetTests(TestCase):
             call_date=date(2024, 5, 10),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.FEEDBACK,
-            "dimensions": ["client"],
-            "aggregations": [
-                {"measure": "*", "function": "count", "alias": "n"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="nofeedbackperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.FEEDBACK,
+        "dimensions": ["client"],
+        "aggregations": [_agg("*", "count", "n")],
+    }
 
     def test_counts_by_client(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3733,20 +3316,15 @@ class FeedbackDatasetTests(TestCase):
         self.assertEqual(result.rows[0]["n"], 1)
 
 
-class ExpensesDatasetTests(TestCase):
+class ExpensesDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(
             name="Expense Co", tax_identifier="EXPC1"
         )
-        cls.user = User.objects.create_user(
-            username="expensereporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company, "expenses.view_expenseclaim", username="expensereporter"
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="expenses", codename="view_expenseclaim"
-        )
-        cls.user.user_permissions.add(perm)
 
         submitter = User.objects.create_user(username="claimant", password="pass")
         ExpenseClaim.objects.create(
@@ -3756,30 +3334,11 @@ class ExpensesDatasetTests(TestCase):
             total_claimed=Money("150.00", "EUR"),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.EXPENSES,
-            "dimensions": ["status"],
-            "aggregations": [
-                {"measure": "total_claimed", "function": "sum", "alias": "total"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noexpenseperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.EXPENSES,
+        "dimensions": ["status"],
+        "aggregations": [_agg("total_claimed", "sum", "total")],
+    }
 
     def test_total_claimed_by_status(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3788,21 +3347,17 @@ class ExpensesDatasetTests(TestCase):
         self.assertEqual(totals[ExpenseClaimStatus.SUBMITTED], 150.0)
 
 
-class EInvoicingDatasetTests(TestCase):
+class EInvoicingDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(
             name="EInvoicing Co", tax_identifier="EINV1"
         )
-        cls.user = User.objects.create_user(
-            username="einvoicingreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company,
+            "einvoicing.view_einvoicingsubmission",
+            username="einvoicingreporter",
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="einvoicing",
-            codename="view_einvoicingsubmission",
-        )
-        cls.user.user_permissions.add(perm)
 
         client = Client.objects.create(company=cls.company, name="EInv Client")
         invoice = SalesInvoice.objects.create(
@@ -3823,30 +3378,11 @@ class EInvoicingDatasetTests(TestCase):
             error_message="Timeout",
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    @staticmethod
-    def _spec(**overrides):
-        data = {
-            "dataset": ReportDomain.EINVOICING,
-            "dimensions": ["status"],
-            "aggregations": [
-                {"measure": "*", "function": "count", "alias": "n"}
-            ],
-            "filters": [],
-            "parameters": [],
-            "chart": "none",
-            "chart_label_dimension": None,
-            "chart_value_aggregation": None,
-        }
-        data.update(overrides)
-        return ReportSpec.from_dict(data)
-
-    def test_permission_gate(self):
-        bare = User.objects.create_user(username="noeinvoiceperm", password="pass")
-        with self.assertRaises(ReportPermissionDenied):
-            ReportCompiler().compile(self._spec(), bare)
+    spec_defaults = {
+        "dataset": ReportDomain.EINVOICING,
+        "dimensions": ["status"],
+        "aggregations": [_agg("*", "count", "n")],
+    }
 
     def test_counts_errored_submissions(self):
         ActiveCompany.set_current_ids([self.company.pk])
@@ -3864,21 +3400,17 @@ class EInvoicingDatasetTests(TestCase):
         self.assertEqual(result.rows[0]["n"], 1)
 
 
-class ProductionTimeDatasetTests(TestCase):
+class ProductionTimeDatasetTests(ReportTestCase):
     """duration_hours must agree with duration_seconds / 3600."""
 
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="Prod Co", tax_identifier="PRODT1")
-        cls.user = User.objects.create_user(
-            username="prodreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company,
+            "production.view_productionitemsession",
+            username="prodreporter",
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="production",
-            codename="view_productionitemsession",
-        )
-        cls.user.user_permissions.add(perm)
 
         product = ProductTemplate.objects.create(company=cls.company, name="Ventana")
         client = Client.objects.create(company=cls.company, name="Acme")
@@ -3909,33 +3441,15 @@ class ProductionTimeDatasetTests(TestCase):
             end_time=start + timedelta(hours=2, minutes=30),
         )
 
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
+    spec_defaults = {"dataset": ReportDomain.PRODUCTION_TIME}
 
     def test_duration_hours_matches_duration_seconds(self):
         ActiveCompany.set_current_ids([self.company.pk])
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.PRODUCTION_TIME,
-                "dimensions": [],
-                "aggregations": [
-                    {
-                        "measure": "duration_hours",
-                        "function": "sum",
-                        "alias": "hours",
-                    },
-                    {
-                        "measure": "duration_seconds",
-                        "function": "sum",
-                        "alias": "seconds",
-                    },
-                ],
-                "filters": [],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
+        spec = self._spec(
+            aggregations=[
+                _agg("duration_hours", "sum", "hours"),
+                _agg("duration_seconds", "sum", "seconds"),
+            ],
         )
         result = ReportCompiler().compile(spec, self.user)
         self.assertAlmostEqual(result.rows[0]["hours"], 2.5)
@@ -3952,23 +3466,10 @@ class ProductionTimeDatasetTests(TestCase):
             start_time=start,
             end_time=start + timedelta(seconds=326),
         )
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.PRODUCTION_TIME,
-                "dimensions": [],
-                "aggregations": [
-                    {
-                        "measure": "duration_hours",
-                        "function": "sum",
-                        "alias": "hours",
-                    },
-                ],
-                "filters": [],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
+        spec = self._spec(
+            aggregations=[
+                _agg("duration_hours", "sum", "hours"),
+            ],
         )
         result = ReportCompiler().compile(spec, self.user)
         self.assertEqual(result.rows[0]["hours"], 2.59)
@@ -3984,30 +3485,12 @@ class ProductionTimeDatasetTests(TestCase):
             start_time=empty,
             end_time=empty,
         )
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.PRODUCTION_TIME,
-                "dimensions": [],
-                "aggregations": [
-                    {
-                        "measure": "duration_hours",
-                        "function": "sum",
-                        "alias": "hours",
-                    },
-                    {
-                        "measure": "start_date",
-                        "function": "count_distinct",
-                        "alias": "days",
-                    },
-                ],
-                "filters": [
-                    {"field": "duration_hours", "op": "gt", "value": "0"},
-                ],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
+        spec = self._spec(
+            aggregations=[
+                _agg("duration_hours", "sum", "hours"),
+                _agg("start_date", "count_distinct", "days"),
+            ],
+            filters=[{"field": "duration_hours", "op": "gt", "value": "0"}],
         )
         result = ReportCompiler().compile(spec, self.user)
         self.assertEqual(result.rows[0]["days"], 1)
@@ -4044,31 +3527,14 @@ class ProductionTimeDatasetTests(TestCase):
                 end_time=closed,
                 created_by=employee,
             )
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.PRODUCTION_TIME,
-                "dimensions": ["employee"],
-                "aggregations": [
-                    {
-                        "measure": "labor_hours",
-                        "function": "sum",
-                        "alias": "hours",
-                    },
-                    {
-                        "measure": "duration_hours",
-                        "function": "sum",
-                        "alias": "raw",
-                    },
-                    {"measure": "id", "function": "count", "alias": "n"},
-                ],
-                "filters": [
-                    {"field": "labor_hours", "op": "gt", "value": "0"},
-                ],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
+        spec = self._spec(
+            dimensions=["employee"],
+            aggregations=[
+                _agg("labor_hours", "sum", "hours"),
+                _agg("duration_hours", "sum", "raw"),
+                _agg("id", "count", "n"),
+            ],
+            filters=[{"field": "labor_hours", "op": "gt", "value": "0"}],
         )
         result = ReportCompiler().compile(spec, self.user)
         by_name = {row["employee"]: row for row in result.rows}
@@ -4080,267 +3546,17 @@ class ProductionTimeDatasetTests(TestCase):
         self.assertEqual(by_name["Bea Luz"]["n"], 1)
 
 
-class AccountingBalanceMeasureTests(TestCase):
-    """balance must equal debit minus credit, summed across lines."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Balance Co", tax_identifier="BAL1")
-        cls.user = User.objects.create_user(
-            username="balancereporter", password="pass", is_staff=True
-        )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="accounting", codename="view_journalentryline"
-        )
-        cls.user.user_permissions.add(perm)
-
-        account = CompanyAccount.objects.create(
-            company=cls.company, code="430000", name="Clientes"
-        )
-        journal = Journal.objects.create(
-            company=cls.company, name="Ventas", code="VTA", type=JournalType.SALES
-        )
-        entry = JournalEntry.objects.create(
-            company=cls.company, journal=journal, date=date(2024, 1, 1)
-        )
-        JournalEntryLine.objects.create(
-            company=cls.company,
-            entry=entry,
-            account=account,
-            description="Cobro parcial",
-            debit=Money("500.00", "EUR"),
-            credit=Money("0.00", "EUR"),
-        )
-        JournalEntryLine.objects.create(
-            company=cls.company,
-            entry=entry,
-            account=account,
-            description="Abono",
-            debit=Money("0.00", "EUR"),
-            credit=Money("120.00", "EUR"),
-        )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    def test_balance_is_debit_minus_credit(self):
-        ActiveCompany.set_current_ids([self.company.pk])
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.ACCOUNTING,
-                "dimensions": ["account_code"],
-                "aggregations": [
-                    {"measure": "balance", "function": "sum", "alias": "balance"}
-                ],
-                "filters": [],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
-        )
-        result = ReportCompiler().compile(spec, self.user)
-        self.assertEqual(result.rows[0]["balance"], 380.0)
-
-
-class BankingSplitMeasureTests(TestCase):
-    """amount_in/amount_out must separate the signed amount by direction."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Split Co", tax_identifier="SPLIT1")
-        cls.user = User.objects.create_user(
-            username="splitreporter", password="pass", is_staff=True
-        )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="banking", codename="view_banktransaction"
-        )
-        cls.user.user_permissions.add(perm)
-
-        account = BankAccount.objects.create(company=cls.company, bank_name="BBVA")
-        BankTransaction.objects.create(
-            company=cls.company,
-            bank_account=account,
-            external_id="SPLIT-IN",
-            transaction_date=date(2024, 1, 1),
-            amount=Money("200.00", "EUR"),
-        )
-        BankTransaction.objects.create(
-            company=cls.company,
-            bank_account=account,
-            external_id="SPLIT-OUT",
-            transaction_date=date(2024, 1, 2),
-            amount=Money("-80.00", "EUR"),
-        )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    def test_amount_in_and_out_are_separated(self):
-        ActiveCompany.set_current_ids([self.company.pk])
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.BANKING,
-                "dimensions": [],
-                "aggregations": [
-                    {"measure": "amount_in", "function": "sum", "alias": "money_in"},
-                    {
-                        "measure": "amount_out",
-                        "function": "sum",
-                        "alias": "money_out",
-                    },
-                ],
-                "filters": [],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
-        )
-        result = ReportCompiler().compile(spec, self.user)
-        self.assertEqual(result.rows[0]["money_in"], 200.0)
-        self.assertEqual(result.rows[0]["money_out"], 80.0)
-
-
-class AssetCategoryFilterTests(TestCase):
-    """asset_type__category must be filterable so 'vehículos' maps to truck."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Vehicle Co", tax_identifier="VEH1")
-        cls.user = User.objects.create_user(
-            username="vehiclereporter", password="pass", is_staff=True
-        )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="assets", codename="view_asset"
-        )
-        cls.user.user_permissions.add(perm)
-
-        truck_type = AssetType.objects.create(
-            company=cls.company, name="Camión", category=AssetTypeCategory.TRUCK
-        )
-        machine_type = AssetType.objects.create(
-            company=cls.company, name="Sierra", category=AssetTypeCategory.MACHINE
-        )
-        Asset.objects.create(company=cls.company, asset_type=truck_type, name="Truck 1")
-        Asset.objects.create(
-            company=cls.company, asset_type=machine_type, name="Machine 1"
-        )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    def test_filters_to_trucks_only(self):
-        ActiveCompany.set_current_ids([self.company.pk])
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.ASSETS,
-                "dimensions": ["name"],
-                "aggregations": [
-                    {"measure": "*", "function": "count", "alias": "n"}
-                ],
-                "filters": [
-                    {
-                        "field": "asset_category",
-                        "op": "eq",
-                        "value": "truck",
-                        "parameter": None,
-                    }
-                ],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
-        )
-        result = ReportCompiler().compile(spec, self.user)
-        self.assertEqual([row["name"] for row in result.rows], ["Truck 1"])
-
-
-class PurchasingConfirmationStatusFilterTests(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.company = Company.objects.create(name="Confirm Co", tax_identifier="CFM1")
-        cls.user = User.objects.create_user(
-            username="confirmreporter", password="pass", is_staff=True
-        )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        perm = Permission.objects.get(
-            content_type__app_label="invoices", codename="view_invoice"
-        )
-        cls.user.user_permissions.add(perm)
-
-        provider = Provider.objects.create(company=cls.company, name="Perfiles SA")
-        Invoice.objects.create(
-            company=cls.company,
-            provider=provider,
-            invoice_number="CONF-1",
-            date_issued=date(2024, 1, 1),
-            total_amount=Money("100.00", "EUR"),
-            confirmation_status=ConfirmationStatus.PENDING,
-        )
-        Invoice.objects.create(
-            company=cls.company,
-            provider=provider,
-            invoice_number="CONF-2",
-            date_issued=date(2024, 1, 2),
-            total_amount=Money("200.00", "EUR"),
-            confirmation_status=ConfirmationStatus.APPROVED,
-        )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
-
-    def test_filters_to_pending_confirmation_only(self):
-        ActiveCompany.set_current_ids([self.company.pk])
-        spec = ReportSpec.from_dict(
-            {
-                "dataset": ReportDomain.PURCHASING,
-                "dimensions": ["invoice_number"],
-                "aggregations": [
-                    {"measure": "*", "function": "count", "alias": "n"}
-                ],
-                "filters": [
-                    {
-                        "field": "confirmation_status",
-                        "op": "eq",
-                        "value": "pending",
-                        "parameter": None,
-                    }
-                ],
-                "parameters": [],
-                "chart": "none",
-                "chart_label_dimension": None,
-                "chart_value_aggregation": None,
-            }
-        )
-        result = ReportCompiler().compile(spec, self.user)
-        self.assertEqual(
-            [row["invoice_number"] for row in result.rows], ["CONF-1"]
-        )
-
-
-class DriverProfitabilityDatasetTests(TestCase):
+class DriverProfitabilityDatasetTests(ReportTestCase):
     @classmethod
     def setUpTestData(cls):
         cls.company = Company.objects.create(name="San Carlos", tax_identifier="SCX")
-        cls.user = User.objects.create_user(
-            username="driverreporter", password="pass", is_staff=True
+        cls.user = _dataset_user(
+            cls.company,
+            "assets.view_assettransaction",
+            "management.view_workentry",
+            "management.view_costentry",
+            username="driverreporter",
         )
-        CompanyUser.objects.create(user=cls.user, company=cls.company, is_active=True)
-        for app_label, codename in (
-            ("assets", "view_assettransaction"),
-            ("management", "view_workentry"),
-            ("management", "view_costentry"),
-        ):
-            cls.user.user_permissions.add(
-                Permission.objects.get(
-                    content_type__app_label=app_label, codename=codename
-                )
-            )
         cls.user = User.objects.get(pk=cls.user.pk)
 
         cls.driver = Employee.objects.create(
@@ -4412,9 +3628,6 @@ class DriverProfitabilityDatasetTests(TestCase):
             unit_price=Money("999.00", "EUR"),
             date=date(2026, 3, 4),
         )
-
-    def tearDown(self):
-        ActiveCompany.set_current_ids(None)
 
     def test_trips_group_by_the_driver_who_performed_them(self):
         ActiveCompany.set_current_ids([self.company.pk])

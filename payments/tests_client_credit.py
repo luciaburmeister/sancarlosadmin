@@ -9,13 +9,11 @@ from decimal import Decimal
 from importlib import import_module
 
 from django.apps import apps
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
-from company.models import Company
 from invoices.models import SalesInvoice, SalesInvoiceStatus
 from payments.mixins import annotate_credit_balance
 from payments.models import (
@@ -25,18 +23,17 @@ from payments.models import (
     PaymentMethod,
     PaymentStatus,
 )
+from payments.testing import CompanyAdminTestMixin
 from sales.models import Client
-
-User = get_user_model()
 
 backfill_payment_client = import_module(
     "payments.migrations.0006_backfill_payment_client"
 ).backfill_payment_client
 
 
-class _ClientPaymentsMixin:
+class _ClientPaymentsMixin(CompanyAdminTestMixin):
     def setUp(self):
-        self.company = Company.objects.create(name="Global Corp")
+        super().setUp()
         self.today = timezone.localdate()
         self.client_a = Client.objects.create(company=self.company, name="Cliente A")
         self.client_b = Client.objects.create(company=self.company, name="Cliente B")
@@ -100,27 +97,6 @@ class PaymentClientFromAllocationTest(_ClientPaymentsMixin, TestCase):
 
         payment.refresh_from_db()
         self.assertEqual(payment.amount_pending_allocation, Money("250.00", "EUR"))
-
-    def test_register_payment_screen_records_the_client(self):
-        user = User.objects.create_superuser(username="fin", password="pw", email="f@example.com")
-        self.client.force_login(user)
-        invoice = self._sales_invoice(self.client_a, "V-1")
-
-        from django.utils import translation
-        with translation.override("en"):
-            response = self.client.post(
-                reverse("admin:invoices_salesinvoice_register_payment", args=[invoice.pk]),
-                {
-                    "amount": "100.00",
-                    "currency": "EUR",
-                    "payment_date": self.today.isoformat(),
-                    "method": PaymentMethod.TRANSFER,
-                    "reference": "REF-1",
-                },
-            )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(Payment.objects.get().client, self.client_a)
 
 
 class BackfillPaymentClientTest(_ClientPaymentsMixin, TestCase):
@@ -226,8 +202,7 @@ class ClientCreditBalanceTest(_ClientPaymentsMixin, TestCase):
 class ClientChangelistCreditTest(_ClientPaymentsMixin, TestCase):
     def setUp(self):
         super().setUp()
-        user = User.objects.create_superuser(username="fin", password="pw", email="f@example.com")
-        self.client.force_login(user)
+        self.login_superuser(username="fin", email="f@example.com")
 
     def test_changelist_shows_credit_linking_to_the_unallocated_payments(self):
         self._payment("300.00", client=self.client_a)

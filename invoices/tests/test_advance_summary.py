@@ -29,7 +29,7 @@ from invoices.models import InvoicePaymentStatus, SalesInvoice, SalesInvoiceStat
 from invoices.services.advances import AdvanceDeductionService
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
+from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, aeat_cancel_marker
 from invoices.tests.test_project_file_invoice_pricing_golden import _GoldenExpedienteBase
 
 
@@ -116,8 +116,17 @@ class AdvanceSplitTests(AdvanceExpedienteMixin, TestCase):
 
 
 class CancelledInvoicesTests(AdvanceExpedienteMixin, TestCase):
+    """Both the live summary and the expediente's cached figures
+    (ProjectFile.recalculate_total_amount, kept current by the invoice
+    signals) leave cancelled invoices out."""
+
+    def _refreshed(self):
+        self.project_file.refresh_from_db()
+        return self.project_file
+
     def test_cancelled_goods_invoice_bills_nothing(self):
         invoice = self.invoice_goods()
+        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("1000.00"))
         self.set_status(invoice, SalesInvoiceStatus.CANCELLED)
 
         summary = self.summary()
@@ -126,6 +135,8 @@ class CancelledInvoicesTests(AdvanceExpedienteMixin, TestCase):
         self.assertEqual(summary["goods_remaining_net"], Decimal("1000.00"))
         self.assertTrue(summary["can_invoice"])
         self.assertEqual(summary["invoices"], [])
+        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("0.00"))
+        self.assertEqual(self.project_file.percentage_invoiced, Decimal("0.00"))
 
     def test_cancelled_bulk_invoice_bills_nothing(self):
         invoice = BulkProjectFileInvoiceService.create_bulk_invoice(
@@ -133,17 +144,21 @@ class CancelledInvoicesTests(AdvanceExpedienteMixin, TestCase):
             date_issued=date(2026, 9, 29),
         )
         self.assertFalse(self.summary()["can_invoice"])
+        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("1000.00"))
         self.set_status(invoice, SalesInvoiceStatus.CANCELLED)
 
         summary = self.summary()
         self.assertEqual(summary["total_invoiced_subtotal"], Decimal("0.00"))
         self.assertEqual(summary["goods_remaining_net"], Decimal("1000.00"))
         self.assertTrue(summary["can_invoice"])
+        self.assertEqual(self._refreshed().total_invoiced.amount, Decimal("0.00"))
 
     def test_cancelled_rest_invoice_releases_the_advance(self):
         _, line = self.make_advance(Decimal("300.00"), "30")
         rest = self.invoice_goods()
         self.deduct(rest, line, Decimal("300.00"))
+        self.assertEqual(self._refreshed().advance_pending_amount.amount, Decimal("0.00"))
+        self.assertEqual(self.project_file.percentage_invoiced, Decimal("100.00"))
         self.set_status(rest, SalesInvoiceStatus.FINAL)
         self.set_status(rest, SalesInvoiceStatus.CANCELLED)
 
@@ -151,6 +166,9 @@ class CancelledInvoicesTests(AdvanceExpedienteMixin, TestCase):
         self.assertEqual(summary["goods_remaining_net"], Decimal("1000.00"))
         self.assertEqual(summary["advances"][0]["deducted"], Decimal("0.00"))
         self.assertEqual(summary["advances_open_net"], Decimal("300.00"))
+        # The advance is pending again on the expediente
+        self.assertEqual(self._refreshed().advance_pending_amount.amount, Decimal("300.00"))
+        self.assertEqual(self.project_file.percentage_invoiced, Decimal("30.00"))
 
     def test_cancelled_advance_is_left_out(self):
         invoice, _ = self.make_advance(Decimal("300.00"), "30")
@@ -194,10 +212,7 @@ class AdvanceEligibilityTests(AdvanceExpedienteMixin, TestCase):
         ]
         for status, deductible, cancelling in cases:
             with self.subTest(status=status):
-                cancel = EInvoicingSubmission.objects.create(
-                    account=account, sales_invoice=invoice,
-                    action=SubmissionAction.CANCEL, status=status,
-                )
+                cancel = aeat_cancel_marker(invoice, status=status)
                 summary = self.summary()
                 self.assertEqual(summary["advances"][0]["deductible"], deductible)
                 self.assertEqual(summary["advances"][0]["cancelling"], cancelling)

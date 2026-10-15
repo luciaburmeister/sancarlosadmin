@@ -14,45 +14,32 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
-from company.models import Company, CompanyUser
-from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
+from company.models import CompanyUser
+from configurator.models import Configuration
 from inventory.models import InventoryItem
-from invoices.models import AppliedTax, TaxType
 from invoices.services.delivery_order_service import DeliveryOrderService
+from invoices.tests.factories import (
+    ExpedienteMixin,
+    apply_tax,
+    basket_discount,
+    do_line,
+    make_quote,
+)
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
-from management.models import ProjectFile
 from sales.models import (
-    Client,
     DeliveryOrder,
     DeliveryOrderItem,
     DeliveryOrderStatus,
     Quote,
     QuoteInventoryItem,
-    QuoteStatus,
 )
 
 
-def _basket_entry(base, amount, percentage="10.00"):
-    return {
-        "rule_name": f"{percentage}%", "kind": "standard", "level": "basket",
-        "mode": "net", "percentage": percentage,
-        "base": str(base), "amount": str(amount),
-    }
-
-
-class _SyncTestBase(TestCase):
+class _SyncTestBase(ExpedienteMixin, TestCase):
+    project_file_name = "PF Sync"
 
     def setUp(self):
-        self.company = Company.objects.create(name="Test Co")
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
-            name="PF Sync", company=self.company, client=self.client_obj,
-        )
-        self.iva21, _ = TaxType.objects.get_or_create(
-            tax_name="IVA", country="ES", defaults={"behavior": "add"},
-        )
-        self.config_ct = ContentType.objects.get_for_model(Configuration)
+        super().setUp()
         self.inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
     # ── factories ─────────────────────────────────────────────────────
@@ -60,10 +47,7 @@ class _SyncTestBase(TestCase):
     def _quote(self, subtotal, discount=Decimal("0.00")):
         """An accepted quote whose stored totals are set by hand (a basket
         discount of ``discount`` on ``subtotal``, taxed at 21%)."""
-        quote = Quote.objects.create(
-            project_name="Quote", company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=QuoteStatus.ACCEPTED,
-        )
+        quote = make_quote(project_file=self.project_file)
         self._set_quote_totals(quote, subtotal, discount)
         return quote
 
@@ -73,33 +57,19 @@ class _SyncTestBase(TestCase):
         subtotal, discount = Decimal(subtotal), Decimal(discount)
         discounted = subtotal - discount
         tax = (discounted * Decimal("0.21")).quantize(Decimal("0.01"))
+        entry = basket_discount(
+            rule_name="10.00%", percentage="10.00",
+            base=str(subtotal), amount=str(discount),
+        )
         Quote.objects.filter(pk=quote.pk).update(
             subtotal_price=subtotal,
             discount_amount=discount,
             discounted_subtotal=discounted,
             tax_amount=tax,
             total_price=discounted + tax,
-            discount_breakdown=[_basket_entry(subtotal, discount)] if discount else [],
+            discount_breakdown=[entry] if discount else [],
         )
         quote.refresh_from_db()
-
-    def _tax(self, content_type, obj, base):
-        AppliedTax.objects.create(
-            content_type=content_type, object_id=obj.pk, tax_type=self.iva21,
-            selected_percentage=Decimal("21"), base_amount=base,
-            calculated_amount=(Decimal(base) * Decimal("0.21")).quantize(Decimal("0.01")),
-        )
-
-    def _config(self, quote, subtotal, units=Decimal("0")):
-        config = Configuration.objects.create(
-            name="Config", company=self.company, product=self.product,
-            client=self.client_obj, quote=quote, project_file=self.project_file,
-            status=ConfigurationStatus.COMPLETED,
-            subtotal_price=subtotal, total_price=Decimal(subtotal) * Decimal("1.21"),
-            units=units,
-        )
-        self._tax(self.config_ct, config, subtotal)
-        return config
 
     def _reprice_config(self, config, subtotal):
         Configuration.objects.filter(pk=config.pk).update(subtotal_price=Decimal(subtotal))
@@ -114,28 +84,8 @@ class _SyncTestBase(TestCase):
             quote=quote, inventory_item=item, quantity=Decimal(quantity),
             unit_price=Decimal(unit_price), discount=discount,
         )
-        self._tax(self.inv_item_ct, line, line.line_total.amount)
+        apply_tax(line, tax_type=self.iva21, base=line.line_total.amount)
         return line
-
-    def _line_data(self, source, quantity, unit_price, discount=Decimal("0.00")):
-        if isinstance(source, Configuration):
-            ct, description = self.config_ct, source.name
-        else:
-            ct, description = self.inv_item_ct, source.inventory_item.name
-        return {
-            "source_content_type_id": ct.id,
-            "source_object_id": source.pk,
-            "description": description,
-            "quantity": Decimal(quantity),
-            "unit_price": Decimal(unit_price),
-            "discount_percentage": discount,
-        }
-
-    def _create_do(self, items_data):
-        return DeliveryOrderService.create_delivery_order(
-            project_file=self.project_file, company=self.company,
-            client=self.client_obj, items_data=items_data,
-        )
 
     def _deliverable(self):
         return {
@@ -157,18 +107,18 @@ class NegativeQuoteLineTests(_SyncTestBase):
     def setUp(self):
         super().setUp()
         self.quote = self._quote("0")
-        self.config = self._config(self.quote, Decimal("1000.00"))
+        self.config = self._make_config(self.quote, Decimal("1000.00"))
         self.deduction = self._inv_line(self.quote, "-1", "100.00")
         self._set_quote_totals(self.quote, "900.00", "90.00")
 
     def _both_lines(self):
-        items = self._deliverable()
+        deduction = self._deliverable()[(self.inv_item_ct.id, self.deduction.pk)]
         return [
-            self._line_data(self.config, "1", "1000.00"),
-            self._line_data(
+            do_line(self.config, unit_price="1000.00"),
+            do_line(
                 self.deduction,
-                items[(self.inv_item_ct.id, self.deduction.pk)]["remaining_quantity"],
-                items[(self.inv_item_ct.id, self.deduction.pk)]["unit_price"],
+                quantity=deduction["remaining_quantity"],
+                unit_price=deduction["unit_price"],
             ),
         ]
 
@@ -211,8 +161,8 @@ class NegativeQuoteLineTests(_SyncTestBase):
         self._set_quote_totals(self.quote, "900.00", "90.00")
 
         do = self._create_do([
-            self._line_data(self.config, "1", "1000.00"),
-            self._line_data(credit, "1", "-100.00"),
+            do_line(self.config, unit_price="1000.00"),
+            do_line(credit, unit_price="-100.00"),
         ])
         self.assertEqual(do.discount_amount.amount, Decimal("90.00"))
         self.assertEqual(do.applied_taxes.get().base_amount.amount, Decimal("810.00"))
@@ -224,8 +174,8 @@ class RemainderPricingTests(_SyncTestBase):
 
     def test_quote_repriced_after_a_partial_delivery(self):
         quote = self._quote("1000.00")
-        config = self._config(quote, "1000.00", units=Decimal("2"))
-        self._create_do([self._line_data(config, "1", "500.00")])
+        config = self._make_config(quote, "1000.00", units=Decimal("2"))
+        self._create_do([do_line(config, unit_price="500.00")])
 
         self._reprice_config(config, "1200.00")
         self._set_quote_totals(quote, "1200.00")
@@ -234,14 +184,14 @@ class RemainderPricingTests(_SyncTestBase):
         self.assertEqual(rest["remaining_quantity"], Decimal("1"))
         self.assertEqual(rest["unit_price"], Decimal("700.00"))
 
-        do2 = self._create_do([self._line_data(config, "1", rest["unit_price"])])
+        do2 = self._create_do([do_line(config, unit_price=rest["unit_price"])])
         self.assertEqual(do2.subtotal_amount.amount, Decimal("700.00"))
 
     def test_line_split_by_price_rather_than_quantity(self):
         quote = self._quote("1000.00")
-        config = self._config(quote, "1000.00")
+        config = self._make_config(quote, "1000.00")
         # Half the configuration, but priced at 600 by hand on the first order.
-        self._create_do([self._line_data(config, "0.5", "1200.00")])
+        self._create_do([do_line(config, quantity="0.5", unit_price="1200.00")])
 
         rest = self._deliverable()[(self.config_ct.id, config.pk)]
         self.assertEqual(rest["remaining_quantity"], Decimal("0.5"))
@@ -249,15 +199,15 @@ class RemainderPricingTests(_SyncTestBase):
 
     def test_untouched_quote_keeps_the_plain_unit_price(self):
         quote = self._quote("1000.00")
-        config = self._config(quote, "1000.00", units=Decimal("2"))
-        self._create_do([self._line_data(config, "1", "500.00")])
+        config = self._make_config(quote, "1000.00", units=Decimal("2"))
+        self._create_do([do_line(config, unit_price="500.00")])
 
         rest = self._deliverable()[(self.config_ct.id, config.pk)]
         self.assertEqual(rest["unit_price"], Decimal("500.00"))
 
     def test_nothing_delivered_yet_uses_the_quote_price(self):
         quote = self._quote("1000.00")
-        config = self._config(quote, "1000.00", units=Decimal("4"))
+        config = self._make_config(quote, "1000.00", units=Decimal("4"))
         self.assertEqual(
             self._deliverable()[(self.config_ct.id, config.pk)]["unit_price"],
             Decimal("250.00"),
@@ -266,7 +216,9 @@ class RemainderPricingTests(_SyncTestBase):
     def test_inventory_line_with_a_line_discount(self):
         quote = self._quote("360.00")
         line = self._inv_line(quote, "4", "100.00", discount=Decimal("10"))  # 360 net
-        self._create_do([self._line_data(line, "1", "100.00", Decimal("10"))])  # 90
+        self._create_do([  # 90
+            do_line(line, unit_price="100.00", discount=Decimal("10")),
+        ])
 
         QuoteInventoryItem.objects.filter(pk=line.pk).update(
             unit_price=Decimal("130.00"), line_total=Decimal("468.00"),
@@ -280,7 +232,7 @@ class RemainderPricingTests(_SyncTestBase):
 
     def test_legacy_net_priced_delivery_counts_at_the_quote_price(self):
         quote = self._quote("1000.00", "100.00")
-        config = self._config(quote, "1000.00", units=Decimal("2"))
+        config = self._make_config(quote, "1000.00", units=Decimal("2"))
         legacy = DeliveryOrder.objects.create(
             company=self.company, client=self.client_obj,
             project_file=self.project_file, status=DeliveryOrderStatus.DISPATCHED,
@@ -304,8 +256,8 @@ class ManualLineTaxTests(_SyncTestBase):
     def setUp(self):
         super().setUp()
         self.quote = self._quote("3532.61", "70.65")
-        self.config = self._config(self.quote, "3532.61")
-        self.do = self._create_do([self._line_data(self.config, "1", "3532.61")])
+        self.config = self._make_config(self.quote, "3532.61")
+        self.do = self._create_do([do_line(self.config, unit_price="3532.61")])
 
     def _add_portes(self, **kwargs):
         DeliveryOrderItem.objects.create(
@@ -318,8 +270,8 @@ class ManualLineTaxTests(_SyncTestBase):
     def _client_tax_mode(self):
         self.company.auto_apply_client_taxes = True
         self.company.save(update_fields=["auto_apply_client_taxes"])
-        self._tax(ContentType.objects.get_for_model(Client), self.client_obj, "0")
-        self._tax(ContentType.objects.get_for_model(Quote), self.quote, "3461.96")
+        apply_tax(self.client_obj, tax_type=self.iva21, base="0")
+        apply_tax(self.quote, tax_type=self.iva21, base="3461.96")
 
     def test_client_tax_mode_taxes_the_manual_line_with_the_client_taxes(self):
         self._client_tax_mode()
@@ -333,7 +285,7 @@ class ManualLineTaxTests(_SyncTestBase):
 
     def test_source_mode_uses_the_items_own_taxes(self):
         portes = InventoryItem.objects.create(company=self.company, name="Portes", code="PORTES")
-        self._tax(ContentType.objects.get_for_model(InventoryItem), portes, "0")
+        apply_tax(portes, tax_type=self.iva21, base="0")
         self._add_portes(inventory_item=portes)
 
         self.assertEqual(self.do.applied_taxes.get().base_amount.amount, Decimal("3721.96"))
@@ -350,8 +302,8 @@ class SyncFromSourcesTests(_SyncTestBase):
     def setUp(self):
         super().setUp()
         self.quote = self._quote("1000.00", "100.00")
-        self.config = self._config(self.quote, "1000.00")
-        self.do = self._create_do([self._line_data(self.config, "1", "1000.00")])
+        self.config = self._make_config(self.quote, "1000.00")
+        self.do = self._create_do([do_line(self.config, unit_price="1000.00")])
 
     def _config_line(self, do=None):
         return (do or self.do).items.top_level().get(
@@ -386,8 +338,12 @@ class SyncFromSourcesTests(_SyncTestBase):
 
     def test_the_order_completing_a_split_line_gets_the_remainder(self):
         self.do.delete()
-        do1 = self._create_do([self._line_data(self.config, "0.5", "1000.00")])
-        do2 = self._create_do([self._line_data(self.config, "0.5", "1000.00")])
+        do1 = self._create_do(
+            [do_line(self.config, quantity="0.5", unit_price="1000.00")],
+        )
+        do2 = self._create_do(
+            [do_line(self.config, quantity="0.5", unit_price="1000.00")],
+        )
 
         self._reprice_config(self.config, "1200.00")
         self._set_quote_totals(self.quote, "1200.00", "120.00")
@@ -432,7 +388,7 @@ class SyncFromSourcesTests(_SyncTestBase):
     def test_does_not_add_what_other_orders_already_ship(self):
         line = self._inv_line(self.quote, "2", "50.00")
         self._set_quote_totals(self.quote, "1100.00", "110.00")
-        self._create_do([self._line_data(line, "2", "50.00")])
+        self._create_do([do_line(line, quantity="2", unit_price="50.00")])
 
         counts = DeliveryOrderService.sync_from_sources(self.do)
 
@@ -470,8 +426,8 @@ class SyncFromQuoteAdminActionTests(_SyncTestBase):
     def setUp(self):
         super().setUp()
         self.quote = self._quote("1000.00", "100.00")
-        self.config = self._config(self.quote, "1000.00")
-        self.do = self._create_do([self._line_data(self.config, "1", "1000.00")])
+        self.config = self._make_config(self.quote, "1000.00")
+        self.do = self._create_do([do_line(self.config, unit_price="1000.00")])
         self.url = reverse(
             "admin:sales_deliveryorder_sync_from_quote_detail_action", args=[self.do.pk],
         )

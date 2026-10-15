@@ -212,15 +212,17 @@ class EntryValidationTests(EntryFixtureMixin, TestCase):
     def test_rejects_non_positive_quantity(self):
         for build in (self._cost_entry, self._work_entry):
             for qty in (Decimal("0"), Decimal("-1")):
-                with self.assertRaises(ValidationError) as ctx:
-                    build(quantity=qty).full_clean()
-                self.assertIn("quantity", ctx.exception.message_dict)
+                with self.subTest(build=build.__name__, quantity=qty):
+                    with self.assertRaises(ValidationError) as ctx:
+                        build(quantity=qty).full_clean()
+                    self.assertIn("quantity", ctx.exception.message_dict)
 
     def test_rejects_negative_unit_price(self):
         for build in (self._cost_entry, self._work_entry):
-            with self.assertRaises(ValidationError) as ctx:
-                build(unit_price=Money("-1", "EUR")).full_clean()
-            self.assertIn("unit_price", ctx.exception.message_dict)
+            with self.subTest(build=build.__name__):
+                with self.assertRaises(ValidationError) as ctx:
+                    build(unit_price=Money("-1", "EUR")).full_clean()
+                self.assertIn("unit_price", ctx.exception.message_dict)
 
     def test_cost_entry_rejects_revenue_type(self):
         with self.assertRaises(ValidationError) as ctx:

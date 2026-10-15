@@ -5,7 +5,7 @@ from datetime import date as date_, datetime, time, timedelta
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
-from django.db.models import Exists, F, OuterRef, Q, Subquery
+from django.db.models import Exists, F, OuterRef, Prefetch, Q, Subquery, prefetch_related_objects
 from django.utils.translation import gettext_lazy as _, pgettext_lazy
 from simple_history.models import HistoricalRecords
 from sales.models import Client
@@ -230,7 +230,8 @@ class PorteTransactionDataKey:
     GOODS_TYPE = "goods_type"
     TONNES_TRANSPORTED = "tonnes_transported"
     PACKAGE_COUNT = "package_count"
-    REFERENCE_NUMBER = "reference_number"
+    # reference_number used to live here too -- now a real AssetTransaction
+    # model field (see migration 0078), not a `data` key.
 
 
 class PorteMovementKind:
@@ -638,6 +639,11 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     transaction_type = models.CharField(max_length=20, choices=TransactionTypeChoices.choices, verbose_name=_("Transaction Type"))
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
+    reference_number = models.CharField(
+        max_length=255, blank=True, default="", db_index=True,
+        verbose_name=_("Reference Number"),
+        help_text=_("Customer/order reference the driver enters, if any. Promoted out of `data` so it's searchable."),
+    )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     firma = models.TextField(blank=True, null=True, verbose_name=_("Signature"))
     firma_image = models.ImageField(upload_to="asset_transactions/firmas/", blank=True, null=True, verbose_name=_("Signature Image"))
@@ -729,6 +735,25 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
             .order_by("pk")
             .first()
         )
+
+    def landfill_notification_email(self, *, require_auto=True):
+        if self.transaction_type != TransactionTypeChoices.MOVEMENT:
+            return ""
+        landfill = self.get_landfill()
+        if landfill is None:
+            return ""
+        return landfill.receipt_notification_recipient(require_auto=require_auto)
+
+    def queue_landfill_receipt_email(self, *, require_auto=True, reply_to=None):
+        email = self.landfill_notification_email(require_auto=require_auto)
+        if not email:
+            return ""
+        from core.tasks import send_asset_transaction_email_task
+
+        send_asset_transaction_email_task.delay(
+            self.pk, to_email=email, reply_to=reply_to,
+        )
+        return email
 
     def _sync_zones_on_porte_delivery(self):
         """An own-machine porte delivery means the machine — linked via
@@ -868,6 +893,16 @@ CUBA_REQUIRES_EMPTY_TRUCK_TYPES = frozenset({
     CubaOperationType.CAMBIO_AGUA,
     CubaOperationType.RETIRADA,
 })
+
+OWN_CUBA_PICKUP_TRANSACTION_TYPES = (
+    TransactionTypeChoices.MOVEMENT,
+    TransactionTypeChoices.PORTE_MOVEMENT,
+)
+
+CUBA_LEG_TRANSACTION_TYPES = (
+    *OWN_CUBA_PICKUP_TRANSACTION_TYPES,
+    TransactionTypeChoices.DELIVERY,
+)
 
 
 class CubaSize(models.TextChoices):
@@ -1198,11 +1233,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         self.save(update_fields=["driver_claimed_cuba"])
 
     def has_own_cuba_pickup(self) -> bool:
+        prefetched = getattr(self, "prefetched_leg_transactions", None)
+        if prefetched is not None:
+            return any(
+                transaction.transaction_type in OWN_CUBA_PICKUP_TRANSACTION_TYPES
+                for transaction in prefetched
+            )
         return self.transactions.filter(
-            transaction_type__in=[
-                TransactionTypeChoices.MOVEMENT,
-                TransactionTypeChoices.PORTE_MOVEMENT,
-            ]
+            transaction_type__in=OWN_CUBA_PICKUP_TRANSACTION_TYPES,
         ).exists()
 
     def _destination_dropoff_transactions(self):
@@ -1233,12 +1271,67 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         return qs.filter(from_zone__zone_type=WorkingZone.ZoneType.OBRA)
 
     def has_destination_dropoff(self) -> bool:
+        prefetched = getattr(self, "prefetched_leg_transactions", None)
+        if prefetched is not None:
+            return any(self._is_destination_dropoff(transaction) for transaction in prefetched)
         return self._destination_dropoff_transactions().exists()
+
+    def _is_destination_dropoff(self, transaction) -> bool:
+        if transaction.transaction_type != TransactionTypeChoices.DELIVERY:
+            return False
+        if self.destination_id:
+            return transaction.to_zone_id == self.destination_id
+        zone = transaction.to_zone
+        return zone is not None and zone.zone_type == WorkingZone.ZoneType.OBRA
+
+    def _is_destination_pickup(self, transaction) -> bool:
+        if self.cuba_operation_type not in CUBA_TWO_LEG_OPERATION_TYPES:
+            return True
+        if self.destination_id:
+            return transaction.from_zone_id == self.destination_id
+        zone = transaction.from_zone
+        return zone is not None and zone.zone_type == WorkingZone.ZoneType.OBRA
 
     def _destination_pickup_transaction(self):
         """The MOVEMENT transaction that resolves this plan's pickup leg — the
         most recent one matching, in case an earlier attempt was redone."""
+        prefetched = getattr(self, "prefetched_leg_transactions", None)
+        if prefetched is not None:
+            return next(
+                (
+                    transaction for transaction in prefetched
+                    if transaction.transaction_type == TransactionTypeChoices.MOVEMENT
+                    and self._is_destination_pickup(transaction)
+                ),
+                None,
+            )
         return self._destination_pickup_transactions().order_by("-date").first()
+
+    def _pickup_has_receipt(self, pickup_tx) -> bool:
+        prefetched = getattr(pickup_tx, "prefetched_receipt_links", None)
+        if prefetched is not None:
+            return bool(prefetched)
+        return pickup_tx.receipt_links.exists()
+
+    @classmethod
+    def attach_destination_pickups(cls, plannings) -> None:
+        """One prefetch for the list, instead of a pickup query per planning."""
+        pending = [
+            planning for planning in plannings
+            if planning.pk and not hasattr(planning, "prefetched_leg_transactions")
+        ]
+        if not pending:
+            return
+        prefetch_related_objects(pending, Prefetch(
+            "transactions",
+            queryset=(
+                AssetTransaction.objects.filter(transaction_type__in=CUBA_LEG_TRANSACTION_TYPES)
+                .select_related("from_zone", "to_zone")
+                .prefetch_related(Prefetch("receipt_links", to_attr="prefetched_receipt_links"))
+                .order_by("-date")
+            ),
+            to_attr="prefetched_leg_transactions",
+        ))
 
     def has_resolved_pickup(self) -> bool:
         """An empty pickup resolves itself. A full one only resolves once ITS
@@ -1254,7 +1347,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
             return False
         if not pickup_tx.is_full_cuba:
             return True
-        return pickup_tx.receipt_links.exists()
+        return self._pickup_has_receipt(pickup_tx)
 
     def has_pending_verteo(self) -> bool:
         """True once a full pickup has been logged for this plan but its own
@@ -1265,7 +1358,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         pickup_tx = self._destination_pickup_transaction()
         if pickup_tx is None or not pickup_tx.is_full_cuba:
             return False
-        return not pickup_tx.receipt_links.exists()
+        return not self._pickup_has_receipt(pickup_tx)
 
     def is_cuba_operation_complete(self) -> bool:
         dropoff_done = self.has_destination_dropoff()
@@ -1302,7 +1395,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
                     "status": ChecklistStepStatus.SKIPPED,
                 }
             return self._checklist_step(
-                ChecklistStepKey.VERTER, label, pickup_tx.receipt_links.exists(),
+                ChecklistStepKey.VERTER, label, self._pickup_has_receipt(pickup_tx),
             )
 
         checklist = [self._checklist_step(

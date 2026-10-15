@@ -19818,12 +19818,6 @@ msgstr "Aprobación automática prevista para"
 msgid "Automatic approval"
 msgstr "Aprobación automática"
 
-msgid "Purchase Order approved automatically."
-msgstr "Orden de compra aprobada automáticamente."
-
-msgid "Approved automatically under the company's purchase approval rule."
-msgstr "Aprobada automáticamente según la regla de aprobación de compras de la empresa."
-
 msgid "Minimum Project Margin (%)"
 msgstr "Margen mínimo del proyecto (%)"
 
@@ -19842,8 +19836,8 @@ msgstr "Transferencia inmediata (pago a 0 días): revisar antes de aprobar."
 msgid "Send Purchase Order to Approval"
 msgstr "Enviar orden de compra a aprobación"
 
-msgid "This order may be approved automatically if it meets the company's approval rule."
-msgstr "Esta orden puede aprobarse automáticamente si cumple la regla de aprobación de la empresa."
+msgid "Send this order for approval?"
+msgstr "¿Enviar esta orden a aprobación?"
 
 msgid "Project Costs"
 msgstr "Costes del proyecto"

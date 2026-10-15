@@ -134,7 +134,6 @@ class CubaSchema(TransactionFieldSchema):
     field_names = (
         "tipo_cuba", "cubaEstado", "vasAVerter", "m3", "trabajo",
         "matricula", "peso_vertido", "vertedero", "implemento", "tipo_camion",
-        "reference_number",
     )
 
     @classmethod
@@ -158,7 +157,6 @@ class CubaSchema(TransactionFieldSchema):
             ),
             "implemento": config_or_text_field(company, "implemento", _("Implement")),
             "tipo_camion": config_or_text_field(company, "tipo_camion", _("Truck type")),
-            "reference_number": text_field(_("Reference number"), placeholder=_("Customer/order reference, if any")),
         }
 
     @classmethod
@@ -197,7 +195,7 @@ class PorteSchema(TransactionFieldSchema):
     # (PORTE_ACTION_TRANSACTION_TYPES, assets/models.py), so build() derives it.
     field_names = (
         "matricula", "load_description", "client_id", "machine_id",
-        "goods_type", "tonnes_transported", "package_count", "reference_number",
+        "goods_type", "tonnes_transported", "package_count",
     )
     ACTION_BY_TYPE = {
         TransactionTypeChoices.PORTE_MOVEMENT: PorteAction.RECOGIDA,
@@ -217,7 +215,6 @@ class PorteSchema(TransactionFieldSchema):
             "goods_type": config_or_text_field(company, "goods_type", _("Goods type")),
             "tonnes_transported": text_field(_("Tonnes transported"), placeholder=_("e.g. 12.5")),
             "package_count": text_field(_("Number of packages"), placeholder=_("Only if transported as packages")),
-            "reference_number": text_field(_("Reference number"), placeholder=_("Customer/order reference, if any")),
         }
 
     @classmethod
@@ -228,7 +225,7 @@ class PorteSchema(TransactionFieldSchema):
     @classmethod
     def build(cls, transaction_type, cleaned, existing=None, tx_date=None):
         merged = dict(existing or {})
-        for name in ("matricula", "load_description", "goods_type", "tonnes_transported", "package_count", "reference_number"):
+        for name in ("matricula", "load_description", "goods_type", "tonnes_transported", "package_count"):
             if name in cleaned:
                 merged[name] = cleaned.get(name) or ""
         for name in ("client_id", "machine_id"):
@@ -243,14 +240,13 @@ class PorteSchema(TransactionFieldSchema):
 class ReceiptSchema(TransactionFieldSchema):
     transaction_types = (TransactionTypeChoices.RECEIPT,)
     # nro_albaran is also a real field on AssetTransactionReceipt (kept in sync).
-    field_names = ("nro_albaran", "material_vertido", "reference_number")
+    field_names = ("nro_albaran", "material_vertido")
 
     @classmethod
     def fields(cls, company):
         return {
             "nro_albaran": text_field(_("Albaran Number"), placeholder=_("Type the albaran number, e.g. 01083485")),
             "material_vertido": cls.material_vertido_field(company),
-            "reference_number": text_field(_("Reference number"), placeholder=_("Customer/order reference, if any")),
         }
 
     @classmethod

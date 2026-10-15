@@ -508,13 +508,21 @@ class ManualTransactionForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"rows": 2, "placeholder": _("e.g. Manual correction: driver's phone failed.")}),
     )
+    # A real AssetTransaction field, not one of the per-type data_schema_fields
+    # below -- applies to every transaction type, so it's a plain top-level
+    # field here too, same treatment as zone/performed_by/notes.
+    reference_number = forms.CharField(
+        label=_("Reference number"),
+        required=False,
+        widget=UnfoldAdminTextInputWidget(attrs={"placeholder": _("Customer/order reference, if any")}),
+    )
 
     def __init__(self, *args, planning=None, **kwargs):
         self.planning = planning
         super().__init__(*args, **kwargs)
         company = planning.company if planning is not None else None
         # "" (falsy) renders these ungrouped, above the per-type sections below.
-        for name in ("transaction_type", "asset", "zone", "performed_by", "notes"):
+        for name in ("transaction_type", "asset", "zone", "performed_by", "reference_number", "notes"):
             self.fields[name].parameter_group = ""
         # Porte always uses the planning's own origin/destination, never `zone`.
         self.fields["zone"].widget.attrs["data-shows-for"] = "movement,delivery,receipt"

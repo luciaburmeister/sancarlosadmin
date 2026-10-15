@@ -24,13 +24,14 @@ from assets.models import (
 class BaseManualTransactionStrategy:
     transaction_type = None
 
-    def __init__(self, *, transaction_type, planning, zone=None, performed_by=None, notes="", data=None, asset=None):
+    def __init__(self, *, transaction_type, planning, zone=None, performed_by=None, notes="", data=None, asset=None, reference_number=""):
         self.transaction_type = transaction_type
         self.planning = planning
         self.zone = zone
         self.performed_by = performed_by
         self.notes = notes
         self.data = data or {}
+        self.reference_number = reference_number or ""
         # Explicit pick from the wizard, for a planning that has no asset/
         # transport_asset/machine of its own yet (e.g. the mobile app's QR-scan
         # assignment step never ran) -- takes priority over whatever the
@@ -51,6 +52,7 @@ class BaseManualTransactionStrategy:
             performed_by=self.performed_by,
             project_file=project_file,
             planning=self.planning,
+            reference_number=self.reference_number,
             notes=self.notes,
             data=self.data,
         )
@@ -71,6 +73,7 @@ class MovementStrategy(BaseManualTransactionStrategy):
             asset=asset, from_zone=from_zone, to_zone=None, project_file=project_file,
         )
         self.planning.sync_cuba_operation_status()
+        transaction.queue_landfill_receipt_email()
         return transaction
 
 
@@ -197,7 +200,7 @@ MANUAL_TRANSACTION_STRATEGY_MAP = {
 }
 
 
-def create_manual_transaction(*, planning, transaction_type, zone=None, performed_by=None, notes="", data=None, asset=None):
+def create_manual_transaction(*, planning, transaction_type, zone=None, performed_by=None, notes="", data=None, asset=None, reference_number=""):
     strategy_class = MANUAL_TRANSACTION_STRATEGY_MAP.get(transaction_type)
     if strategy_class is None:
         raise ValueError(
@@ -207,5 +210,6 @@ def create_manual_transaction(*, planning, transaction_type, zone=None, performe
     strategy = strategy_class(
         transaction_type=transaction_type, planning=planning, zone=zone,
         performed_by=performed_by, notes=notes, data=data, asset=asset,
+        reference_number=reference_number,
     )
     return strategy.execute()

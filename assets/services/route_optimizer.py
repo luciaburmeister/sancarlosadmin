@@ -23,6 +23,8 @@ from company.models import WorkingZone
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ESTIMATED_DURATION = timedelta(hours=1)
+
 
 # ── Abstract base ─────────────────────────────────────────────────────────
 
@@ -50,7 +52,7 @@ class BaseRouteOptimizer(ABC):
         if not zones:
             return
 
-        matrix = self._get_distance_matrix(zones)
+        matrix = self.get_distance_matrix(zones)
         ordered = self._nearest_neighbor(plannings, matrix)
 
         # Persist new order
@@ -62,7 +64,7 @@ class BaseRouteOptimizer(ABC):
         self,
         from_zone: WorkingZone | None,
         to_zone: WorkingZone | None,
-        default: timedelta = timedelta(hours=1),
+        default: timedelta = DEFAULT_ESTIMATED_DURATION,
     ) -> timedelta:
         """Falls back to `default` when zones are missing or have no route data."""
         if not from_zone or not to_zone:
@@ -72,7 +74,7 @@ class BaseRouteOptimizer(ABC):
     def estimate_durations(
         self,
         pairs: Sequence[tuple[WorkingZone | None, WorkingZone | None]],
-        default: timedelta = timedelta(hours=1),
+        default: timedelta = DEFAULT_ESTIMATED_DURATION,
     ) -> dict[tuple[int, int], timedelta]:
         """
         Driving time for every (from, to) pair, keyed by (from_id, to_id).
@@ -120,10 +122,15 @@ class BaseRouteOptimizer(ABC):
             if (row.from_zone_id, row.to_zone_id) in keys
         }
 
-    def _get_distance_matrix(
+    def get_distance_matrix(
         self, zones: list[WorkingZone]
     ) -> dict[tuple[int, int], int]:
-        """Return {(from_zone_id, to_zone_id): distance_meters} for every pair."""
+        """Return {(from_zone_id, to_zone_id): distance_meters} for every pair.
+
+        One cache query for all pairs, then one provider call for the uncached
+        ones (chunked to the provider's limit): callers with several zone
+        pairs collect them and call this once rather than looping.
+        """
         matrix: dict[tuple[int, int], int] = {}
         keys = [(a.pk, b.pk) for a in zones for b in zones if a.pk != b.pk]
         cached = self._cached_entries(keys)

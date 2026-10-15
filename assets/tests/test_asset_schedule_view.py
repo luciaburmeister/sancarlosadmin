@@ -115,6 +115,28 @@ class AssetScheduleViewTests(TestCase):
         self.assertIn("Calle Destino 2", block["destination_address"])
         self.assertEqual(block["service_type"], "movimiento_cuba")
 
+    @patch("assets.services.route_optimizer.GoogleRouteOptimizer._fetch_pairs", return_value={})
+    def test_backlog_duration_lookup_is_batched_not_per_row(self, mock_fetch):
+        """Regression guard: resolving missing durations must ask the provider
+        once for every uncached backlog pair, not once per row — looping would
+        turn a single page load into N sequential Google Routes API requests."""
+        third_zone = make_zone(self.company, name="Third")
+        for destination in (self.destination, third_zone):
+            AssetPlanning.objects.create(
+                company=self.company, asset=self.cargo, origin=self.origin, destination=destination,
+                scheduled_date=TODAY, urgency="high", service_type="porte_maquina",
+            )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        mock_fetch.assert_called_once()
+        called_pairs = {(a.pk, b.pk) for a, b in mock_fetch.call_args.args[0]}
+        self.assertEqual(
+            called_pairs,
+            {(self.origin.pk, self.destination.pk), (self.origin.pk, third_zone.pk)},
+        )
+
     def test_backlog_item_includes_planning_details(self):
         planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
@@ -201,6 +223,19 @@ class AssetScheduleViewTests(TestCase):
         self.assertIsNone(self.planning.transport_asset)
         self.assertIsNone(self.planning.scheduled_time)
         self.assertIsNone(self.planning.scheduled_end_time)
+
+    def test_unassign_keeps_the_existing_estimated_duration(self):
+        """Origin/destination don't change on unassign, so the duration already
+        on the planning is still a valid estimate — no need to re-derive it
+        from the zone-distance cache when it reappears in the backlog."""
+        response = self.client.post(
+            self.url,
+            data={"action": "unassign", "id": self.planning.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.estimated_duration, timedelta(hours=1))
 
     def test_resize_rejects_end_before_start(self):
         response = self.client.post(

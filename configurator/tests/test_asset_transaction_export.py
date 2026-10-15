@@ -93,6 +93,70 @@ class AssetTransactionExportClientContextTests(TestCase):
         self.assertEqual(context["client_nima"], "2900099999")
 
 
+class AssetTransactionExportReferenceNumberContextTests(TestCase):
+    """reference_number moved from a `data` JSON key to a real model field
+    (migration 0078), but every template -- including ones already live in
+    production -- reads it as `{{ data.reference_number }}`. These prove
+    that read path is byte-identical regardless of where the value actually
+    lives now."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = Company.objects.create(name="Taller Co")
+        cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
+        cls.asset = Asset.objects.create(company=cls.company, asset_type=cls.asset_type, name="Cuba 1")
+
+    def test_model_field_value_appears_under_data_reference_number(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            reference_number="REF-99999", data={"tipo_cuba": "RCD"},
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["data"]["reference_number"], "REF-99999")
+        # Nothing else in `data` gets disturbed by the splice.
+        self.assertEqual(context["data"]["tipo_cuba"], "RCD")
+
+    def test_no_reference_number_anywhere_yields_empty_string(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["data"]["reference_number"], "")
+
+    def test_falls_back_to_the_legacy_data_key_if_never_backfilled(self):
+        """A pre-migration row that never got the backfill query run against
+        it: the model field is still blank, but the old `data` key is there
+        -- the template must still see the value, not silently lose it."""
+        transaction = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            data={"reference_number": "OLD-LEGACY-REF"},
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["data"]["reference_number"], "OLD-LEGACY-REF")
+
+    def test_model_field_takes_priority_over_a_stale_legacy_data_key(self):
+        """If a row somehow has both (e.g. backfilled without cleaning the
+        old key), the real field is the authoritative source going forward."""
+        transaction = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            reference_number="NEW-REF", data={"reference_number": "OLD-LEGACY-REF"},
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["data"]["reference_number"], "NEW-REF")
+
+
 class AssetTransactionExportWorkingZoneContextTests(TestCase):
     @classmethod
     def setUpTestData(cls):

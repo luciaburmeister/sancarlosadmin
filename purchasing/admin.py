@@ -139,6 +139,9 @@ class PurchaseOrderDetailsSection(TemplateSection):
     def get_context_data(self, request, instance):
         project_file = instance.project_file
         cost_center = instance.cost_center
+        show_approval_audit = request.user.has_perm(
+            "purchasing.view_projectpurchaseapprovalrule"
+        )
         return {
             "po_type": instance.get_po_type_display(),
             "project_file": project_file,
@@ -156,8 +159,13 @@ class PurchaseOrderDetailsSection(TemplateSection):
             "external_reference": instance.external_reference,
             "payment_method": instance.get_payment_method_display(),
             "payment_terms_days": instance.payment_terms_days,
-            "approved_by_name": _user_display_name(instance.approved_by),
-            "approved_automatically": instance.approved_automatically,
+            "approved_by_name": (
+                _user_display_name(instance.approved_by) if show_approval_audit else None
+            ),
+            "approved_automatically": (
+                instance.approved_automatically if show_approval_audit else False
+            ),
+            "show_approval_audit": show_approval_audit,
             "approved_at": instance.approved_at,
             "rejected_by_name": _user_display_name(instance.rejected_by),
             "rejected_at": instance.rejected_at,
@@ -258,18 +266,21 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = super().get_fieldsets(request, obj)
+        hidden_fields = set()
         if obj and obj.po_type != PurchaseOrderType.PROJECT and obj.status != PurchaseOrderStatus.DRAFT:
+            hidden_fields.add("project_file")
+        if not request.user.has_perm("purchasing.view_projectpurchaseapprovalrule"):
+            hidden_fields.update(("approved_by", "approved_automatically", "automatic_approval_due_at"))
+        if hidden_fields:
             fieldsets = deepcopy(fieldsets)
             for _name, opts in fieldsets:
                 cleaned = []
                 for field in opts["fields"]:
-                    if field == "project_file":
-                        continue
                     if isinstance(field, (list, tuple)):
-                        row = tuple(f for f in field if f != "project_file")
+                        row = tuple(f for f in field if f not in hidden_fields)
                         if row:
                             cleaned.append(row)
-                    else:
+                    elif field not in hidden_fields:
                         cleaned.append(field)
                 opts["fields"] = cleaned
         return fieldsets
@@ -490,7 +501,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 transaction.on_commit(
                     lambda: send_purchase_order_decision_notification.delay(po.pk, "approved")
                 )
-                self.message_user(request, _("Purchase Order approved automatically."))
+                self.message_user(request, _("Purchase Order approved successfully."))
             else:
                 po.status = PurchaseOrderStatus.PENDING_APPROVAL
                 po.save(update_fields=["status"])
@@ -504,7 +515,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         permissions=["change"],
         dialog={
             "title": _("Send Purchase Order to Approval"),
-            "description": _("This order may be approved automatically if it meets the company's approval rule."),
+            "description": _("Send this order for approval?"),
             "form_submit_text": _("Send to Approval"),
         },
     )
@@ -521,7 +532,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         permissions=["change", "po_is_draft"],
         dialog={
             "title": _("Send Purchase Order to Approval"),
-            "description": _("This order may be approved automatically if it meets the company's approval rule."),
+            "description": _("Send this order for approval?"),
             "form_submit_text": _("Send to Approval"),
         },
     )

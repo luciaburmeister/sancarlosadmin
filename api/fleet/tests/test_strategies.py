@@ -8,6 +8,8 @@ Run just this file:
 """
 
 import json
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -129,6 +131,32 @@ class MovementStrategyTests(TestCase):
         self.assertEqual(tx.data.get("m3"), "6")
         self.assertEqual(tx.data.get("vertedero"), "Vertedero Norte")
 
+    @patch("core.tasks.send_asset_transaction_email_task.delay")
+    def test_movement_emails_the_named_landfill_when_automatic_send_is_on(self, delay):
+        landfill = make_zone(self.company, name="Vertedero Norte")
+        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill.receipt_notification_email = "vertedero@example.com"
+        landfill.auto_send_receipt = True
+        landfill.save()
+
+        self._run_movement()
+
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.kwargs["to_email"], "vertedero@example.com")
+        pickup = AssetTransaction.objects.get(transaction_type=TransactionTypeChoices.MOVEMENT)
+        self.assertIsNone(pickup.to_zone_id)
+
+    @patch("core.tasks.send_asset_transaction_email_task.delay")
+    def test_movement_does_not_email_when_automatic_send_is_off(self, delay):
+        landfill = make_zone(self.company, name="Vertedero Norte")
+        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill.receipt_notification_email = "vertedero@example.com"
+        landfill.save()
+
+        self._run_movement()
+
+        delay.assert_not_called()
+
     # Test 13
     def test_movement_response_contains_success_and_transaction_id(self):
         """
@@ -140,13 +168,14 @@ class MovementStrategyTests(TestCase):
         self.assertTrue(body["success"])
         self.assertIn("transaction_id", body)
 
-    # Reference number is a plain pass-through field (not stripped by
-    # MovementStrategy's form_data exclusion list), so Android sending it is
-    # all that's needed -- no server-side wiring for this specific type.
-    def test_movement_reference_number_passes_through_to_data(self):
+    # reference_number is a real AssetTransaction field, not a `data` key --
+    # pulled out of the incoming payload explicitly before the rest falls
+    # through into form_data, so it never gets duplicated into the JSON blob.
+    def test_movement_reference_number_is_stored_on_the_model_field(self):
         self._run_movement(extra_data={"reference_number": "REF-001"})
         tx = AssetTransaction.objects.first()
-        self.assertEqual(tx.data.get("reference_number"), "REF-001")
+        self.assertEqual(tx.reference_number, "REF-001")
+        self.assertNotIn("reference_number", tx.data)
 
     def test_movement_without_planning_id_is_rejected(self):
         """Cuba can't operate without a plan — strict mode."""
@@ -270,10 +299,11 @@ class DeliveryStrategyTests(TestCase):
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone, self.dest_zone)
 
-    def test_delivery_reference_number_passes_through_to_data(self):
+    def test_delivery_reference_number_is_stored_on_the_model_field(self):
         self._run_delivery(extra_data={"reference_number": "REF-002"})
         tx = AssetTransaction.objects.first()
-        self.assertEqual(tx.data.get("reference_number"), "REF-002")
+        self.assertEqual(tx.reference_number, "REF-002")
+        self.assertNotIn("reference_number", tx.data)
 
     def test_delivery_without_planning_id_is_rejected(self):
         response = self._run_delivery(extra_data={"planning_id": None})
@@ -520,10 +550,11 @@ class ReceiptStrategyTests(TestCase):
         self.assertNotIn("related_document_url", body)
 
     # Test 25
-    def test_receipt_reference_number_passes_through_to_data(self):
+    def test_receipt_reference_number_is_stored_on_the_model_field(self):
         self._run_receipt(extra_data={"reference_number": "REF-003"})
         tx = AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).first()
-        self.assertEqual(tx.data.get("reference_number"), "REF-003")
+        self.assertEqual(tx.reference_number, "REF-003")
+        self.assertNotIn("reference_number", tx.data)
 
     def test_receipt_requires_nro_albaran(self):
         """

@@ -14,9 +14,9 @@ from unfold.views import UnfoldModelAdminViewMixin
 from company.models import Employee
 from core.admin.company_access import get_user_companies
 from assets.forms import AssetScheduleFilterForm, _duration_label
-from assets.models import Asset, AssetPlanning, PlanningStatus, SERVICE_TYPE_COLORS, ServiceType
+from assets.models import Asset, AssetPlanning, PlanningStatus, PlanningType, SERVICE_TYPE_COLORS, ServiceType
 from assets.services.auto_assigner import URGENCY_ORDER, auto_link_transport
-from assets.services.route_optimizer import GoogleRouteOptimizer
+from assets.services.route_optimizer import DEFAULT_ESTIMATED_DURATION, GoogleRouteOptimizer
 
 DEFAULT_BLOCK_MINUTES = 60
 FILTER_QUERY_KEYS = frozenset({
@@ -166,6 +166,13 @@ class _CompanyWeekMixin:
                 pass
         return _week_start(timezone.localdate())
 
+    @staticmethod
+    def _attach_in_transit_pickups(plannings):
+        AssetPlanning.attach_destination_pickups([
+            planning for planning in plannings
+            if planning.planning_type == PlanningType.CUBA and planning.status == PlanningStatus.IN_TRANSIT
+        ])
+
 
 class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateView):
     """
@@ -252,6 +259,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             # Person rows already limited by assigned_to; apply the rest here.
             qs = _apply_planning_filters(qs, {**filters, "assigned_to": []})
             plannings = list(qs.order_by("scheduled_date", "scheduled_time"))
+            self._attach_in_transit_pickups(plannings)
 
         if filters["only_with_plans"]:
             with_plans = {p.assigned_to_id for p in plannings}
@@ -352,7 +360,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             if p.estimated_duration:
                 minutes = max(int(p.estimated_duration.total_seconds() // 60), 15)
             else:
-                duration = estimated.get((p.origin_id, p.destination_id), timedelta(hours=1))
+                duration = estimated.get((p.origin_id, p.destination_id), DEFAULT_ESTIMATED_DURATION)
                 minutes = max(int(duration.total_seconds() // 60), 15)
             suggested_trucks = [t.name for t in p.suggested_trucks.all()]
             items.append({
@@ -389,8 +397,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             planning.assigned_to = None
             planning.transport_asset = None
             planning.scheduled_time = None
-            planning.estimated_duration = None
-            planning.save(update_fields=["assigned_to", "transport_asset", "scheduled_time", "estimated_duration"])
+            planning.save(update_fields=["assigned_to", "transport_asset", "scheduled_time"])
             return JsonResponse({"success": True})
 
         if action in ("move", "resize"):
@@ -554,6 +561,7 @@ class AssetScheduleCaptureView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, Tem
                 .select_related("asset", "origin", "destination", "transport_asset", "assigned_to", "superseded_by")
                 .order_by("assigned_to__first_name", "assigned_to__last_name", "scheduled_time")
             )
+            self._attach_in_transit_pickups(plannings)
 
         jobs_by_person = {}
         for planning in plannings:

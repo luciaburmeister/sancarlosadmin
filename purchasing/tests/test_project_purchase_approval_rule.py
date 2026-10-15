@@ -19,12 +19,14 @@ from django.utils import timezone, translation
 from djmoney.money import Money
 
 from company.active_company import ActiveCompany
-from company.models import Company
+from company.models import Company, CompanyUser
 from inventory.models import InventoryItem
 from invoices.models import AppliedTax, TaxType
 from management.models import ProjectFile
 from materials.models import PaymentMethod, Provider
-from purchasing.admin import ProjectPurchaseApprovalRuleAdmin, PurchaseOrderAdmin
+from purchasing.admin import (
+    ProjectPurchaseApprovalRuleAdmin, PurchaseOrderAdmin, PurchaseOrderDetailsSection,
+)
 from purchasing.models import (
     ProjectPurchaseApprovalRule,
     PurchaseOrder,
@@ -444,7 +446,91 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
 
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
-        self.assertIn("Aprobada automáticamente", mail.outbox[0].body)
+        self.assertIn("Aprobada", mail.outbox[0].body)
+        self.assertNotIn("aprobada automáticamente", mail.outbox[0].body.lower())
+        self.assertNotIn("regla de aprobación", mail.outbox[0].body.lower())
+        self.assertNotIn("purchasing_admin", mail.outbox[0].body)
+
+    def test_employee_sees_no_automatic_approval_details(self):
+        employee = get_user_model().objects.create_user(
+            username="purchase_employee", password="pw", is_staff=True,
+        )
+        CompanyUser.objects.create(user=employee, company=self.company, is_active=True)
+        po_content_type = ContentType.objects.get_for_model(PurchaseOrder)
+        employee.user_permissions.add(*Permission.objects.filter(
+            content_type=po_content_type,
+            codename__in=("view_purchaseorder", "change_purchaseorder"),
+        ))
+        self.assertFalse(employee.has_perm("purchasing.view_projectpurchaseapprovalrule"))
+        self.client.force_login(employee)
+        session = self.client.session
+        session[ActiveCompany.SESSION_KEY] = [self.company.pk]
+        session[ActiveCompany.SESSION_SET_AT_KEY] = time.time()
+        session.save()
+
+        rule = ProjectPurchaseApprovalRule.objects.create(
+            company=self.company, maximum_amount=Money("500", "EUR")
+        )
+        self.assertNotEqual(
+            self.client.get(
+                reverse("admin:purchasing_projectpurchaseapprovalrule_changelist")
+            ).status_code,
+            200,
+        )
+        po = self._order()
+        submit_url = reverse("admin:purchasing_purchaseorder_send_to_approval", args=[po.pk])
+        with translation.override("es"):
+            dialog = self.client.get(submit_url)
+        self.assertContains(dialog, "¿Enviar esta orden a aprobación?")
+        self.assertNotContains(dialog, "aprobación automática")
+
+        with (
+            patch("purchasing.tasks.send_purchase_order_decision_notification.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            submitted = self.client.post(
+                submit_url, {"_form_submitted": "on"}, follow=True,
+            )
+        self.assertEqual(submitted.status_code, 200)
+        self.assertNotContains(submitted, "aprobada automáticamente")
+        po.refresh_from_db()
+        self.assertTrue(po.approved_automatically)
+
+        with translation.override("es"):
+            detail = self.client.get(
+                reverse("admin:purchasing_purchaseorder_change", args=[po.pk])
+            )
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, "Aprobada automáticamente")
+        self.assertNotContains(detail, "Aprobación automática prevista para")
+        section_request = RequestFactory().get("/")
+        section_request.user = employee
+        with translation.override("es"):
+            section = PurchaseOrderDetailsSection(section_request, po).render()
+        self.assertNotIn("Aprobación automática", section)
+        self.assertNotIn("Aprobado por", section)
+
+        rule.automatic_approval_delay_minutes = 10
+        rule.save(update_fields=["automatic_approval_delay_minutes"])
+        waiting_po = self._order()
+        self._submit(waiting_po)
+        self.assertIsNotNone(waiting_po.automatic_approval_due_at)
+        with translation.override("es"):
+            waiting_detail = self.client.get(
+                reverse("admin:purchasing_purchaseorder_change", args=[waiting_po.pk])
+            )
+        self.assertEqual(waiting_detail.status_code, 200)
+        self.assertNotContains(waiting_detail, "Aprobación automática prevista para")
+
+        manager_request = RequestFactory().get("/")
+        manager_request.user = self.user
+        with translation.override("es"):
+            manager_section = PurchaseOrderDetailsSection(manager_request, po).render()
+        self.assertIn("Aprobación automática", manager_section)
+        self.assertIn(
+            "approved_automatically",
+            str(self.po_admin.get_fieldsets(manager_request, po)),
+        )
 
     def test_missing_inactive_or_other_company_rule_does_not_approve(self):
         ProjectPurchaseApprovalRule.objects.create(
@@ -499,7 +585,8 @@ class ProjectPurchaseApprovalRuleTests(TestCase):
         response = self.client.get(url)
         po.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Esta orden puede aprobarse automáticamente")
+        self.assertContains(response, "¿Enviar esta orden a aprobación?")
+        self.assertNotContains(response, "automáticamente")
         self.assertEqual(po.status, PurchaseOrderStatus.DRAFT)
 
         with (

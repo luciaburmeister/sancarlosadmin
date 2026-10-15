@@ -516,7 +516,7 @@ class ProductionScheduleContext:
     # --- shaping ---------------------------------------------------------
 
     def _ticket_label(self, ticket) -> str:
-        return _("Unassigned") if ticket is None else ticket.display_label
+        return _("Unassigned") if ticket is None else f"OP-{ticket.pk}"
 
     def _resource_label(self, resource) -> str:
         return str(resource.target) if resource.target else f"#{resource.pk}"
@@ -758,7 +758,7 @@ class ProductionScheduleContext:
                 row = UiRow(
                     key=f"ticket-{ticket_id}",
                     label=f"OP-{ticket_id}",
-                    sublabel=block.ticket_label,
+                    sublabel=session.production_ticket.display_label,
                     kind="ticket",
                     ticket_id=ticket_id,
                 )

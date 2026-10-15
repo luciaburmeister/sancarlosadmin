@@ -260,7 +260,7 @@ def send_purchase_order_decision_notification(self, purchase_order_id: int, deci
 
     try:
         po = PurchaseOrder.objects.select_related(
-            "company", "provider", "requested_by", "approved_by", "rejected_by"
+            "company", "provider", "requested_by"
         ).get(pk=purchase_order_id)
     except PurchaseOrder.DoesNotExist:
         logger.error("PurchaseOrder %s does not exist, skipping decision notification.", purchase_order_id)
@@ -271,9 +271,6 @@ def send_purchase_order_decision_notification(self, purchase_order_id: int, deci
         return {"status": "skipped", "reason": "no_recipient"}
 
     approved = decision == "approved"
-    reviewer = po.approved_by if approved else po.rejected_by
-    reviewer_name = (reviewer.get_full_name() or reviewer.username) if reviewer else ""
-
     admin_path = reverse("admin:purchasing_purchaseorder_change", args=[po.pk])
     po_url = f"{settings.BACKEND_URL.rstrip('/')}{admin_path}"
 
@@ -286,8 +283,6 @@ def send_purchase_order_decision_notification(self, purchase_order_id: int, deci
                 "provider_name": po.provider.name,
                 "total_amount": po.total_amount,
                 "project_file": po.project_file,
-                "reviewer_name": reviewer_name,
-                "approved_automatically": po.approved_automatically,
                 "rejection_reason": po.rejection_reason,
                 "po_url": po_url,
             },

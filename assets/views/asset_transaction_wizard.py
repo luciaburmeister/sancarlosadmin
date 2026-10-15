@@ -59,6 +59,7 @@ class AssetTransactionFromPlanningWizardView(UnfoldModelAdminViewMixin, FormView
                 notes=form.cleaned_data.get("notes", ""),
                 data=form.build_data(),
                 asset=form.cleaned_data.get("asset"),
+                reference_number=form.cleaned_data.get("reference_number", ""),
             )
         except ValueError as e:
             messages.error(self.request, str(e))

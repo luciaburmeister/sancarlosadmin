@@ -118,6 +118,8 @@ class PlanningsListView(APIView):
             "asset", "reserved_asset", "reserved_asset__current_working_zone",
             "origin", "destination", "transport_asset",
         ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
+        plannings = list(plannings)
+        AssetPlanning.attach_destination_pickups(plannings)
         return JsonResponse({"plannings": CubaPlanningSerializer(plannings, many=True).data})
 
 
@@ -424,7 +426,7 @@ class PorteSubmitView(APIView):
             asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
-            planning=planning,
+            planning=planning, reference_number=reference_number,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",
             data={
                 PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE,
@@ -437,7 +439,6 @@ class PorteSubmitView(APIView):
                 PorteTransactionDataKey.GOODS_TYPE: goods_type,
                 PorteTransactionDataKey.TONNES_TRANSPORTED: tonnes_transported,
                 PorteTransactionDataKey.PACKAGE_COUNT: package_count,
-                PorteTransactionDataKey.REFERENCE_NUMBER: reference_number,
             },
         )
         if firma_b64:

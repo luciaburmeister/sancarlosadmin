@@ -453,7 +453,8 @@ class MovementStrategy(BaseTransactionStrategy):
         user = self.user
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
-        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id")}
+        reference_number = data.get("reference_number", "")
+        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id", "reference_number")}
         distance = None
         chosen_zone_id = data.get("zone_id")
         if chosen_zone_id:
@@ -502,7 +503,7 @@ class MovementStrategy(BaseTransactionStrategy):
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
             transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
             project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
-            planning=planning,
+            planning=planning, reference_number=reference_number,
             notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}", data=form_data,
         )
         self._save_firma_and_imagen(transaction)
@@ -510,6 +511,7 @@ class MovementStrategy(BaseTransactionStrategy):
         if not AssetTransaction.payload_is_full(form_data):
             planning.mark_cuba_claimed_by_driver()
         planning.sync_cuba_operation_status()
+        transaction.queue_landfill_receipt_email()
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id, "document_url": transaction.document_url})
 
 
@@ -524,7 +526,8 @@ class DeliveryStrategy(BaseTransactionStrategy):
         user = self.user
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
-        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id")}
+        reference_number = data.get("reference_number", "")
+        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id", "reference_number")}
         chosen_zone_id = data.get("zone_id")
         if chosen_zone_id:
             try:
@@ -570,7 +573,7 @@ class DeliveryStrategy(BaseTransactionStrategy):
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
             project_file=destination_zone.project_file if destination_zone else None,
-            planning=planning,
+            planning=planning, reference_number=reference_number,
             notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
             data=form_data,
         )
@@ -609,6 +612,7 @@ class ReceiptStrategy(BaseTransactionStrategy):
         longitude = data.get("longitude")
         peso_neto = data.get("peso_neto", "")
         material_vertido = data.get("material_vertido", "")
+        reference_number = data.get("reference_number", "")
         if not nro_albaran:
             return JsonResponse({"error": "El numero de albaran es obligatorio."}, status=400)
         vertedero_zone = None
@@ -630,12 +634,12 @@ class ReceiptStrategy(BaseTransactionStrategy):
         movement_tx = AssetTransaction.objects.filter(
             asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT,
         ).order_by("-date").first()
-        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran")}
+        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran", "reference_number")}
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
             transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
             project_file=movement_tx.project_file if movement_tx else None,
-            planning=planning,
+            planning=planning, reference_number=reference_number,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
         )

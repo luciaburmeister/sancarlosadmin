@@ -23,8 +23,7 @@
     <div class="container">
         <h2>Decisión sobre su Orden de Compra</h2>
         <p>Hola,</p>
-        <p>Su orden de compra <strong>{{ po_number }}</strong> ha sido revisada{% if reviewer_name %} por <strong>{{ reviewer_name }}</strong>{% endif %}:</p>
-        {% if approved_automatically %}<p>{% translate "Approved automatically under the company's purchase approval rule." %}</p>{% endif %}
+        <p>Su orden de compra <strong>{{ po_number }}</strong> ha sido revisada:</p>
 
         {% if approved %}
         <div class="banner banner-approved">✔ Aprobada</div>

@@ -103,10 +103,12 @@
                     </div>
                 {% endif %}
             {% else %}
-                <div class="flex items-center justify-between gap-2">
-                    <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Approved by" %}</dt>
-                    <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark truncate">{% if approved_automatically %}{% trans "Automatic approval" %}{% else %}{{ approved_by_name|default:"—" }}{% endif %}</dd>
-                </div>
+                {% if show_approval_audit %}
+                    <div class="flex items-center justify-between gap-2">
+                        <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Approved by" %}</dt>
+                        <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark truncate">{% if approved_automatically %}{% trans "Automatic approval" %}{% else %}{{ approved_by_name|default:"—" }}{% endif %}</dd>
+                    </div>
+                {% endif %}
                 <div class="flex items-center justify-between gap-2">
                     <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Approved at" %}</dt>
                     <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark">{{ approved_at|date:"d/m/Y H:i"|default:"—" }}</dd>

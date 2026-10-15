@@ -278,3 +278,57 @@ def record_email_event_task(provider: str, provider_event_id: str, payload: dict
         provider=provider,
         provider_event_id=provider_event_id,
     )
+
+
+@shared_task(
+    name="core.tasks.render_document_task",
+    # A pathological document must not hold a pdf-queue slot (shared with
+    # outgoing document emails) indefinitely; the status page reports the
+    # failure and the user can retry.
+    soft_time_limit=120,
+    time_limit=150,
+)
+def render_document_task(
+    renderer: str,
+    kwargs: dict,
+    filename: str,
+    content_type: str = "application/pdf",
+    inline: bool = False,
+    user_id: int | None = None,
+):
+    """
+    Render one admin download (see core.documents) and store it for the
+    status page to serve. Returns the dict the status views read:
+
+        {"status": "ok", "storage_path", "filename", "content_type", "inline", "user_id"}
+        {"status": "empty", "message", "user_id"}   nothing to render
+    """
+    import uuid
+
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from core.documents import STORAGE_PREFIX, load_renderer, safe_filename
+
+    func = load_renderer(renderer)
+    content = func(**(kwargs or {}))
+    if content is None:
+        return {
+            "status": "empty",
+            "message": "No document could be generated (no export template?).",
+            "user_id": user_id,
+        }
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+
+    name = safe_filename(filename, "document")
+    storage_path = default_storage.save(f"{STORAGE_PREFIX}{uuid.uuid4().hex}_{name}", ContentFile(content))
+    logger.info("Stored document %s rendered by %s for user %s", storage_path, renderer, user_id)
+    return {
+        "status": "ok",
+        "storage_path": storage_path,
+        "filename": name,
+        "content_type": content_type,
+        "inline": inline,
+        "user_id": user_id,
+    }

@@ -1,14 +1,13 @@
-from django.http import Http404, HttpResponse
+from django.http import Http404
 from django.shortcuts import get_object_or_404
-from django.utils.http import content_disposition_header
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView
 from unfold.views import UnfoldModelAdminViewMixin
 
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
-from configurator.services.export.commissionist_agent import CommissionistAgentExportStrategy
-from core.services.pdf_service import PDFService
+from core.documents import enqueue_document
+from sales.documents import render_agent_report_pdf
 from sales.forms_agent_reports import AgentReportExportForm
 
 
@@ -50,17 +49,14 @@ class AgentReportExportView(UnfoldModelAdminViewMixin, FormView):
             raise Http404(_("Template not available for this agent"))
 
         date_from, date_to = form.get_period()
-        pdf_bytes = PDFService.render_object_pdf(
-            self.agent,
-            ExportTemplateKind.AGENT_REPORT,
-            company=self.agent.company,
-            template_id=template.pk,
-            # The strategy defaults to the last closed month; this is the chosen period.
-            extra_context=CommissionistAgentExportStrategy(self.agent, date_from, date_to).get_context(),
-        )
         filename = f"{template.name}_{self.agent.name}_{date_from:%d-%m-%Y}_{date_to:%d-%m-%Y}.pdf"
-        return HttpResponse(
-            pdf_bytes,
-            content_type="application/pdf",
-            headers={"Content-Disposition": content_disposition_header(True, filename)},
+        return enqueue_document(
+            self.request,
+            render_agent_report_pdf,
+            agent_id=self.agent.pk,
+            template_id=template.pk,
+            date_from=date_from.isoformat(),
+            date_to=date_to.isoformat(),
+            filename=filename,
+            back_url=self.request.path,
         )

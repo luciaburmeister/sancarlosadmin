@@ -29,6 +29,9 @@ if settings.DEBUG:
     urlpatterns = debug_toolbar_urls() + urlpatterns + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 urlpatterns += i18n_patterns(
+    # Status/download pages for documents rendered on the pdf queue; before
+    # admin/ so the admin's catch-all app patterns never see them.
+    path("admin/documents/", include("core.document_urls")),
     path('admin/', admin.site.urls),
     path("api/", include("api.urls")),
     path('password_reset/', CustomPasswordResetView.as_view(), name='admin_password_reset'),

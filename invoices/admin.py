@@ -56,12 +56,8 @@ from payments.admin_inlines import DocumentPaymentsInline
 from django.utils import timezone
 from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
 from invoices.tasks import build_invoice_pdf_zip_task
-from invoices.views.invoice_pdf_zip_status import (
-    InvoicePdfZipDownloadView,
-    InvoicePdfZipStatusAPIView,
-    InvoicePdfZipStatusPageView,
-    redirect_to_pdf_zip_status,
-)
+from core.documents import enqueue_document, redirect_to_document_status
+from invoices.documents import render_sales_invoice_pdf
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.send_reminder_now import SendPaymentReminderNowAdminView
 from invoices.views.invoice.download_invoice_file import PurchaseInvoiceFileDownloadView
@@ -636,8 +632,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         result = build_invoice_pdf_zip_task.delay(
             "purchase", invoice_ids, user_id=request.user.id
         )
-        return redirect_to_pdf_zip_status(
-            request,
+        return redirect_to_document_status(
             result.id,
             reverse("admin:invoices_invoice_changelist"),
         )
@@ -776,27 +771,6 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                     InvoiceImportAdminView.as_view(model_admin=self)
                 ),
                 name="invoices_invoice_import",
-            ),
-            path(
-                "pdf-zip-status/",
-                self.admin_site.admin_view(
-                    InvoicePdfZipStatusPageView.as_view(model_admin=self)
-                ),
-                name="invoices_pdf_zip_status",
-            ),
-            path(
-                "pdf-zip-status/<str:task_id>/api/",
-                self.admin_site.admin_view(
-                    InvoicePdfZipStatusAPIView.as_view(model_admin=self)
-                ),
-                name="invoices_pdf_zip_status_api",
-            ),
-            path(
-                "pdf-zip-status/<str:task_id>/download/",
-                self.admin_site.admin_view(
-                    InvoicePdfZipDownloadView.as_view(model_admin=self)
-                ),
-                name="invoices_pdf_zip_download",
             ),
             path(
             "<int:object_id>/review/",
@@ -1701,27 +1675,19 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             return None
 
         if len(invoice_ids) == 1:
-            invoice = queryset.select_related(
-                "company", "client", "configuration"
-            ).first()
-            pdf_bytes = InvoicePdfDownloadService.render_sales_invoice_pdf(invoice)
-            if not pdf_bytes:
-                self.message_user(
-                    request,
-                    _("No PDF could be generated for the selected invoice."),
-                    level=messages.ERROR,
-                )
-                return None
-            return InvoicePdfDownloadService.pdf_attachment_response(
-                pdf_bytes,
-                InvoicePdfDownloadService.sales_invoice_pdf_filename(invoice),
+            invoice = queryset.first()
+            return enqueue_document(
+                request,
+                render_sales_invoice_pdf,
+                invoice_id=invoice.pk,
+                filename=InvoicePdfDownloadService.sales_invoice_pdf_filename(invoice),
+                back_url=reverse("admin:invoices_salesinvoice_changelist"),
             )
 
         result = build_invoice_pdf_zip_task.delay(
             "sales", invoice_ids, user_id=request.user.id
         )
-        return redirect_to_pdf_zip_status(
-            request,
+        return redirect_to_document_status(
             result.id,
             reverse("admin:invoices_salesinvoice_changelist"),
         )

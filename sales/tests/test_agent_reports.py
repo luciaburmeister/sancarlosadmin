@@ -28,6 +28,7 @@ from configurator.services.export.commissionist_agent import CommissionistAgentE
 from configurator.services.export.kind_registry import get_preview_object
 from configurator.services.export.service import CustomJSONEncoder
 from core.services.pdf_service import PDFService
+from core.tasks import render_document_task
 from invoices.models import SalesInvoiceStatus, TaxType
 from sales.models import Client, CommissionistAgent, Quote, QuoteStatus
 from sales.tests.test_commission_releases import _CommissionReleaseTestCase
@@ -273,11 +274,19 @@ class AgentReportExportViewTests(_AgentReportTestCase):
     def test_download_renders_the_chosen_period_with_the_chosen_template(self):
         self.make_quote(agent=self.agent, client=self.client_, base="579.60")
 
-        response, pdf = self.download(self.agent, self.templates["Presupuestos de agente"])
+        # Celery runs eagerly in tests: the pdf-queue render happens inline and
+        # the user is sent to the status page that downloads it.
+        with patch("core.tasks.render_document_task.delay", wraps=lambda **kw: render_document_task.apply(kwargs=kw)) as delay:
+            response, pdf = self.download(self.agent, self.templates["Presupuestos de agente"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "application/pdf")
-        self.assertIn("Gesclival_01-08-2026_31-08-2026.pdf", response["Content-Disposition"])
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("core_document_status"), response.url)
+        self.assertEqual(delay.call_args.kwargs["filename"], "Presupuestos de agente_Gesclival_01-08-2026_31-08-2026.pdf")
+        self.assertEqual(
+            delay.call_args.kwargs["kwargs"],
+            {"agent_id": self.agent.pk, "template_id": self.templates["Presupuestos de agente"].pk,
+             "date_from": "2026-08-01", "date_to": "2026-08-31"},
+        )
         self.assertIn("Ávila Bosch", pdf.call_args.args[0])
 
     def test_another_companys_agent_and_template_are_rejected(self):

@@ -1,8 +1,10 @@
 from django.views.generic import FormView
-from django.http import HttpResponse, Http404
+from django.http import Http404
 from configurator.forms import ConfigurationExportForm
 from configurator.services.export import ConfigurationExportService
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+from core.documents import enqueue_document
+from sales.documents import render_delivery_order_html
 from sales.models import DeliveryOrder
 from unfold.views import UnfoldModelAdminViewMixin
 from django.utils.translation import gettext_lazy as _
@@ -42,11 +44,15 @@ class DeliveryOrderExportView(UnfoldModelAdminViewMixin, FormView):
         except ConfigurationExportTemplate.DoesNotExist:
             raise Http404(_("Template not available for this delivery order"))
 
-        rendered_html = ConfigurationExportService.render_html(
-            self.delivery_order, template
-        )
-
-        return HttpResponse(
-            rendered_html,
-            content_type="text/html; charset=utf-8"
+        # Building the albarán's context (lines, components, taxes) is the slow
+        # part; it runs on the pdf queue and the page opens from the status page.
+        return enqueue_document(
+            self.request,
+            render_delivery_order_html,
+            delivery_order_id=self.delivery_order.pk,
+            template_id=template.pk,
+            filename=f"albaran_{self.delivery_order.pk}.html",
+            content_type="text/html; charset=utf-8",
+            inline=True,
+            back_url=self.request.path,
         )

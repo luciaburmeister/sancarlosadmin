@@ -1552,7 +1552,16 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     @property
     def status_color(self) -> str:
-        if self.status == PlanningStatus.IN_TRANSIT and self.has_pending_verteo():
+        return self.status_color_given(self.has_pending_verteo_in_transit)
+
+    @property
+    def has_pending_verteo_in_transit(self) -> bool:
+        """In transit with its verteo still pending: the schedule's distinct block state.
+        Costs a query or two; callers showing several fields of it compute it once."""
+        return self.status == PlanningStatus.IN_TRANSIT and self.has_pending_verteo()
+
+    def status_color_given(self, pending_verteo_in_transit: bool) -> str:
+        if pending_verteo_in_transit:
             return VERTEO_PENDING_COLOR
         return STATUS_COLORS.get(self.status, STATUS_COLORS[PlanningStatus.PENDING])
 

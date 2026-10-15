@@ -3,11 +3,11 @@
 {% trans "file(s)" as label_files %}
 {% trans "skipped" as label_skipped %}
 
-{% block title %}{% trans "Preparing PDF download" %}{% endblock %}
+{% block title %}{% trans "Preparing document" %}{% endblock %}
 
 {% block content %}
 <style>
-    .pdf-zip-status-container {
+    .document-status-container {
         max-width: 600px;
         margin: 4rem auto;
         padding: 2rem 1rem;
@@ -73,19 +73,19 @@
     .state-running { display: block; }
 </style>
 
-<div class="pdf-zip-status-container">
+<div class="document-status-container">
     <div class="status-card">
         <div id="state-running" class="state-running">
             <div class="spinner"></div>
-            <p class="status-title">{% trans "Preparing PDF download…" %}</p>
-            <p class="status-subtitle">{% trans "This may take a moment for large selections. The download will start automatically when ready." %}</p>
+            <p class="status-title">{% trans "Preparing document…" %}</p>
+            <p class="status-subtitle">{% trans "It is being rendered in the background. The download will start automatically when ready." %}</p>
         </div>
 
         <div id="state-done" class="state-done">
             <div class="status-icon success">✓</div>
-            <p class="status-title">{% trans "ZIP ready" %}</p>
+            <p class="status-title">{% trans "Document ready" %}</p>
             <p id="done-subtitle" class="status-subtitle"></p>
-            <a id="download-link" href="{{ download_url }}" class="download-link">{% trans "Download ZIP" %}</a>
+            <a id="download-link" href="{{ download_url }}" class="download-link">{% trans "Download" %}</a>
             {% if back_url %}
               <div><a href="{{ back_url }}" class="back-link" style="background:transparent;color:var(--primary-600,#0369a1);">{% trans "Go back" %}</a></div>
             {% endif %}
@@ -93,8 +93,8 @@
 
         <div id="state-error" class="state-error">
             <div class="status-icon error">✗</div>
-            <p class="status-title">{% trans "Download failed" %}</p>
-            <p class="status-subtitle">{% trans "The ZIP could not be prepared." %}</p>
+            <p class="status-title">{% trans "Rendering failed" %}</p>
+            <p class="status-subtitle">{% trans "The document could not be prepared." %}</p>
             <div id="error-detail" class="error-message"></div>
             {% if back_url %}
               <a href="{{ back_url }}" class="back-link">{% trans "Go back" %}</a>

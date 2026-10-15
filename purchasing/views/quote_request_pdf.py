@@ -4,7 +4,9 @@ from django.views import View
 
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
-from core.services.pdf_service import PDFService
+from core.documents import enqueue_document
+from purchasing.documents import render_quote_request_pdf
+from django.urls import reverse
 from ..models import QuoteRequest
 
 
@@ -28,22 +30,16 @@ class QuoteRequestPdfView(View):
 
 
 class QuoteRequestPdfDownloadView(View):
-    """Force-download a WeasyPrint PDF of a quote request."""
+    """Download a WeasyPrint PDF of a quote request, rendered on the pdf queue."""
 
     model_admin = None
 
     def get(self, request, object_id):
-        quote_request = get_object_or_404(
-            QuoteRequest.objects.select_related("company"), pk=object_id
+        quote_request = get_object_or_404(QuoteRequest, pk=object_id)
+        return enqueue_document(
+            request,
+            render_quote_request_pdf,
+            quote_request_id=quote_request.pk,
+            filename=f"Solicitud_Cotizacion_{quote_request.number}.pdf",
+            back_url=reverse("admin:purchasing_quoterequest_change", args=[quote_request.pk]),
         )
-        pdf_bytes = PDFService.render_object_pdf(
-            quote_request,
-            ExportTemplateKind.QUOTE_REQUEST,
-            company=quote_request.company,
-        )
-        if not pdf_bytes:
-            return HttpResponse("No quote request template found.", status=404)
-
-        response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="Solicitud_Cotizacion_{quote_request.number}.pdf"'
-        return response

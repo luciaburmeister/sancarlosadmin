@@ -182,6 +182,7 @@ class InvoicePdfDownloadService:
             "status": "ok",
             "storage_path": storage_path,
             "filename": zip_filename,
+            "content_type": "application/zip",
             "count": len(entries),
             "skipped": skipped,
             "user_id": user_id,
@@ -196,29 +197,3 @@ class InvoicePdfDownloadService:
         response = HttpResponse(content, content_type=content_type)
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
-
-    @classmethod
-    def zip_attachment_response(
-        cls,
-        entries: list[tuple[str, bytes]],
-        zip_filename: str,
-    ) -> HttpResponse:
-        response = HttpResponse(cls.build_zip_bytes(entries), content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
-        return response
-
-    @staticmethod
-    def storage_file_response(storage_path: str, filename: str) -> HttpResponse:
-        with default_storage.open(storage_path, "rb") as fh:
-            content = fh.read()
-        response = HttpResponse(content, content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response
-
-    @staticmethod
-    def delete_stored_file(storage_path: str) -> None:
-        try:
-            if storage_path and default_storage.exists(storage_path):
-                default_storage.delete(storage_path)
-        except Exception:
-            logger.exception("Failed to delete temp invoice PDF zip %s", storage_path)

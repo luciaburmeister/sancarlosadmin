@@ -4,7 +4,9 @@ from django.views import View
 
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
-from core.services.pdf_service import PDFService
+from core.documents import enqueue_document
+from purchasing.documents import render_purchase_order_pdf
+from django.urls import reverse
 from ..models import PurchaseOrder
 
 
@@ -28,22 +30,16 @@ class PurchaseOrderPdfView(View):
 
 
 class PurchaseOrderPdfDownloadView(View):
-    """Force-download a WeasyPrint PDF of a purchase order."""
+    """Download a WeasyPrint PDF of a purchase order, rendered on the pdf queue."""
 
     model_admin = None
 
     def get(self, request, po_id):
-        purchase_order = get_object_or_404(
-            PurchaseOrder.objects.select_related("company", "provider"), pk=po_id
+        purchase_order = get_object_or_404(PurchaseOrder, pk=po_id)
+        return enqueue_document(
+            request,
+            render_purchase_order_pdf,
+            purchase_order_id=purchase_order.pk,
+            filename=f"Pedido_Compra_{purchase_order.number}.pdf",
+            back_url=reverse("admin:purchasing_purchaseorder_change", args=[purchase_order.pk]),
         )
-        pdf_bytes = PDFService.render_object_pdf(
-            purchase_order,
-            ExportTemplateKind.PURCHASE_ORDER,
-            company=purchase_order.company,
-        )
-        if not pdf_bytes:
-            return HttpResponse("No purchase order template found.", status=404)
-
-        response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="Pedido_Compra_{purchase_order.number}.pdf"'
-        return response

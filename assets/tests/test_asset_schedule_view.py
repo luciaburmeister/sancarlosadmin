@@ -11,7 +11,9 @@ from datetime import date, time, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext, override
@@ -275,6 +277,24 @@ class AssetScheduleViewTests(TestCase):
         response = self.client.get(self.url)
         backlog_ids = {item["id"] for item in response.context["backlog_items"]}
         self.assertEqual(backlog_ids, {p.pk for p in extra})
+
+    def test_backlog_query_count_does_not_grow_with_items_lacking_a_duration(self):
+        def make():
+            return AssetPlanning.objects.create(
+                company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+                scheduled_date=TODAY,
+            )
+
+        make()
+        with CaptureQueriesContext(connection) as one:
+            self.client.get(self.url)
+        for _ in range(5):
+            make()
+        with CaptureQueriesContext(connection) as six:
+            response = self.client.get(self.url)
+
+        self.assertEqual(response.context["backlog_count"], 6)
+        self.assertEqual(len(six), len(one))
 
     def test_backlog_item_reports_all_missing_fields(self):
         planning = AssetPlanning.objects.create(

@@ -67,13 +67,80 @@ class BaseRouteOptimizer(ABC):
         """Falls back to `default` when zones are missing or have no route data."""
         if not from_zone or not to_zone:
             return default
-        self._get_distance_matrix([from_zone, to_zone])
-        cached = ZoneDistanceCache.objects.filter(from_zone=from_zone, to_zone=to_zone).first()
-        if not cached or not cached.duration_seconds:
-            return default
-        return timedelta(seconds=cached.duration_seconds)
+        return self.estimate_durations([(from_zone, to_zone)], default=default)[(from_zone.pk, to_zone.pk)]
+
+    def estimate_durations(
+        self,
+        pairs: Sequence[tuple[WorkingZone | None, WorkingZone | None]],
+        default: timedelta = timedelta(hours=1),
+    ) -> dict[tuple[int, int], timedelta]:
+        """
+        Driving time for every (from, to) pair, keyed by (from_id, to_id).
+
+        One cache query for all pairs and at most one provider round-trip for
+        the pairs the cache lacks, so a page listing N plannings costs the
+        same as one. Pairs with a missing zone, or still unknown after the
+        provider was asked, get `default`.
+        """
+        wanted: dict[tuple[int, int], tuple[WorkingZone, WorkingZone]] = {}
+        for a, b in pairs:
+            if a and b:
+                wanted[(a.pk, b.pk)] = (a, b)
+        if not wanted:
+            return {}
+
+        seconds: dict[tuple[int, int], int] = {}
+        for key, entry in self._cached_entries(wanted.keys()).items():
+            if entry.duration_seconds:
+                seconds[key] = entry.duration_seconds
+        missing = [wanted[key] for key in wanted if key not in seconds and key[0] != key[1]]
+        if missing:
+            for key, (_distance, duration) in self._fetch_pairs(missing).items():
+                if duration:
+                    seconds[key] = duration
+        return {
+            key: timedelta(seconds=seconds[key]) if key in seconds else default
+            for key in wanted
+        }
 
     # ── Helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _cached_entries(keys) -> dict[tuple[int, int], ZoneDistanceCache]:
+        """Cache rows for the given (from_id, to_id) keys, in one query."""
+        keys = set(keys)
+        if not keys:
+            return {}
+        rows = ZoneDistanceCache.objects.filter(
+            from_zone_id__in={k[0] for k in keys}, to_zone_id__in={k[1] for k in keys},
+        )
+        return {
+            (row.from_zone_id, row.to_zone_id): row
+            for row in rows
+            if (row.from_zone_id, row.to_zone_id) in keys
+        }
+
+    def _get_distance_matrix(
+        self, zones: list[WorkingZone]
+    ) -> dict[tuple[int, int], int]:
+        """Return {(from_zone_id, to_zone_id): distance_meters} for every pair."""
+        matrix: dict[tuple[int, int], int] = {}
+        keys = [(a.pk, b.pk) for a in zones for b in zones if a.pk != b.pk]
+        cached = self._cached_entries(keys)
+        needed = []
+        for a in zones:
+            for b in zones:
+                if a.pk == b.pk:
+                    matrix[(a.pk, b.pk)] = 0
+                elif (a.pk, b.pk) in cached:
+                    matrix[(a.pk, b.pk)] = cached[(a.pk, b.pk)].distance_meters
+                else:
+                    needed.append((a, b))
+        if needed:
+            fetched = self._fetch_pairs(needed)
+            for a, b in needed:
+                matrix[(a.pk, b.pk)] = fetched.get((a.pk, b.pk), (0, 0))[0]
+        return matrix
 
     @staticmethod
     def _collect_zones(plannings: list[AssetPlanning]) -> list[WorkingZone]:
@@ -89,10 +156,14 @@ class BaseRouteOptimizer(ABC):
         return list(seen.values())
 
     @abstractmethod
-    def _get_distance_matrix(
-        self, zones: list[WorkingZone]
-    ) -> dict[tuple[int, int], int]:
-        """Return {(from_zone_id, to_zone_id): distance_meters}."""
+    def _fetch_pairs(
+        self, pairs: list[tuple[WorkingZone, WorkingZone]]
+    ) -> dict[tuple[int, int], tuple[int, int]]:
+        """
+        Ask the provider for the pairs the cache lacks and cache the answers.
+        Returns {(from_zone_id, to_zone_id): (distance_meters, duration_seconds)};
+        pairs the provider could not resolve are simply absent.
+        """
 
     @staticmethod
     def _nearest_neighbor(
@@ -152,61 +223,46 @@ class GoogleRouteOptimizer(BaseRouteOptimizer):
     """Uses Google Routes API computeRouteMatrix for real driving distances."""
 
     API_URL = "https://routes.googleapis.com/routes/v2:computeRouteMatrix"
+    # computeRouteMatrix accepts at most 625 elements per request; a square
+    # block of this many origins and destinations stays under it.
+    MAX_SIDE = 25
 
-    def _get_distance_matrix(
-        self, zones: list[WorkingZone]
-    ) -> dict[tuple[int, int], int]:
-        matrix = {}
-        zone_pairs_needed = []
-
-        # Check cache first
-        for a in zones:
-            for b in zones:
-                if a.pk == b.pk:
-                    matrix[(a.pk, b.pk)] = 0
-                    continue
-                cached = ZoneDistanceCache.objects.filter(
-                    from_zone=a, to_zone=b
-                ).first()
-                if cached:
-                    matrix[(a.pk, b.pk)] = cached.distance_meters
-                else:
-                    zone_pairs_needed.append((a, b))
-
-        if not zone_pairs_needed:
-            return matrix
-
-        # Fetch from Google Routes API
+    def _fetch_pairs(
+        self, pairs: list[tuple[WorkingZone, WorkingZone]]
+    ) -> dict[tuple[int, int], tuple[int, int]]:
         api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "")
         if not api_key:
             logger.warning("GOOGLE_MAPS_API_KEY not set — falling back to zero distances")
-            for a, b in zone_pairs_needed:
-                matrix[(a.pk, b.pk)] = 0
-            return matrix
+            return {}
 
-        # Build unique origin/destination lists for the API call
-        zone_ids = list({z.pk for z in zones})
-        zone_map = {z.pk: z for z in zones}
-        latlng_map = {}
-        for zid in zone_ids:
-            ll = _extract_latlng(zone_map[zid])
-            if ll:
-                latlng_map[zid] = ll
+        origins: dict[int, WorkingZone] = {}
+        destinations: dict[int, WorkingZone] = {}
+        for a, b in pairs:
+            if _extract_latlng(a) and _extract_latlng(b):
+                origins.setdefault(a.pk, a)
+                destinations.setdefault(b.pk, b)
+        if not origins or not destinations:
+            return {}
 
-        # Only include zones with coordinates
-        valid_ids = [zid for zid in zone_ids if zid in latlng_map]
-        if len(valid_ids) < 2:
-            return matrix
+        results: dict[tuple[int, int], tuple[int, int]] = {}
+        origin_list, destination_list = list(origins.values()), list(destinations.values())
+        for i in range(0, len(origin_list), self.MAX_SIDE):
+            for j in range(0, len(destination_list), self.MAX_SIDE):
+                results.update(self._fetch_block(
+                    api_key,
+                    origin_list[i:i + self.MAX_SIDE],
+                    destination_list[j:j + self.MAX_SIDE],
+                ))
+        return results
 
-        origins = [
-            {"waypoint": {"location": {"latLng": {
-                "latitude": latlng_map[zid][0],
-                "longitude": latlng_map[zid][1],
-            }}}}
-            for zid in valid_ids
-        ]
-        # Same list for destinations (full matrix)
-        destinations = origins.copy()
+    def _fetch_block(
+        self, api_key: str, origins: list[WorkingZone], destinations: list[WorkingZone]
+    ) -> dict[tuple[int, int], tuple[int, int]]:
+        def waypoints(zones):
+            return [
+                {"waypoint": {"location": {"latLng": {"latitude": lat, "longitude": lng}}}}
+                for lat, lng in (_extract_latlng(z) for z in zones)
+            ]
 
         try:
             resp = requests.post(
@@ -217,45 +273,32 @@ class GoogleRouteOptimizer(BaseRouteOptimizer):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "origins": origins,
-                    "destinations": destinations,
+                    "origins": waypoints(origins),
+                    "destinations": waypoints(destinations),
                     "travelMode": "DRIVE",
                 },
                 timeout=30,
             )
             resp.raise_for_status()
-            results = resp.json()
+            elements = resp.json()
         except Exception as e:
             logger.error("Google Routes API error: %s", e)
-            for a, b in zone_pairs_needed:
-                matrix.setdefault((a.pk, b.pk), 0)
-            return matrix
+            return {}
 
-        # Parse response — it's a flat list of elements
-        for element in results if isinstance(results, list) else []:
-            oi = element.get("originIndex", 0)
-            di = element.get("destinationIndex", 0)
+        # The response is a flat list of elements, one per origin/destination pair.
+        results: dict[tuple[int, int], tuple[int, int]] = {}
+        for element in elements if isinstance(elements, list) else []:
+            from_zid = origins[element.get("originIndex", 0)].pk
+            to_zid = destinations[element.get("destinationIndex", 0)].pk
+            if from_zid == to_zid:
+                continue
             dist = element.get("distanceMeters", 0)
-            dur_str = element.get("duration", "0s")
-            # duration comes as "123s"
+            dur_str = element.get("duration", "0s")  # comes as "123s"
             dur = int(dur_str.rstrip("s")) if isinstance(dur_str, str) else 0
-
-            from_zid = valid_ids[oi]
-            to_zid = valid_ids[di]
-            matrix[(from_zid, to_zid)] = dist
-
-            # Cache it
+            results[(from_zid, to_zid)] = (dist, dur)
             ZoneDistanceCache.objects.update_or_create(
                 from_zone_id=from_zid,
                 to_zone_id=to_zid,
-                defaults={
-                    "distance_meters": dist,
-                    "duration_seconds": dur,
-                },
+                defaults={"distance_meters": dist, "duration_seconds": dur},
             )
-
-        # Fill any remaining gaps with zero
-        for a, b in zone_pairs_needed:
-            matrix.setdefault((a.pk, b.pk), 0)
-
-        return matrix
+        return results

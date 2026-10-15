@@ -39,6 +39,7 @@ class PdfTaskQueueTests(SimpleTestCase):
             "invoices.tasks.send_payment_reminder_email",
             "invoices.tasks.send_consolidated_payment_reminder_email",
             "configurator.tasks.render_export_template_preview",
+            "core.tasks.render_document_task",
         }
         self.assertEqual(set(settings.CELERY_PDF_TASKS), expected)
 

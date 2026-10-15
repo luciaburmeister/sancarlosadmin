@@ -71,7 +71,9 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
     elif request_changes_pending:
         old_plan_label = str(_("Old plan — request changed"))
     status_label = planning.get_status_display()
-    if planning.status == PlanningStatus.IN_TRANSIT and planning.has_pending_verteo():
+    # One lookup: the label and the colour below both depend on it.
+    pending_verteo = planning.has_pending_verteo_in_transit
+    if pending_verteo:
         status_label = f"{status_label} — {_('verteo pending')}"
     return {
         "label": service_type_label or planning.get_planning_type_display(),
@@ -101,7 +103,7 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "status_label": status_label,
         "color": planning.service_type_color,
         "urgency_color": planning.urgency_color,
-        "status_color": planning.status_color,
+        "status_color": planning.status_color_given(pending_verteo),
         "request_changes_pending": request_changes_pending,
         "is_old_plan": is_old_plan,
         "is_superseded": planning.is_superseded,
@@ -332,7 +334,12 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
         pending = list(qs)
         pending.sort(key=lambda p: URGENCY_ORDER.get(p.urgency, 2))
 
-        optimizer = GoogleRouteOptimizer()
+        # One cache query (and at most one Google round-trip) for every item
+        # without a stored duration, instead of three queries and a possible
+        # API call per item.
+        estimated = GoogleRouteOptimizer().estimate_durations(
+            [(p.origin, p.destination) for p in pending if not p.estimated_duration]
+        )
         items = []
         for p in pending:
             missing = []
@@ -345,7 +352,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             if p.estimated_duration:
                 minutes = max(int(p.estimated_duration.total_seconds() // 60), 15)
             else:
-                duration = optimizer.estimate_duration(p.origin, p.destination)
+                duration = estimated.get((p.origin_id, p.destination_id), timedelta(hours=1))
                 minutes = max(int(duration.total_seconds() // 60), 15)
             suggested_trucks = [t.name for t in p.suggested_trucks.all()]
             items.append({

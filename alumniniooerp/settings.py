@@ -439,6 +439,7 @@ CELERY_PDF_TASKS = (
     "invoices.tasks.send_payment_reminder_email",
     "invoices.tasks.send_consolidated_payment_reminder_email",
     "configurator.tasks.render_export_template_preview",
+    "core.tasks.render_document_task",
 )
 CELERY_TASK_ROUTES = {name: {"queue": CELERY_PDF_QUEUE} for name in CELERY_PDF_TASKS}
 

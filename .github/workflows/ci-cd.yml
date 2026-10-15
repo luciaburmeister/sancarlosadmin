@@ -59,10 +59,25 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install GDAL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev gettext
+      # Django's PostGIS backend loads the GDAL/GEOS shared libraries; gdal-bin
+      # pulls them in (PROJ included) and libgdal-dev adds the unversioned
+      # libgdal.so name the lookup can rely on. binutils ships with the runner
+      # image. The packages are cached, so apt only runs when this list (or
+      # `version`) changes; bump `version` to force a refresh. Skipping
+      # man-db's trigger speeds up the uncached install.
+      - name: Skip man-db rebuild on apt installs
+        run: sudo rm -f /var/lib/man-db/auto-update
+
+      - name: Install GDAL (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: gdal-bin libgdal-dev gettext
+          version: 1
+
+      # A cache restore just unpacks files, so refresh the linker cache for
+      # Django's find_library() lookup of libgdal/libgeos_c.
+      - name: Refresh shared library cache
+        run: sudo ldconfig
 
       - name: Install pipx
         run: python3 -m pip install --user pipx
@@ -92,6 +107,16 @@ jobs:
       # --ignore keeps it from compiling the packages in the in-project .venv.
       - name: Compile translations
         run: poetry run python manage.py compilemessages --ignore=.venv
+
+      # The deploy job ships these catalogs; handing them over saves it from
+      # installing GDAL and the project's dependencies just to load settings.
+      - name: Upload compiled translations
+        uses: actions/upload-artifact@v4
+        with:
+          name: translations
+          path: locale/**/*.mo
+          if-no-files-found: error
+          retention-days: 1
 
       # The test database is throwaway, so trade crash-safety for speed:
       # skipping fsync/WAL durability makes the 700+ migrations, per-test
@@ -164,9 +189,6 @@ jobs:
           python3 -m pipx install poetry==${{ env.POETRY_VERSION }}
           echo "${{ env.HOME }}/.local/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies
-        run: poetry install
-
       - name: Create .env file
         run: |
           echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
@@ -193,13 +215,12 @@ jobs:
           echo "DEBUG=False" >> .env
 
       # The EB CLI bundles the working tree (.ebignore), so the catalogs
-      # compiled here ship with the release. compilemessages loads the Django
-      # settings, and the PostGIS backend needs GDAL/GEOS on this runner too.
-      - name: Compile translations
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gettext gdal-bin libgdal-dev binutils libproj-dev
-          poetry run python manage.py compilemessages --ignore=.venv
+      # compiled by the build job ship with the release.
+      - name: Download compiled translations
+        uses: actions/download-artifact@v4
+        with:
+          name: translations
+          path: locale
 
       - name: Add poetry export plugin
         run: poetry self add poetry-plugin-export

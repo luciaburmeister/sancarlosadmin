@@ -350,7 +350,9 @@ def annotate_credit_balance(
     })
 
 
-def annotate_amount_remaining(queryset: QuerySet, invoice_model) -> QuerySet:
+def annotate_amount_remaining(
+    queryset: QuerySet, invoice_model, amount_field: str = "total_amount",
+) -> QuerySet:
     """
     Annotate an invoice queryset (`Invoice`, `SalesInvoice`, …) with
     `db_amount_paid` and `db_amount_remaining`, computed at the database
@@ -358,6 +360,8 @@ def annotate_amount_remaining(queryset: QuerySet, invoice_model) -> QuerySet:
 
     Eliminates the N+1 caused by the model's Python `amount_paid` /
     `amount_remaining` properties when listing or aggregating invoices.
+    `amount_field` names the document's total for Payables that don't call
+    it `total_amount` (e.g. `LoanEvent.amount`).
     """
     from payments.models import PaymentAllocation
 
@@ -377,7 +381,7 @@ def annotate_amount_remaining(queryset: QuerySet, invoice_model) -> QuerySet:
     return queryset.annotate(
         db_amount_paid=Coalesce(paid_subquery, _ZERO, output_field=_DECIMAL_FIELD),
         db_amount_remaining=Coalesce(
-            F("total_amount") - Coalesce(paid_subquery, _ZERO, output_field=_DECIMAL_FIELD),
+            F(amount_field) - Coalesce(paid_subquery, _ZERO, output_field=_DECIMAL_FIELD),
             _ZERO,
             output_field=_DECIMAL_FIELD,
         ),

@@ -25,6 +25,7 @@ from banking.services.transaction_matching.types import (
     PAYMENT_DATE_TOLERANCE_DAYS,
     MatchResult,
 )
+from payments.mixins import annotate_amount_remaining
 from payments.models import (
     Payment,
     PaymentAllocation,
@@ -241,6 +242,9 @@ class TransactionMatcher:
         txn_date = self.transaction.transaction_date
         cutoff_date = txn_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
 
+        # Querysets whose remaining amount is a SUM over PaymentAllocation
+        # are annotated with db_amount_remaining (read by match_amount) so
+        # the matcher doesn't run one aggregate per candidate.
         if self.direction == PaymentDirection.OUTBOUND:
             qs = Invoice.objects.filter(
                 company=self.transaction.company,
@@ -249,16 +253,15 @@ class TransactionMatcher:
             )
             if self.counterparty:
                 qs = qs.filter(provider=self.counterparty)
+            qs = annotate_amount_remaining(qs, Invoice)
 
             installment_qs = LoanInstallment.objects.filter(
                 loan__company=self.transaction.company,
                 loan__bank_account=self.transaction.bank_account,
                 payment_status__in=["unpaid", "partial"],
                 due_date__lte=cutoff_date,
-            )
+            ).select_related("loan")
 
-            from django.contrib.contenttypes.models import ContentType
-            from payments.models import PaymentAllocation
             ct = ContentType.objects.get_for_model(LoanEvent)
             reconciled_event_ids = PaymentAllocation.objects.filter(
                 content_type=ct
@@ -268,7 +271,8 @@ class TransactionMatcher:
                 parent_loan__company=self.transaction.company,
                 event_type="early_repayment",
                 date__lte=cutoff_date,
-            ).exclude(pk__in=reconciled_event_ids)
+            ).exclude(pk__in=reconciled_event_ids).select_related("parent_loan")
+            event_qs = annotate_amount_remaining(event_qs, LoanEvent, amount_field="amount")
 
             # Approved expense claims go to an employee, not a provider, so
             # counterparty resolution is separate from self.counterparty
@@ -305,7 +309,7 @@ class TransactionMatcher:
         )
         if self.counterparty:
             qs = qs.filter(client=self.counterparty)
-        return list(qs)
+        return list(annotate_amount_remaining(qs, SalesInvoice))
 
     @staticmethod
     def _determine_method(

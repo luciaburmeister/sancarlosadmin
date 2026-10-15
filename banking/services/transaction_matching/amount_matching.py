@@ -32,6 +32,14 @@ MAX_CANDIDATES_PER_GROUP = 50
 MAX_ALTERNATIVES = 20
 
 
+def _remaining(doc) -> Decimal:
+    """Outstanding balance, from the DB annotation when the queryset added one."""
+    annotated = getattr(doc, "db_amount_remaining", None)
+    if annotated is not None:
+        return annotated
+    return doc.amount_remaining_decimal
+
+
 def _combo_sizes(max_combo: int, largest_first: bool) -> range:
     """Return the range of combination sizes to try, in the right order."""
     if largest_first:
@@ -62,9 +70,11 @@ def match_amount(
     if not candidates:
         return MatchResult(unmatched_amount=target)
 
-    # Pre-fetch all remaining amounts in one pass to avoid N+1 queries.
+    # Pre-fetch all remaining amounts in one pass. Candidates annotated with
+    # `db_amount_remaining` (see TransactionMatcher._get_candidate_documents)
+    # skip the per-document SUM query behind amount_remaining_decimal.
     entries = [
-        (doc, doc.amount_remaining_decimal, doc.counterparty_key)
+        (doc, _remaining(doc), doc.counterparty_key)
         for doc in candidates
     ]
 

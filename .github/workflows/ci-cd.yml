@@ -72,7 +72,11 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
           packages: gdal-bin libgdal-dev gettext
-          version: 1
+          # Restoring only unpacks files; some links are made by the packages'
+          # postinst scripts (e.g. libblas.so.3 via update-alternatives), so
+          # run them on restore too.
+          execute_install_scripts: true
+          version: 2
 
       # A cache restore just unpacks files, so refresh the linker cache for
       # Django's find_library() lookup of libgdal/libgeos_c.

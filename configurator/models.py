@@ -944,7 +944,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
             context[pv.parameter.name] = pv.parameter.normalize_value(pv.value)
 
         # 3️⃣ Basic aggregates (always needed)
-        items = self.items.select_related("component")
+        # select_related on the manager would bypass a prefetched "items" cache.
+        prefetched_items = getattr(self, "_prefetched_objects_cache", {}).get("items")
+        items = list(
+            prefetched_items
+            if prefetched_items is not None
+            else self.items.select_related("component")
+        )
 
         context.update(
             {
@@ -953,7 +959,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     for i in items
                 ),
                 "quantity": sum(float(i.quantity) for i in items),
-                "item_count": items.count(),
+                "item_count": len(items),
                 "base_total": sum(float(i.line_total.amount) for i in items),
             }
         )

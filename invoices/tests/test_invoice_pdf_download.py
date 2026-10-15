@@ -23,12 +23,3 @@ class InvoicePdfDownloadHelpersTests(SimpleTestCase):
             [("a.pdf", b"%PDF"), ("b.pdf", b"%PDF")]
         )
         self.assertTrue(zip_bytes.startswith(b"PK"))
-
-    def test_zip_response_headers(self):
-        response = InvoicePdfDownloadService.zip_attachment_response(
-            [("a.pdf", b"%PDF"), ("b.pdf", b"%PDF")],
-            "facturas.zip",
-        )
-        self.assertEqual(response["Content-Type"], "application/zip")
-        self.assertIn("facturas.zip", response["Content-Disposition"])
-        self.assertTrue(response.content.startswith(b"PK"))

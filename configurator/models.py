@@ -944,7 +944,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
             context[pv.parameter.name] = pv.parameter.normalize_value(pv.value)
 
         # 3️⃣ Basic aggregates (always needed)
-        items = self.items.all()
+        items = self.items.select_related("component")
 
         context.update(
             {
@@ -1259,7 +1259,10 @@ class Configuration(Timestampable, CompanyOwnedModel):
         
         seen_item_ids = []
 
-        for rule in self.product.bom_rules.select_related("component"):
+        rules = self.product.bom_rules.select_related("component").prefetch_related(
+            "component__materials", "component__price_rules"
+        )
+        for rule in rules:
             qty, length = self._evaluate_bom_rule(rule, context)
             if qty is None:
                 continue

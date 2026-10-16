@@ -1,27 +1,41 @@
-from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404
+"""
+Public document behind an asset transaction's QR code (no login).
+
+The PDF is rendered on the pdf Celery queue like the admin downloads (see
+core.documents): the token URL queues the render and answers with a small
+standalone page that polls, then opens the PDF. The status and download URLs
+are scoped to the token, and a task only answers for the transaction it was
+queued for.
+"""
+from celery.result import AsyncResult
+from django.http import Http404, JsonResponse
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
+from assets.documents import render_asset_transaction_document
 from assets.models import AssetTransaction
 from configurator.models import (
     ConfigurationExportTemplate,
     ExportTemplateKind,
     ExportTemplateSubtype,
 )
-from configurator.services.export.service import ConfigurationExportService
-from configurator.templatetags.formatting import qr
-from core.services.pdf_service import PDFService
+from core.documents import DocumentRequest, renderer_path
+from core.views.document_status import DocumentDownloadView, DocumentStatusAPIView
+
+
+def _filename(transaction) -> str:
+    return f"transaction_{transaction.pk}.pdf"
+
+
+def _get_transaction(token):
+    return get_object_or_404(AssetTransaction, public_token=token)
 
 
 def asset_transaction_document_view(request, token):
-    transaction = get_object_or_404(
-        AssetTransaction.objects.select_related(
-            "asset", "asset__asset_type", "asset__client",
-            "company", "project_file", "project_file__client",
-            "from_zone", "to_zone", "performed_by",
-        ),
-        public_token=token,
-    )
+    from core.tasks import render_document_task
+
+    transaction = get_object_or_404(AssetTransaction.objects.select_related("company"), public_token=token)
     template = ConfigurationExportTemplate.get_default_for_product(
         product=None,
         kind=ExportTemplateKind.ASSET_TRANSACTION,
@@ -30,16 +44,40 @@ def asset_transaction_document_view(request, token):
     )
     if template is None:
         raise Http404(_("Asset transaction document is not available."))
-    document_url = request.build_absolute_uri(request.path)
-    html = ConfigurationExportService.render_html(
-        transaction,
-        template,
-        extra_context={
-            "document_url": document_url,
-            "document_qr": qr(document_url),
+    document = DocumentRequest(
+        renderer=renderer_path(render_asset_transaction_document),
+        kwargs={
+            "transaction_id": transaction.pk,
+            "template_id": template.pk,
+            "document_url": request.build_absolute_uri(request.path),
         },
+        filename=_filename(transaction),
+        inline=True,
     )
-    pdf_bytes = PDFService.html_to_pdf(html)
-    response = HttpResponse(pdf_bytes, content_type="application/pdf")
-    response["Content-Disposition"] = f'inline; filename="transaction_{transaction.pk}.pdf"'
-    return response
+    task_id = render_document_task.delay(**document.as_task_kwargs()).id
+    return render(request, "assets/transaction_document_status.html", {
+        "poll_url": reverse("asset_transaction_document_status", args=[token, task_id]),
+        "download_url": reverse("asset_transaction_document_download", args=[token, task_id]),
+    })
+
+
+class AssetTransactionDocumentStatusView(DocumentStatusAPIView):
+    def get(self, request, token, task_id):
+        self.token = token
+        transaction = _get_transaction(token)
+        result = AsyncResult(task_id)
+        if result.state == "SUCCESS" and (result.result or {}).get("filename") != _filename(transaction):
+            return JsonResponse({"state": "error", "message": str(_("Document not found."))}, status=404)
+        return super().get(request, task_id)
+
+    def get_download_url(self, task_id):
+        return reverse("asset_transaction_document_download", args=[self.token, task_id])
+
+
+class AssetTransactionDocumentDownloadView(DocumentDownloadView):
+    def get(self, request, token, task_id):
+        self.transaction = _get_transaction(token)
+        return super().get(request, task_id)
+
+    def is_allowed(self, request, data) -> bool:
+        return data.get("filename") == _filename(self.transaction)

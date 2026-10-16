@@ -1,0 +1,71 @@
+{% load i18n %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'es' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% trans "Preparing document" %}</title>
+<style>
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; color: #1e293b; }
+    .card { max-width: 420px; margin: 4rem auto; padding: 2.5rem 1.5rem; background: #fff;
+            border: 1px solid #e2e8f0; border-radius: 12px; text-align: center; }
+    .spinner { width: 44px; height: 44px; margin: 0 auto 1.25rem; border: 4px solid #e2e8f0;
+               border-top-color: #0369a1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .title { font-size: 1.15rem; font-weight: 700; margin: 0 0 0.5rem; }
+    .subtitle { color: #64748b; font-size: 0.9rem; margin: 0; }
+    .button { display: inline-block; margin-top: 1.25rem; padding: 0.55rem 1.25rem; background: #0369a1;
+              color: #fff; border-radius: 6px; text-decoration: none; font-weight: 500; }
+    #state-done, #state-error { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+    <div id="state-running">
+        <div class="spinner"></div>
+        <p class="title">{% trans "Preparing document…" %}</p>
+        <p class="subtitle">{% trans "It will open automatically when ready." %}</p>
+    </div>
+    <div id="state-done">
+        <p class="title">{% trans "Document ready" %}</p>
+        <a id="download-link" class="button" href="{{ download_url }}">{% trans "Open document" %}</a>
+    </div>
+    <div id="state-error">
+        <p class="title">{% trans "The document could not be prepared." %}</p>
+        <p id="error-detail" class="subtitle"></p>
+        <a class="button" href="">{% trans "Try again" %}</a>
+    </div>
+</div>
+<script>
+(function() {
+    var POLL_URL = "{{ poll_url|escapejs }}";
+
+    function show(name) {
+        ["running", "done", "error"].forEach(function(state) {
+            document.getElementById("state-" + state).style.display = state === name ? "block" : "none";
+        });
+    }
+
+    function poll() {
+        fetch(POLL_URL)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.state === "running") { setTimeout(poll, 1500); return; }
+                if (data.state === "done") {
+                    show("done");
+                    var link = document.getElementById("download-link");
+                    if (data.download_url) link.href = data.download_url;
+                    window.location.replace(link.href);
+                    return;
+                }
+                show("error");
+                document.getElementById("error-detail").textContent = data.message || "";
+            })
+            .catch(function() { show("error"); });
+    }
+
+    poll();
+})();
+</script>
+</body>
+</html>

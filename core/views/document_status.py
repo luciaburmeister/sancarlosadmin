@@ -38,6 +38,9 @@ class DocumentStatusPageView(TemplateView):
 
 
 class DocumentStatusAPIView(View):
+    def get_download_url(self, task_id):
+        return reverse("core_document_download", args=[task_id])
+
     def get(self, request, task_id):
         result = AsyncResult(task_id)
 
@@ -52,7 +55,7 @@ class DocumentStatusAPIView(View):
                     "count": data.get("count", 0),
                     "skipped": data.get("skipped", 0),
                     "filename": data.get("filename", ""),
-                    "download_url": reverse("core_document_download", args=[task_id]),
+                    "download_url": self.get_download_url(task_id),
                 })
             return JsonResponse({
                 "state": "error",
@@ -64,6 +67,10 @@ class DocumentStatusAPIView(View):
 
 
 class DocumentDownloadView(View):
+    def is_allowed(self, request, data) -> bool:
+        owner_id = data.get("user_id")
+        return not owner_id or owner_id == request.user.id or request.user.is_superuser
+
     def get(self, request, task_id):
         result = AsyncResult(task_id)
         if result.state != "SUCCESS":
@@ -73,8 +80,7 @@ class DocumentDownloadView(View):
         if data.get("status") != "ok":
             return HttpResponse(data.get("message") or "Document unavailable.", status=404)
 
-        owner_id = data.get("user_id")
-        if owner_id and owner_id != request.user.id and not request.user.is_superuser:
+        if not self.is_allowed(request, data):
             return HttpResponseForbidden("Not allowed to download this file.")
 
         storage_path = data.get("storage_path")

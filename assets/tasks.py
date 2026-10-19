@@ -151,3 +151,17 @@ def apply_scheduled_zone_change(self, request_id: int):
     except Exception as exc:
         raise self.retry(exc=exc)
     return {"status": "ok", "applied": applied, "request_id": request_id}
+
+
+@shared_task(
+    name="assets.tasks.generate_asset_transaction_document",
+    # Same bounds as core.tasks.render_document_task: it shares the pdf queue.
+    soft_time_limit=120,
+    time_limit=150,
+)
+def generate_asset_transaction_document(transaction_id: int, force: bool = False):
+    """Store the public document of a transaction (see assets.documents)."""
+    from assets.documents import generate_document
+
+    stored = generate_document(transaction_id, force=force)
+    return {"status": "ok" if stored else "empty", "transaction_id": transaction_id}

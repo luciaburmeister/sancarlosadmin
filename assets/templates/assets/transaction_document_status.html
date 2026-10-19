@@ -28,7 +28,7 @@
     </div>
     <div id="state-done">
         <p class="title">{% trans "Document ready" %}</p>
-        <a id="download-link" class="button" href="{{ download_url }}">{% trans "Open document" %}</a>
+        <a class="button" href="{{ document_url }}">{% trans "Open document" %}</a>
     </div>
     <div id="state-error">
         <p class="title">{% trans "The document could not be prepared." %}</p>
@@ -39,6 +39,7 @@
 <script>
 (function() {
     var POLL_URL = "{{ poll_url|escapejs }}";
+    var DOCUMENT_URL = "{{ document_url|escapejs }}";
 
     function show(name) {
         ["running", "done", "error"].forEach(function(state) {
@@ -53,9 +54,7 @@
                 if (data.state === "running") { setTimeout(poll, 1500); return; }
                 if (data.state === "done") {
                     show("done");
-                    var link = document.getElementById("download-link");
-                    if (data.download_url) link.href = data.download_url;
-                    window.location.replace(link.href);
+                    window.location.replace(DOCUMENT_URL);
                     return;
                 }
                 show("error");

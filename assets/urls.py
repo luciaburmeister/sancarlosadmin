@@ -1,25 +1,19 @@
 from django.urls import path
 
 from assets.views.asset_transaction_document import (
-    AssetTransactionDocumentDownloadView,
     AssetTransactionDocumentStatusView,
-    asset_transaction_document_view,
+    AssetTransactionDocumentView,
 )
 
 urlpatterns = [
     path(
         "albaran/<str:token>/",
-        asset_transaction_document_view,
+        AssetTransactionDocumentView.as_view(),
         name="asset_transaction_document",
     ),
     path(
-        "albaran/<str:token>/status/<str:task_id>/",
+        "albaran/<str:token>/status/",
         AssetTransactionDocumentStatusView.as_view(),
         name="asset_transaction_document_status",
-    ),
-    path(
-        "albaran/<str:token>/download/<str:task_id>/",
-        AssetTransactionDocumentDownloadView.as_view(),
-        name="asset_transaction_document_download",
     ),
 ]

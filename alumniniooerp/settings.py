@@ -421,13 +421,7 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-# Tasks that render a PDF with WeasyPrint go to their own queue, served by a
-# separate worker with a small fixed concurrency (see deploy/worker/.platform/
-# hooks/postdeploy/01_setup_celery.sh). Each render is a full Django process
-# plus the document's memory peak: many renders at once (a payment-reminder
-# fan-out, a bulk PDF zip) can exhaust the worker instance's memory and starve
-# the default worker and beat. Every other task stays on the default "celery"
-# queue.
+
 CELERY_TASK_DEFAULT_QUEUE = "celery"
 CELERY_PDF_QUEUE = "pdf"
 CELERY_PDF_TASKS = (
@@ -440,6 +434,7 @@ CELERY_PDF_TASKS = (
     "invoices.tasks.send_consolidated_payment_reminder_email",
     "configurator.tasks.render_export_template_preview",
     "core.tasks.render_document_task",
+    "assets.tasks.generate_asset_transaction_document",
 )
 CELERY_TASK_ROUTES = {name: {"queue": CELERY_PDF_QUEUE} for name in CELERY_PDF_TASKS}
 

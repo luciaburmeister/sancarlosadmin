@@ -661,6 +661,16 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         help_text=_("Unguessable key for the public document link encoded in the QR."),
     )
 
+    document_file = models.FileField(
+        upload_to="asset_transactions/documents/",
+        blank=True,
+        editable=False,
+        verbose_name=_("Document"),
+    )
+    document_generated_at = models.DateTimeField(
+        null=True, blank=True, editable=False, verbose_name=_("Document generated at"),
+    )
+
     class Meta:
         verbose_name = _("Asset transaction")
         verbose_name_plural = _("Asset transactions")
@@ -684,11 +694,25 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
             ),
         ]
 
+    # Saves touching only these never re-render the stored document: they are
+    # not part of the albarán (billing_status changes in bulk admin actions).
+    DOCUMENT_IRRELEVANT_FIELDS = frozenset({"billing_status", "document_file", "document_generated_at"})
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
+        update_fields = kwargs.get("update_fields")
+        affects_document = update_fields is None or not set(update_fields) <= self.DOCUMENT_IRRELEVANT_FIELDS
+        if update_fields is not None and affects_document:
+            # auto_now only applies to fields being saved; the stored
+            # document is checked against updated_at, so keep it current.
+            kwargs["update_fields"] = {*update_fields, "updated_at"}
         super().save(*args, **kwargs)
         if is_new:
             self._sync_zones_on_porte_delivery()
+        elif self.document_file and affects_document:
+            from assets.documents import schedule_regeneration
+
+            schedule_regeneration(self.pk)
 
     @property
     def document_url(self) -> str:

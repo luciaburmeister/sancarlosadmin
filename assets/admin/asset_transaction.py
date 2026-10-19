@@ -4,11 +4,14 @@ from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin.autocomplete_filters import AutocompleteSelectMultipleFilter
 from django import forms
 from django.contrib import admin, messages
+from django.utils.formats import date_format
 from django.utils.html import format_html
+from django.utils.timezone import localtime
 from django.db import models
 from django.urls import path, reverse
 from django.shortcuts import redirect
-from django.http import HttpRequest
+from django.core.exceptions import PermissionDenied
+from django.http import Http404, HttpRequest
 from assets.models import AssetTransaction, AssetTransactionReceipt, AssetTransactionPhoto
 from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
@@ -391,15 +394,32 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         uri = qr(obj.document_url)
         if not uri:
             return "—"
+        generated_at = obj.document_generated_at
+        if not obj.document_file:
+            status = _("Not generated yet: it is created the first time the link is opened.")
+        elif generated_at and generated_at >= obj.updated_at:
+            status = _("Generated on %(date)s.") % {"date": date_format(localtime(generated_at), "DATETIME_FORMAT")}
+        else:
+            status = _("Updating after the last change; the previous version is served meanwhile.")
         return format_html(
             '<div style="display:flex;align-items:center;gap:16px;">'
             '<img src="{}" alt="" width="120" height="120" style="background:white;" />'
+            '<div>'
+            '<div style="display:flex;flex-wrap:wrap;gap:8px;">'
             '<a href="{}" target="_blank" rel="noopener" '
             'class="bg-primary-600 font-medium px-3 py-2 rounded-md text-white whitespace-nowrap">{}</a>'
+            '<a href="{}" '
+            'class="border border-base-200 dark:border-base-700 font-medium px-3 py-2 rounded-md whitespace-nowrap">{}</a>'
+            '</div>'
+            '<p class="text-sm text-font-subtle-light dark:text-font-subtle-dark" style="margin-top:12px;">{}</p>'
+            '</div>'
             '</div>',
             uri,
             reverse("asset_transaction_document", args=[obj.public_token]),
             _("View document"),
+            reverse("admin:assets_assettransaction_regenerate_document", args=[obj.pk]),
+            _("Regenerate document"),
+            status,
         )
 
     @admin.display(description="Imagen")
@@ -465,6 +485,23 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         self._queue_transaction_emails(request, transaction)
         return redirect(reverse("admin:assets_assettransaction_change", args=[object_id]))
 
+    def regenerate_document_view(self, request, object_id):
+        """The "Regenerate document" button of document_qr_preview."""
+        from assets.documents import get_document_template
+        from assets.tasks import generate_asset_transaction_document
+
+        transaction = self.get_object(request, object_id)
+        if transaction is None:
+            raise Http404
+        if not self.has_change_permission(request, transaction):
+            raise PermissionDenied
+        if get_document_template(transaction) is None:
+            messages.error(request, _("There is no document template for this company."))
+        else:
+            generate_asset_transaction_document.delay(transaction.pk, force=True)
+            messages.success(request, _("The document is being regenerated; the link serves the new one in a few seconds."))
+        return redirect(reverse("admin:assets_assettransaction_change", args=[object_id]))
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -474,6 +511,11 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                     AssetTransactionExportView.as_view(model_admin=self)
                 ),
                 name="assets_assettransaction_export",
+            ),
+            path(
+                "<path:object_id>/regenerate-document/",
+                self.admin_site.admin_view(self.regenerate_document_view),
+                name="assets_assettransaction_regenerate_document",
             ),
         ]
         return custom_urls + urls

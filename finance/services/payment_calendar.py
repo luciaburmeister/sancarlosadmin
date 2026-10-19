@@ -14,7 +14,7 @@ from banking.models import BankTransaction
 from company.models import BankAccount, Company
 from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 from loans.models import LoanInstallment, LoanInstallmentPaymentStatus
-from finance.models import TaxPeriod, TaxPeriodStatus
+from finance.models_planned_tax_payment import PlannedTaxPayment
 from payroll.models import EmployeePayroll, PayrollPeriod
 from payroll.services.payment_projection import get_projected_payment_date
 from apps.expenses.models import FixedCostInstallment
@@ -200,27 +200,49 @@ def _proforma_entries(company: Company, date_from: datetime.date, date_to: datet
     return entries
 
 
-def _tax_period_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
-    periods = (
-        TaxPeriod.objects
-        .filter(company=company, due_date__range=(date_from, date_to))
-        .exclude(status=TaxPeriodStatus.PAID)
-        .select_related("rule", "rule__tax_type")
+def _planned_tax_payment_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
+    """
+    Unpaid PlannedTaxPayments, by payment_date, rolled forward to today if
+    overdue (same as payroll/fixed costs). Positive amount is an expense
+    (payment to the tax authority), negative is income (refund expected).
+    Description uses the tax type and the linked periods' date range when
+    any are linked, falling back to the payment's own description otherwise.
+    """
+    payments = (
+        PlannedTaxPayment.objects
+        .filter(company=company, is_paid=False)
+        .select_related("tax_type")
+        .prefetch_related("tax_periods")
     )
-    return [
-        CalendarEntry(
-            date=period.due_date,
-            amount=period.net_after_credit.amount,
-            direction=CalendarDirection.EXPENSE,
-            category="Taxes",
-            description=f"{period.rule.tax_type} — {period.date_from} a {period.date_to}",
-            source_model="finance.TaxPeriod",
-            source_id=period.pk,
-            admin_url=_admin_change_url("finance.TaxPeriod", period.pk),
+
+    entries = []
+    for payment in payments:
+        raw_amount = payment.amount.amount if payment.amount else Decimal("0.00")
+        if raw_amount == 0:
+            continue
+        effective_date = _roll_forward_to_today(payment.payment_date)
+        if not (date_from <= effective_date <= date_to):
+            continue
+
+        periods = sorted(payment.tax_periods.all(), key=lambda p: p.date_from)
+        if periods:
+            description = f"{payment.tax_type} — {periods[0].date_from} a {periods[-1].date_to}"
+        else:
+            description = payment.description
+
+        entries.append(
+            CalendarEntry(
+                date=effective_date,
+                amount=abs(raw_amount),
+                direction=CalendarDirection.INCOME if payment.is_refund else CalendarDirection.EXPENSE,
+                category="Taxes",
+                description=description,
+                source_model="finance.PlannedTaxPayment",
+                source_id=payment.pk,
+                admin_url=_admin_change_url("finance.PlannedTaxPayment", payment.pk),
+            )
         )
-        for period in periods
-        if period.net_after_credit.amount > 0
-    ]
+    return entries
 
 
 class FixedCostCalendarSource:
@@ -388,7 +410,7 @@ def build_payment_calendar(company: Company, bank_accounts, date_from: datetime.
         + _purchase_invoice_entries(company, date_from, date_to)
         + _sales_invoice_entries(company, date_from, date_to)
         + _proforma_entries(company, date_from, date_to)
-        + _tax_period_entries(company, date_from, date_to)
+        + _planned_tax_payment_entries(company, date_from, date_to)
         + FixedCostCalendarSource(company, date_from, date_to).entries()
         + _payroll_salary_entries(company, date_from, date_to)
         + _payroll_ss_entries(company, date_from, date_to)
@@ -439,31 +461,36 @@ def build_calendar_matrix(company: Company, bank_accounts, date_from: datetime.d
             if entry.category not in target_list:
                 target_list.append(entry.category)
 
-    by_category = {category: {day: Decimal("0.00") for day in days} for category in all_expense_categories + all_income_categories}
-    entries_by_category_and_day = {category: {day: [] for day in days} for category in all_expense_categories + all_income_categories}
+    all_keys = (
+        [(CalendarDirection.EXPENSE, category) for category in all_expense_categories]
+        + [(CalendarDirection.INCOME, category) for category in all_income_categories]
+    )
+    by_category = {key: {day: Decimal("0.00") for day in days} for key in all_keys}
+    entries_by_category_and_day = {key: {day: [] for day in days} for key in all_keys}
 
     for day in days:
         for entry in calendar_days[day]["items"]:
-            by_category[entry.category][day] += entry.amount
-            entries_by_category_and_day[entry.category][day].append(entry)
+            key = (entry.direction, entry.category)
+            by_category[key][day] += entry.amount
+            entries_by_category_and_day[key][day].append(entry)
 
     def _cells(values_by_day: dict) -> list[dict]:
         return [{"day": day, "value": values_by_day[day]} for day in days]
 
-    def _rows(categories: list[str]) -> list[dict]:
+    def _rows(categories: list[str], direction: str) -> list[dict]:
         return [
             {
                 "label": _(category),
-                "cells": _cells(by_category[category]),
-                "detail_cells": [entries_by_category_and_day[category][day] for day in days],
+                "cells": _cells(by_category[(direction, category)]),
+                "detail_cells": [entries_by_category_and_day[(direction, category)][day] for day in days],
             }
             for category in categories
         ]
 
     return {
         "days": days,
-        "salida_rows": _rows(all_expense_categories),
-        "entrada_rows": _rows(all_income_categories),
+        "salida_rows": _rows(all_expense_categories, CalendarDirection.EXPENSE),
+        "entrada_rows": _rows(all_income_categories, CalendarDirection.INCOME),
         "entradas_cells": _cells({day: calendar_days[day]["entradas"] for day in days}),
         "salidas_cells": _cells({day: calendar_days[day]["salidas"] for day in days}),
         "saldo_cells": _cells({day: calendar_days[day]["saldo"] for day in days}),

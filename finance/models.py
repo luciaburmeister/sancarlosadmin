@@ -6,6 +6,8 @@ from djmoney.models.fields import MoneyField
 from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
 
+from .models_planned_tax_payment import PlannedTaxPayment  # noqa: F401
+
 
 class PeriodUnit(models.TextChoices):
     DAYS   = "days",   _("Days")
@@ -222,6 +224,33 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"{self.rule.tax_type} | {self.date_from} → {self.date_to}"
 
+    def recalculate_status(self):
+        linked = list(self.planned_payments.all())
+        if linked:
+            new_status = TaxPeriodStatus.PAID if all(p.is_paid for p in linked) else TaxPeriodStatus.PENDING_PAYMENT
+        elif self.net_after_credit.amount > 0 and self.due_date < timezone.localdate():
+            new_status = TaxPeriodStatus.OVERDUE
+        else:
+            new_status = TaxPeriodStatus.OPEN
+
+        if new_status != self.status:
+            self.status = new_status
+            self.save(update_fields=["status"])
+
+    @classmethod
+    def recalculate_status_for(cls, period_ids):
+        for period in cls.objects.filter(pk__in=list(period_ids)):
+            period.recalculate_status()
+
+    @staticmethod
+    def suggested_settlement_amount(periods):
+        from decimal import Decimal
+
+        periods = sorted(periods, key=lambda p: p.date_from)
+        if not periods:
+            return Decimal("0.00")
+        return sum((p.tax_net.amount for p in periods), Decimal("0.00")) - periods[0].accumulated_credit.amount
+
     def compute(self, save: bool = True):
         from django.contrib.contenttypes.models import ContentType
         from invoices.models import AppliedTax, SalesInvoice, Invoice
@@ -272,21 +301,21 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
 
         self.tax_collected = collected
         self.tax_paid = paid
-        self.tax_net = collected - paid
+        net_val = collected - paid if tax_type.is_debit else collected + paid
+        self.tax_net = net_val
 
-        prior_periods = TaxPeriod.objects.filter(
+        previous_period = TaxPeriod.objects.filter(
             rule=self.rule,
             date_from__lt=self.date_from,
-        ).exclude(pk=self.pk if self.pk else 0)
+        ).exclude(pk=self.pk if self.pk else 0).order_by("-date_from").first()
 
         accumulated = Decimal("0.00")
-        for p in prior_periods:
-            net = Decimal(str(p.tax_net.amount if hasattr(p.tax_net, "amount") else p.tax_net))
-            if net < 0:
-                accumulated += abs(net)
+        if previous_period:
+            previous_net_after_credit = Decimal(str(previous_period.net_after_credit.amount))
+            if previous_net_after_credit < 0:
+                accumulated = abs(previous_net_after_credit)
 
         self.accumulated_credit = accumulated
-        net_val = collected - paid
         net_after = net_val - accumulated
         self.net_after_credit = net_after
 
@@ -300,42 +329,11 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
             ])
 
 
-class TaxPayment(Timestampable, CompanyOwnedModel):
-    period       = models.ForeignKey(TaxPeriod, on_delete=models.PROTECT, related_name="payments", verbose_name=_("Tax Period"))
-    payment_date = models.DateField(verbose_name=_("Payment Date"))
-    amount_paid  = MoneyField(
-        max_digits=14, decimal_places=2, default_currency="EUR",
-        verbose_name=_("Amount Paid"),
-    )
-    reference = models.CharField(
-        max_length=200, blank=True,
-        verbose_name=_("Reference"),
-        help_text=_("Bank reference, Modelo number, or any external identifier."),
-    )
-    notes = models.TextField(blank=True, verbose_name=_("Notes"))
-
-    class Meta:
-        verbose_name = _("Tax Payment")
-        verbose_name_plural = _("Tax Payments")
-        ordering = ["-payment_date"]
-
-    def __str__(self):
-        return f"{self.amount_paid} on {self.payment_date}"
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        from django.db.models import Sum
-        total = TaxPayment.objects.filter(period=self.period).aggregate(t=Sum("amount_paid"))["t"] or 0
-        if total >= self.period.tax_net.amount:
-            self.period.status = TaxPeriodStatus.PAID
-            self.period.save(update_fields=["status"])
-
-
 class PaymentCalendar(TaxPeriod):
     """
     Proxy model with no table of its own — exists only so 'Cashflow'
     shows up as its own row in the Finance admin index, next to
-    Tax Payments / Tax Periods / Tax Schedule Rules.
+    Tax Periods / Tax Schedule Rules.
     """
     class Meta:
         proxy = True
@@ -347,21 +345,14 @@ def advance_all_rules():
     """
     - Cleans up misaligned OPEN/OVERDUE periods per rule
     - Generates missing periods up to today for all active rules
-    - Marks overdue periods
+    - Recalculates status for every non-paid period
     """
-    from django.utils import timezone
-    from dateutil.relativedelta import relativedelta
-
-    today = timezone.localdate()
-
     for rule in TaxScheduleRule.objects.filter(is_active=True):
         _clean_misaligned_periods(rule)
         rule.generate_up_to_today()
 
-    TaxPeriod.objects.filter(
-        due_date__lt=today,
-        status__in=[TaxPeriodStatus.OPEN, TaxPeriodStatus.PENDING_PAYMENT],
-    ).update(status=TaxPeriodStatus.OVERDUE)
+    for period in TaxPeriod.objects.exclude(status=TaxPeriodStatus.PAID):
+        period.recalculate_status()
 
 
 def _clean_misaligned_periods(rule):

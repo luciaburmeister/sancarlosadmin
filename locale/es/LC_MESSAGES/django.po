@@ -10892,10 +10892,8 @@ msgstr "Activo"
 msgid "Mark this installment as paid without a bank transaction?"
 msgstr "Este pedido de entrega ya está vinculado a una factura."
 
-#, fuzzy
-#| msgid "Mark as Unpaid"
 msgid "Mark as paid"
-msgstr "Marcar como no pagado"
+msgstr "Marcar como pagado"
 
 #, fuzzy
 #| msgid "Financial & Insurance"
@@ -19834,3 +19832,7 @@ msgstr "Idioma de los documentos de este cliente (facturas, presupuestos, albara
 
 msgid "Language this template is written in. Clients with this language get it; a template without one serves every client and prints in the client's language."
 msgstr "Idioma en que está escrita esta plantilla. La usan los clientes con este idioma; una plantilla sin idioma sirve a todos los clientes y se imprime en el idioma del cliente."
+
+#, python-format
+msgid "%(count)d period(s)"
+msgstr "%(count)d período(s)"

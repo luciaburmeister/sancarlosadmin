@@ -25,7 +25,7 @@ from banking.models import (
     ReconciliationMethod,
     ReconciliationStatus,
 )
-from banking.services.transaction_matching import TransactionMatcher
+from banking.services.transaction_matching import TransactionMatcher, candidates
 from banking.services.transaction_matching.types import PAYMENT_DATE_TOLERANCE_DAYS
 from payments.models import Payment, PaymentAllocation, PaymentDirection
 
@@ -404,11 +404,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
         results = []
 
         if direction == PaymentDirection.OUTBOUND:
-            qs = Invoice.objects.filter(
-                company=txn.company,
-                payment_status__in=["unpaid", "partial"],
-                date_issued__lte=cutoff_date,
-            ).select_related("provider").order_by("-date_issued")
+            qs = candidates.invoice_candidates(txn.company, cutoff_date).select_related("provider").order_by("-date_issued")
 
             ct = ContentType.objects.get_for_model(Invoice)
             for doc in qs:
@@ -422,11 +418,8 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": doc.amount_remaining_decimal,
                 })
 
-            installment_qs = LoanInstallment.objects.filter(
-                loan__company=txn.company,
-                loan__bank_account=txn.bank_account,
-                payment_status__in=["unpaid", "partial"],
-                due_date__lte=cutoff_date,
+            installment_qs = candidates.loan_installment_candidates(
+                txn.company, txn.bank_account, cutoff_date
             ).select_related("loan", "loan__bank").order_by("due_date")
 
             ict = ContentType.objects.get_for_model(LoanInstallment)
@@ -441,11 +434,8 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": installment.amount_remaining_decimal,
                 })
 
-            from apps.expenses.models import ExpenseClaimStatus
-            claim_qs = ExpenseClaim.objects.filter(
-                company=txn.company,
-                status=ExpenseClaimStatus.APPROVED,
-                created_at__date__lte=cutoff_date,
+            claim_qs = candidates.expense_claim_candidates(
+                txn.company, cutoff_date
             ).select_related("submitted_by").order_by("-created_at")
 
             cct = ContentType.objects.get_for_model(ExpenseClaim)
@@ -462,11 +452,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": claim.amount_remaining_decimal,
                 })
         else:
-            qs = SalesInvoice.objects.filter(
-                company=txn.company,
-                payment_status__in=["unpaid", "partial"],
-                date_issued__lte=cutoff_date,
-            ).select_related("client").order_by("-date_issued")
+            qs = candidates.sales_invoice_candidates(txn.company, cutoff_date).select_related("client").order_by("-date_issued")
 
             ct = ContentType.objects.get_for_model(SalesInvoice)
             for doc in qs:

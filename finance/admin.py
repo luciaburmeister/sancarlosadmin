@@ -1,10 +1,10 @@
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
-from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import ModelAdmin
 from unfold.decorators import action, display
 from unfold.contrib.filters.admin import (
     RangeDateFilter,
@@ -13,17 +13,9 @@ from unfold.contrib.filters.admin import (
 )
 from core.admin.company_admin import CompanyRestrictedAdmin
 
-from .models import TaxScheduleRule, TaxPeriod, TaxPayment, TaxPeriodStatus, PaymentCalendar
+from .admin_planned_tax_payment import planned_tax_payment_links
+from .models import TaxScheduleRule, TaxPeriod, TaxPeriodStatus, PaymentCalendar
 from .models import advance_all_rules
-
-
-class TaxPaymentInline(TabularInline):
-    model = TaxPayment
-    extra = 0
-    tab = True
-    fields = ["payment_date", "amount_paid", "reference", "notes"]
-    verbose_name = _("Payment")
-    verbose_name_plural = _("Payments")
 
 
 @admin.register(TaxScheduleRule)
@@ -37,7 +29,8 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields       = ["name", "tax_type__tax_name"]
     list_filter_submit  = True
     autocomplete_fields = ["company", "tax_type"]
-    actions_row         = ["view_periods_action"]
+    actions_row         = ["view_periods_action", "create_planned_payment_action"]
+    actions_detail      = ["create_planned_payment_action"]
 
     fieldsets = (
         (_("General"), {
@@ -85,6 +78,20 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_active_label(self, obj):
         return obj.is_active
 
+    @action(description=_("Create planned payment"), icon="receipt_long", permissions=["create_planned_payment"])
+    def create_planned_payment_action(self, request, object_id: int):
+        rule = TaxScheduleRule.objects.get(pk=object_id)
+        params = [
+            ("tax_schedule_rule", rule.pk),
+            ("tax_type", rule.tax_type_id),
+            ("company", rule.company_id),
+        ]
+        url = reverse("admin:finance_plannedtaxpayment_add")
+        return redirect(f"{url}?{urlencode(params)}")
+
+    def has_create_planned_payment_permission(self, request, object_id=None):
+        return request.user.has_perm("finance.add_plannedtaxpayment")
+
 
 @admin.register(TaxPeriod)
 class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -98,11 +105,9 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields       = ["rule__name", "rule__tax_type__tax_name"]
     list_filter_submit  = True
     autocomplete_fields = ["company", "rule"]
-    readonly_fields     = ["tax_collected", "tax_paid", "tax_net", "accumulated_credit", "net_after_credit"]
+    readonly_fields     = ["tax_collected", "tax_paid", "tax_net", "accumulated_credit", "net_after_credit", "get_planned_payments_link"]
     actions_list        = ["export_excel_action", "compute_all_action"]
-    actions_detail      = ["mark_pending_action"]
-
-    inlines = [TaxPaymentInline]
+    actions             = ["create_planned_payment_action"]
 
     fieldsets = (
         (_("Period"), {
@@ -124,7 +129,16 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("accumulated_credit", "net_after_credit"),
             ),
         }),
+        (_("Planned Payments"), {
+            "fields": (
+                "get_planned_payments_link",
+            ),
+        }),
     )
+
+    def get_planned_payments_link(self, obj):
+        return planned_tax_payment_links(obj.planned_payments.all())
+    get_planned_payments_link.short_description = _("Planned Payments")
 
     @display(
         description=_("Status"),
@@ -139,16 +153,37 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_status_label(self, obj):
         return obj.status
 
-    @action(description=_("Mark as pending payment"), icon="schedule")
-    def mark_pending_action(self, request, object_id: int):
-        period = TaxPeriod.objects.get(pk=object_id)
-        if period.status == TaxPeriodStatus.OPEN:
-            period.status = TaxPeriodStatus.PENDING_PAYMENT
-            period.save(update_fields=["status"])
-            self.message_user(request, _("Period marked as pending payment."))
-        else:
-            self.message_user(request, _("Only open periods can be marked as pending."), level="warning")
-        return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
+    @admin.action(description=_("Create planned payment"))
+    def create_planned_payment_action(self, request, queryset):
+        periods = list(queryset.select_related("rule", "rule__tax_type").order_by("date_from"))
+        if not periods:
+            return
+
+        rule_ids = {p.rule_id for p in periods}
+        if len(rule_ids) > 1:
+            self.message_user(
+                request,
+                _("Select periods from the same tax schedule rule."),
+                level="error",
+            )
+            return
+
+        first = periods[0]
+        last = max(periods, key=lambda p: p.due_date)
+        suggested_amount = TaxPeriod.suggested_settlement_amount(periods)
+
+        params = [
+            ("tax_schedule_rule", first.rule_id),
+            ("tax_type", first.rule.tax_type_id),
+            ("company", first.company_id),
+            ("payment_date", last.due_date.isoformat()),
+            ("amount", f"{suggested_amount} {first.tax_net.currency}"),
+            ("description", f"{first.rule.tax_type} {first.date_from} - {last.date_to}"),
+        ]
+        params += [("tax_periods", period.pk) for period in periods]
+
+        url = reverse("admin:finance_plannedtaxpayment_add")
+        return redirect(f"{url}?{urlencode(params)}")
 
     def get_urls(self):
         from django.urls import path
@@ -191,26 +226,6 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_queryset(self, request):
         advance_all_rules()
         return super().get_queryset(request)
-
-
-@admin.register(TaxPayment)
-class TaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display        = ["period", "payment_date", "amount_paid", "reference", "company"]
-    list_filter         = [("company", AutocompleteSelectMultipleFilter), ("payment_date", RangeDateFilter)]
-    search_fields       = ["period__rule__name", "reference"]
-    list_filter_submit  = True
-    autocomplete_fields = ["company", "period"]
-
-    fieldsets = (
-        (_("Payment Details"), {
-            "fields": (
-                ("company", "period"),
-                ("payment_date", "amount_paid"),
-                "reference",
-                "notes",
-            ),
-        }),
-    )
 
 
 @admin.register(PaymentCalendar)

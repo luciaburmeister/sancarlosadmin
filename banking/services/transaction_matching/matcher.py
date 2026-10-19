@@ -5,7 +5,6 @@ from decimal import Decimal
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
-from django.db.models import Q
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -16,6 +15,7 @@ from banking.models import (
     ReconciliationMethod,
     ReconciliationStatus,
 )
+from banking.services.transaction_matching import candidates
 from banking.services.transaction_matching.amount_matching import match_amount
 from banking.services.transaction_matching.counterparty import (
     find_counterparty,
@@ -235,10 +235,7 @@ class TransactionMatcher:
         """
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
-        LoanInstallment = apps.get_model("loans", "LoanInstallment")
         LoanEvent = apps.get_model("loans", "LoanEvent")
-        ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
-        EmployeePayroll = apps.get_model("payroll", "EmployeePayroll")
         txn_date = self.transaction.transaction_date
         cutoff_date = txn_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
 
@@ -246,70 +243,43 @@ class TransactionMatcher:
         # are annotated with db_amount_remaining (read by match_amount) so
         # the matcher doesn't run one aggregate per candidate.
         if self.direction == PaymentDirection.OUTBOUND:
-            qs = Invoice.objects.filter(
-                company=self.transaction.company,
-                payment_status__in=["unpaid", "partial"],
-                date_issued__lte=cutoff_date,
+            qs = annotate_amount_remaining(
+                candidates.invoice_candidates(self.transaction.company, cutoff_date, self.counterparty),
+                Invoice,
             )
-            if self.counterparty:
-                qs = qs.filter(provider=self.counterparty)
-            qs = annotate_amount_remaining(qs, Invoice)
 
-            installment_qs = LoanInstallment.objects.filter(
-                loan__company=self.transaction.company,
-                loan__bank_account=self.transaction.bank_account,
-                payment_status__in=["unpaid", "partial"],
-                due_date__lte=cutoff_date,
+            installment_qs = candidates.loan_installment_candidates(
+                self.transaction.company, self.transaction.bank_account, cutoff_date
             ).select_related("loan")
 
-            ct = ContentType.objects.get_for_model(LoanEvent)
-            reconciled_event_ids = PaymentAllocation.objects.filter(
-                content_type=ct
-            ).values_list("object_id", flat=True)
-            event_qs = LoanEvent.objects.filter(
-                parent_loan__bank_account=self.transaction.bank_account,
-                parent_loan__company=self.transaction.company,
-                event_type="early_repayment",
-                date__lte=cutoff_date,
-            ).exclude(pk__in=reconciled_event_ids).select_related("parent_loan")
+            event_qs = candidates.loan_event_candidates(
+                self.transaction.company, self.transaction.bank_account, cutoff_date
+            ).select_related("parent_loan")
             event_qs = annotate_amount_remaining(event_qs, LoanEvent, amount_field="amount")
 
             # Approved expense claims go to an employee, not a provider, so
             # counterparty resolution is separate from self.counterparty
             # (which is Provider/Client-typed).
-            from apps.expenses.models import ExpenseClaimStatus
             employee = find_employee_counterparty(self.transaction, self.transaction.company)
             self.employee_counterparty = employee
+            claim_qs = candidates.expense_claim_candidates(self.transaction.company, cutoff_date, employee)
 
-            claim_qs = ExpenseClaim.objects.filter(
-                company=self.transaction.company,
-                status=ExpenseClaimStatus.APPROVED,
-                created_at__date__lte=cutoff_date,
-            )
-            if employee and employee.user_id:
-                claim_qs = claim_qs.filter(submitted_by_id=employee.user_id)
+            payroll_qs = candidates.employee_payroll_candidates(self.transaction.company, cutoff_date)
 
-            payroll_qs = EmployeePayroll.objects.filter(
-                company=self.transaction.company,
-                is_paid=False,
-            ).filter(
-                Q(period__year__lt=cutoff_date.year)
-                | Q(period__year=cutoff_date.year, period__month__lte=cutoff_date.month)
-            )
+            tax_payment_qs = candidates.planned_tax_payment_candidates(self.transaction.company, cutoff_date)
+            tax_payments = [p for p in tax_payment_qs if not p.is_refund]
 
             return (
                 list(qs) + list(installment_qs) + list(event_qs)
-                + list(claim_qs) + list(payroll_qs)
+                + list(claim_qs) + list(payroll_qs) + tax_payments
             )
 
-        qs = SalesInvoice.objects.filter(
-            company=self.transaction.company,
-            payment_status__in=["unpaid", "partial"],
-            date_issued__lte=cutoff_date,
-        )
-        if self.counterparty:
-            qs = qs.filter(client=self.counterparty)
-        return list(annotate_amount_remaining(qs, SalesInvoice))
+        qs = candidates.sales_invoice_candidates(self.transaction.company, cutoff_date, self.counterparty)
+
+        tax_payment_qs = candidates.planned_tax_payment_candidates(self.transaction.company, cutoff_date)
+        tax_refunds = [p for p in tax_payment_qs if p.is_refund]
+
+        return list(annotate_amount_remaining(qs, SalesInvoice)) + tax_refunds
 
     @staticmethod
     def _determine_method(

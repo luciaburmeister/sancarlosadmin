@@ -1,0 +1,88 @@
+name: Set up Django
+description: >-
+  Python, GDAL, Poetry and the project's dependencies, plus a PostgreSQL
+  service tuned for a throwaway database: everything a job needs before it can
+  run manage.py against the CI database.
+
+inputs:
+  postgres-container:
+    description: The job's postgres service container id (job.services.postgres.id).
+    required: true
+  poetry-version:
+    description: Poetry version to install.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.14'
+
+    # Django's PostGIS backend loads the GDAL/GEOS shared libraries; gdal-bin
+    # pulls them in (PROJ included) and libgdal-dev adds the unversioned
+    # libgdal.so name the lookup can rely on. binutils ships with the runner
+    # image. The packages are cached, so apt only runs when this list (or
+    # `version`) changes; bump `version` to force a refresh. Skipping
+    # man-db's trigger speeds up the uncached install.
+    - name: Skip man-db rebuild on apt installs
+      shell: bash
+      run: sudo rm -f /var/lib/man-db/auto-update
+
+    - name: Install GDAL (cached)
+      uses: awalsh128/cache-apt-pkgs-action@v1
+      with:
+        packages: gdal-bin libgdal-dev gettext
+        # Restoring only unpacks files; some links are made by the packages'
+        # postinst scripts (e.g. libblas.so.3 via update-alternatives), so
+        # run them on restore too.
+        execute_install_scripts: true
+        version: 2
+
+    # A cache restore just unpacks files, so refresh the linker cache for
+    # Django's find_library() lookup of libgdal/libgeos_c.
+    - name: Refresh shared library cache
+      shell: bash
+      run: sudo ldconfig
+
+    - name: Install pipx
+      shell: bash
+      run: python3 -m pip install --user pipx
+
+    - name: Install Poetry with pipx
+      shell: bash
+      run: |
+        python3 -m pipx install poetry==${{ inputs.poetry-version }}
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Configure Poetry to use in-project virtualenv
+      shell: bash
+      run: poetry config virtualenvs.in-project true
+
+    - name: Cache Poetry virtualenv
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: poetry-venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+        restore-keys: |
+          poetry-venv-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: poetry install
+
+    # The CI database is throwaway, so trade crash-safety for speed: skipping
+    # fsync/WAL durability makes the 700+ migrations, per-test flushes and
+    # inserts several times faster on the CI runner's disk.
+    - name: Tune PostgreSQL for a throwaway database
+      shell: bash
+      # One -c per statement: psql runs a multi-statement -c string as a
+      # single transaction, and ALTER SYSTEM refuses to run inside one.
+      run: |
+        docker exec ${{ inputs.postgres-container }} psql -U postgres -d test_db \
+          -v ON_ERROR_STOP=1 \
+          -c "ALTER SYSTEM SET fsync = off" \
+          -c "ALTER SYSTEM SET synchronous_commit = off" \
+          -c "ALTER SYSTEM SET full_page_writes = off" \
+          -c "SELECT pg_reload_conf()"

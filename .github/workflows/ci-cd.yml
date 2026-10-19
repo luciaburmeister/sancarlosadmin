@@ -5,12 +5,14 @@ on:
     branches:
       - main
 
+# The test and migrations jobs need the same database service and settings;
+# YAML anchors keep a single copy of each.
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
+      postgres: &postgres-service
         image: postgis/postgis:15-3.4
         env:
           POSTGRES_USER: postgres
@@ -24,7 +26,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    env:
+    env: &django-env
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
 
       POETRY_VERSION: 2.4.1
@@ -54,56 +56,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Django
+        uses: ./.github/actions/setup-django
         with:
-          python-version: '3.14'
-
-      # Django's PostGIS backend loads the GDAL/GEOS shared libraries; gdal-bin
-      # pulls them in (PROJ included) and libgdal-dev adds the unversioned
-      # libgdal.so name the lookup can rely on. binutils ships with the runner
-      # image. The packages are cached, so apt only runs when this list (or
-      # `version`) changes; bump `version` to force a refresh. Skipping
-      # man-db's trigger speeds up the uncached install.
-      - name: Skip man-db rebuild on apt installs
-        run: sudo rm -f /var/lib/man-db/auto-update
-
-      - name: Install GDAL (cached)
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: gdal-bin libgdal-dev gettext
-          # Restoring only unpacks files; some links are made by the packages'
-          # postinst scripts (e.g. libblas.so.3 via update-alternatives), so
-          # run them on restore too.
-          execute_install_scripts: true
-          version: 2
-
-      # A cache restore just unpacks files, so refresh the linker cache for
-      # Django's find_library() lookup of libgdal/libgeos_c.
-      - name: Refresh shared library cache
-        run: sudo ldconfig
-
-      - name: Install pipx
-        run: python3 -m pip install --user pipx
-
-      - name: Install Poetry with pipx
-        run: |
-          python3 -m pipx install poetry==${{ env.POETRY_VERSION }}
-          echo "${{ env.HOME }}/.local/bin" >> $GITHUB_PATH
-
-      - name: Configure Poetry to use in-project virtualenv
-        run: poetry config virtualenvs.in-project true
-
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: poetry-venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            poetry-venv-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: poetry install
+          postgres-container: ${{ job.services.postgres.id }}
+          poetry-version: ${{ env.POETRY_VERSION }}
 
       # .mo catalogs are build output and not tracked in git. The tests need
       # them (TranslationCoverageTest reads the Spanish catalog), and
@@ -122,56 +79,44 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      # The test database is throwaway, so trade crash-safety for speed:
-      # skipping fsync/WAL durability makes the 700+ migrations, per-test
-      # flushes and inserts several times faster on the CI runner's disk.
-      - name: Tune PostgreSQL for a throwaway test database
-        # One -c per statement: psql runs a multi-statement -c string as a
-        # single transaction, and ALTER SYSTEM refuses to run inside one.
-        run: |
-          docker exec ${{ job.services.postgres.id }} psql -U postgres -d test_db \
-            -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "SELECT pg_reload_conf()"
+      # --durations prints the slowest tests so a new slow test is visible
+      # in the CI log instead of silently inflating the total.
+      - name: Run tests
+        run: poetry run python manage.py test --parallel --durations 25 --timing
 
-      # The test database is built straight from the models (settings sets
-      # TEST["MIGRATE"] = False), so a model change without a migration would
-      # go unnoticed by the tests. Catch it here instead; this takes seconds.
+  # The tests build their database straight from the models (settings sets
+  # TEST["MIGRATE"] = False), so they prove neither that every model change
+  # has a migration nor that the migrations apply to a fresh install (which
+  # deploy does against production). This job checks both on its own runner,
+  # side by side with the tests instead of competing with them for CPU and
+  # the database.
+  migrations:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres: *postgres-service
+
+    env: *django-env
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Django
+        uses: ./.github/actions/setup-django
+        with:
+          postgres-container: ${{ job.services.postgres.id }}
+          poetry-version: ${{ env.POETRY_VERSION }}
+
       - name: Check for missing migrations
         run: poetry run python manage.py makemigrations --check --dry-run
 
-      # The tests build their database from the models, so they no longer prove
-      # the migrations apply to a fresh install (which deploy does against
-      # production). Run `migrate` against the empty test_db in the background
-      # while the tests run against their own test_test_db; the ~4 minutes of
-      # migrations overlap with the tests instead of adding to them.
-      - name: Run tests and apply migrations to an empty database (in parallel)
-        # --durations prints the slowest tests so a new slow test is visible
-        # in the CI log instead of silently inflating the total.
-        run: |
-          poetry run python manage.py migrate --noinput > migrate.log 2>&1 &
-          migrate_pid=$!
-
-          test_status=0
-          poetry run python manage.py test --parallel --durations 25 --timing || test_status=$?
-
-          migrate_status=0
-          wait "$migrate_pid" || migrate_status=$?
-
-          echo "::group::migrate output"
-          cat migrate.log
-          echo "::endgroup::"
-
-          if [ "$migrate_status" -ne 0 ]; then
-            echo "::error::Applying the migrations to an empty database failed (see migrate output above)"
-          fi
-          [ "$test_status" -eq 0 ] && [ "$migrate_status" -eq 0 ]
+      - name: Apply the migrations to an empty database
+        run: poetry run python manage.py migrate --noinput
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [test, migrations]
 
     env:
       POETRY_VERSION: 2.4.1
@@ -219,7 +164,7 @@ jobs:
           echo "DEBUG=False" >> .env
 
       # The EB CLI bundles the working tree (.ebignore), so the catalogs
-      # compiled by the build job ship with the release.
+      # compiled by the test job ship with the release.
       - name: Download compiled translations
         uses: actions/download-artifact@v4
         with:

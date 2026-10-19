@@ -412,20 +412,46 @@ class Asset(CompanyOwnedModel):
             self.zone_changed_at = timezone.now()
         super().save(*args, **kwargs)
 
+    def prefetched_transactions(self):
+        """This asset's prefetched `transactions`, newest first by `date`, or
+        None if nothing was prefetched.
+
+        Callers (on this model and in AssetListItemSerializer) use this to
+        avoid a fresh query per asset when listing many assets at once —
+        the caller must have prefetched with an explicit `order_by("-date")`
+        queryset, since AssetTransaction's own default ordering is
+        `-created_at`. When None, callers fall back to their original
+        per-call queryset, so single-asset lookups (San Carlos app, admin,
+        etc.) are unaffected.
+        """
+        cache = getattr(self, "_prefetched_objects_cache", {})
+        prefetched = cache.get("transactions")
+        if prefetched is None:
+            return None
+        return sorted(prefetched, key=lambda t: t.date, reverse=True)
+
     @property
     def has_pending_receipt(self) -> bool:
-        last_movement = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
-        if last_movement is None:
-            return False
-        last_receipt = self.transactions.filter(transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
+        cached = self.prefetched_transactions()
+        if cached is not None:
+            last_movement = next((t for t in cached if t.transaction_type == TransactionTypeChoices.MOVEMENT), None)
+            if last_movement is None:
+                return False
+            last_receipt = next((t for t in cached if t.transaction_type == TransactionTypeChoices.RECEIPT), None)
+        else:
+            last_movement = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
+            if last_movement is None:
+                return False
+            last_receipt = self.transactions.filter(transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
         if last_receipt is None:
             return False
         return last_receipt.date > last_movement.date
 
     def current_transaction_status(self, last_transaction=None) -> str:
         """AssetCurrentStatus derived from this asset's own transaction history."""
+        cached = self.prefetched_transactions()
         if last_transaction is None:
-            last_transaction = self.transactions.order_by("-date").first()
+            last_transaction = (cached[0] if cached else None) if cached is not None else self.transactions.order_by("-date").first()
         if last_transaction is None:
             return AssetCurrentStatus.AVAILABLE
         if last_transaction.transaction_type in (
@@ -440,15 +466,22 @@ class Asset(CompanyOwnedModel):
             TransactionTypeChoices.PORTE_LOAD,
             TransactionTypeChoices.PORTE_DELIVERY,
         ):
-            prev = self.transactions.filter(
-                date__lt=last_transaction.date,
-            ).exclude(
-                transaction_type__in=(
-                    TransactionTypeChoices.RECEIPT,
-                    TransactionTypeChoices.PORTE_LOAD,
-                    TransactionTypeChoices.PORTE_DELIVERY,
-                ),
-            ).order_by("-date").first()
+            excluded_types = (
+                TransactionTypeChoices.RECEIPT,
+                TransactionTypeChoices.PORTE_LOAD,
+                TransactionTypeChoices.PORTE_DELIVERY,
+            )
+            if cached is not None:
+                prev = next(
+                    (t for t in cached if t.date < last_transaction.date and t.transaction_type not in excluded_types),
+                    None,
+                )
+            else:
+                prev = self.transactions.filter(
+                    date__lt=last_transaction.date,
+                ).exclude(
+                    transaction_type__in=excluded_types,
+                ).order_by("-date").first()
             return self.current_transaction_status(prev)
         return AssetCurrentStatus.AVAILABLE
 
@@ -465,6 +498,9 @@ class Asset(CompanyOwnedModel):
     @property
     def last_movement_transaction(self):
         """Most recent pickup (MOVEMENT) transaction for this asset, or None."""
+        cached = self.prefetched_transactions()
+        if cached is not None:
+            return next((t for t in cached if t.transaction_type == TransactionTypeChoices.MOVEMENT), None)
         return self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
 
     @property
@@ -480,9 +516,16 @@ class Asset(CompanyOwnedModel):
             return None
         if not last_movement.is_full_cuba:
             return None
-        already_done = self.transactions.filter(
-            transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date,
-        ).exists()
+        cached = self.prefetched_transactions()
+        if cached is not None:
+            already_done = any(
+                t.transaction_type == TransactionTypeChoices.RECEIPT and t.date > last_movement.date
+                for t in cached
+            )
+        else:
+            already_done = self.transactions.filter(
+                transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date,
+            ).exists()
         if already_done:
             return None
         return last_movement

@@ -318,7 +318,10 @@ class AssetListItemSerializer(serializers.Serializer):
 
     def _last_transaction(self, asset):
         if asset.pk not in self._last_tx_cache:
-            self._last_tx_cache[asset.pk] = asset.transactions.order_by("-date").first()
+            cached = asset.prefetched_transactions()
+            self._last_tx_cache[asset.pk] = (
+                (cached[0] if cached else None) if cached is not None else asset.transactions.order_by("-date").first()
+            )
         return self._last_tx_cache[asset.pk]
 
     def _zone_coords(self, asset):
@@ -335,10 +338,17 @@ class AssetListItemSerializer(serializers.Serializer):
         return asset.verteo_pending_transaction is not None
 
     def get_last_cuba_estado(self, asset):
-        last_state_tx = AssetTransaction.objects.filter(
-            asset=asset,
-            transaction_type__in=[TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY],
-        ).order_by("-date").first()
+        cached = asset.prefetched_transactions()
+        if cached is not None:
+            last_state_tx = next(
+                (t for t in cached if t.transaction_type in (TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY)),
+                None,
+            )
+        else:
+            last_state_tx = AssetTransaction.objects.filter(
+                asset=asset,
+                transaction_type__in=[TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY],
+            ).order_by("-date").first()
         return (last_state_tx.data.get(CubaTransactionKey.ESTADO) or None) if last_state_tx else None
 
     def get_last_location(self, asset):

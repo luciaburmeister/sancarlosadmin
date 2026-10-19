@@ -7,6 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
+from django.db.models import Prefetch
 from assets.constants import AssignRequestKey
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey, AssetDataKey
 from django.http import HttpResponse, JsonResponse
@@ -131,7 +132,9 @@ class AssetsListView(APIView):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"assets": []})
-        assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=employee)
+        assets = Asset.objects.select_related("asset_type", "current_working_zone").prefetch_related(
+            Prefetch("transactions", queryset=AssetTransaction.objects.order_by("-date")),
+        ).filter(assigned_to=employee)
         return JsonResponse({"assets": AssetListItemSerializer(assets, many=True).data})
 
 

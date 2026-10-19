@@ -208,10 +208,12 @@ class ReportRunAdminView(UnfoldModelAdminViewMixin, FormView):
         can_generate = (
             self.report.status == ReportGenerationStatus.CONFIRM and can_edit
         )
-        summary = self.report.generation_summary
-        if can_generate and self.report.spec:
+        summary = (self.report.generation_summary or "").strip()
+        if not summary and can_generate and self.report.spec:
             try:
-                summary = describe_spec(ReportSpec.from_dict(self.report.spec))
+                summary = " ".join(
+                    describe_spec(spec) for spec in self.report.sections()
+                )
             except ReportSpecError:
                 pass
         self.title = self.report.name
@@ -244,19 +246,28 @@ class ReportRunAdminView(UnfoldModelAdminViewMixin, FormView):
             self._show_proposal = True
             return None
         try:
-            spec = ReportSpec.from_dict(self.report.spec)
+            sections = self.report.sections()
         except ReportSpecError as exc:
             messages.error(request, str(exc))
+            return redirect(reverse("admin:reports_report_changelist"))
+        if not sections:
+            messages.error(request, _("This report has no runnable sections."))
             return redirect(reverse("admin:reports_report_changelist"))
         companies = self._companies_for_run(request)
         self._run_companies = companies
         previous_ids = ActiveCompany.get_current_ids()
         if companies:
             ActiveCompany.set_current_ids([company.pk for company in companies])
+        resolved: list[ReportSpec] = []
+        runtime_warnings: list[str] = []
         try:
-            self.spec, runtime_warnings = resolve_spec_names(spec, request.user)
+            for spec in sections:
+                section, warnings = resolve_spec_names(spec, request.user)
+                resolved.append(section)
+                runtime_warnings.extend(warnings)
         finally:
             ActiveCompany.set_current_ids(previous_ids)
+        self.specs = resolved
         for warning in runtime_warnings:
             messages.warning(request, warning)
         return None
@@ -295,13 +306,68 @@ class ReportRunAdminView(UnfoldModelAdminViewMixin, FormView):
             return self.render_to_response(self.get_context_data(form=form))
 
         context = self.get_context_data(form=form)
-        if request.GET.get("export") == "xlsx" and context.get("table_data"):
-            return self._export_xlsx(context["table_data"])
+        if request.GET.get("export") == "xlsx" and context.get("sections_data"):
+            has_rows = any(
+                section["table_data"] and section["table_data"]["rows"]
+                for section in context["sections_data"]
+            )
+            if has_rows:
+                return self._export_xlsx(context["sections_data"])
         return self.render_to_response(context)
 
     def get_form(self, form_class=None):
         data = self.request.GET if self.request.GET else None
-        return build_parameter_form(self.spec, data=data)
+        return build_parameter_form(self.specs, data=data)
+
+    def _section_chart_label(self, spec: ReportSpec) -> str:
+        if spec.chart_value_aggregation:
+            return spec.chart_value_aggregation
+        counts = [
+            agg.alias
+            for agg in spec.aggregations
+            if agg.function == AggregationFunction.COUNT
+        ]
+        if counts:
+            return counts[0]
+        if spec.aggregations:
+            return spec.aggregations[0].alias
+        return ""
+
+    def _compile_section(
+        self, spec: ReportSpec, parameter_values: dict, *, index: int
+    ) -> dict:
+        dataset = get_dataset(spec.dataset)
+        result = ReportCompiler().compile(
+            spec,
+            self.request.user,
+            parameter_values=parameter_values,
+            companies=getattr(self, "_run_companies", None)
+            or self._companies_for_run(self.request),
+        )
+        export_rows = [
+            [row.get(col, "") for col in result.columns] for row in result.rows
+        ]
+        table_data = {
+            "headers": list(result.columns),
+            "rows": self._build_display_rows(result, dataset, export_rows),
+            "export_rows": export_rows,
+        }
+        chart_note = ""
+        if result.chart_is_top and result.chart_labels:
+            chart_note = _("Top %(count)s") % {"count": len(result.chart_labels)}
+        return {
+            "spec": spec,
+            "dataset_label": dataset.label,
+            "result": result,
+            "table_data": table_data,
+            "chart_labels": result.chart_labels or [],
+            "chart_values": result.chart_values or [],
+            "chart_value_label": self._section_chart_label(spec),
+            "chart_note": chart_note,
+            "chart_canvas_id": f"report-chart-{index}",
+            "chart_labels_id": f"report-chart-labels-{index}",
+            "chart_values_id": f"report-chart-values-{index}",
+        }
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -315,76 +381,45 @@ class ReportRunAdminView(UnfoldModelAdminViewMixin, FormView):
             if value not in (None, "")
         }
 
-        result = None
+        sections_data: list[dict] = []
         error = None
-        table_data = None
-        chart_labels = []
-        chart_values = []
-        chart_value_label = ""
-        chart_note = ""
         try:
-            result = ReportCompiler().compile(
-                self.spec,
-                self.request.user,
-                parameter_values=parameter_values,
-                companies=getattr(self, "_run_companies", None)
-                or self._companies_for_run(self.request),
-            )
-            export_rows = [
-                [row.get(col, "") for col in result.columns] for row in result.rows
-            ]
-            dataset = get_dataset(self.spec.dataset)
-            table_data = {
-                "headers": list(result.columns),
-                "rows": self._build_display_rows(result, dataset, export_rows),
-                "export_rows": export_rows,
-            }
-            if result.chart_labels:
-                chart_labels = result.chart_labels
-                chart_values = result.chart_values
-                chart_value_label = self.spec.chart_value_aggregation or ""
-                if not chart_value_label:
-                    counts = [
-                        agg.alias
-                        for agg in self.spec.aggregations
-                        if agg.function == AggregationFunction.COUNT
-                    ]
-                    chart_value_label = counts[0] if counts else (
-                        self.spec.aggregations[0].alias
-                        if self.spec.aggregations
-                        else ""
-                    )
-                if result.chart_is_top:
-                    chart_note = _("Top %(count)s") % {"count": len(chart_labels)}
+            for index, spec in enumerate(self.specs):
+                sections_data.append(
+                    self._compile_section(spec, parameter_values, index=index)
+                )
         except ReportPermissionDenied:
             error = _("You do not have permission to view this report's data.")
+            sections_data = []
         except ReportSpecError as exc:
             error = str(exc)
+            sections_data = []
         except (ValueError, TypeError) as exc:
             error = _(
                 "Could not run this report with the saved filters (%(error)s)."
             ) % {"error": exc}
+            sections_data = []
 
         query = self.request.GET.copy()
         query.pop("export", None)
         export_query = query.copy()
         export_query["export"] = "xlsx"
+        domain_labels = [section["dataset_label"] for section in sections_data]
 
         context.update(
             {
                 "title": self.report.name,
                 "report": self.report,
-                "spec": self.spec,
-                "result": result,
+                "specs": self.specs,
+                "sections_data": sections_data,
+                "domain_labels": domain_labels,
+                "generation_summary": (self.report.generation_summary or "").strip(),
                 "run_error": error,
                 "parameter_form": form,
-                "table_data": table_data,
-                "chart_labels": chart_labels,
-                "chart_values": chart_values,
-                "chart_value_label": chart_value_label,
-                "chart_note": chart_note,
                 "changelist_url": reverse("admin:reports_report_changelist"),
-                "export_url": f"{self.request.path}?{urlencode(export_query, doseq=True)}",
+                "export_url": (
+                    f"{self.request.path}?{urlencode(export_query, doseq=True)}"
+                ),
                 "can_edit": (
                     self.report.owner_id == self.request.user.pk
                     or self.request.user.is_superuser
@@ -435,15 +470,17 @@ class ReportRunAdminView(UnfoldModelAdminViewMixin, FormView):
             display_rows.append([linked_cell, *row_values[1:]])
         return display_rows
 
-    def _export_xlsx(self, table_data: dict) -> HttpResponse:
-        headers = table_data["headers"]
-        export_rows = table_data.get("export_rows", table_data["rows"])
+    def _export_xlsx(self, sections_data: list[dict]) -> HttpResponse:
         builder = ExcelWorkbookBuilder()
-        builder.add_sheet(
-            title=str(_("Report")),
-            columns=headers,
-            rows=[dict(zip(headers, row)) for row in export_rows],
-        )
+        for section in sections_data:
+            table_data = section["table_data"]
+            headers = table_data["headers"]
+            export_rows = table_data.get("export_rows", table_data["rows"])
+            builder.add_sheet(
+                title=str(section["dataset_label"]),
+                columns=headers,
+                rows=[dict(zip(headers, row)) for row in export_rows],
+            )
         filename = f"report-{self.report.pk}.xlsx"
         response = HttpResponse(
             builder.build(),

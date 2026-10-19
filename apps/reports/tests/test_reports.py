@@ -1870,6 +1870,7 @@ class ClaudeReportClassifierTests(TestCase):
         )
 
         self.assertEqual(result.domain, ReportDomain.SALES_INVOICES)
+        self.assertEqual(result.domains, [ReportDomain.SALES_INVOICES])
         self.assertEqual(result.confidence, 0.92)
         self.assertFalse(result.needs_clarification)
         self.assertEqual(result.source, "claude")
@@ -2145,6 +2146,32 @@ class ReportCreationGateTests(ReportTestCase):
         self.assertEqual(result.report.name, "Invoices by status")
         self.assertEqual(result.report.domain, ReportDomain.SALES_INVOICES)
         openai.generate.assert_called_once()
+
+    def test_create_saves_one_section_per_dataset(self):
+        quote_perm = Permission.objects.get(codename="view_quote")
+        self.user.user_permissions.add(quote_perm)
+        self.user = User.objects.get(pk=self.user.pk)
+        classifier = MagicMock()
+        classifier.classify.return_value = ReportClassification(
+            domain=ReportDomain.SALES_INVOICES,
+            domains=[ReportDomain.SALES_INVOICES, ReportDomain.QUOTES],
+            confidence=0.95,
+            needs_clarification=False,
+        )
+        openai = MagicMock()
+
+        def generate(prompt, domain, context=None, api_key=""):
+            return (_spec(domain, aggregations=[_agg("*", "count", "n")]), domain)
+
+        openai.generate.side_effect = generate
+        service = ReportCreationService(classifier=classifier, spec_generator=openai)
+        ActiveCompany.set_current_ids([self.company.pk])
+        result = service.create(user=self.user, prompt="Facturas y presupuestos")
+        self.assertEqual(
+            [section.dataset for section in result.report.sections()],
+            [ReportDomain.SALES_INVOICES, ReportDomain.QUOTES],
+        )
+        self.assertEqual(openai.generate.call_count, 2)
 
     def test_describe_spec_names_the_grouping_and_period(self):
         spec = _invoice_spec(

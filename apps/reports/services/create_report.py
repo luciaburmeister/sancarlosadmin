@@ -59,6 +59,14 @@ class ReportCreationResult:
     suggestions: list[str] = field(default_factory=list)
 
 
+@dataclass
+class GeneratedReportDraft:
+    specs: list[ReportSpec]
+    name: str
+    gaps: list[str] = field(default_factory=list)
+    summaries: list[str] = field(default_factory=list)
+
+
 class ReportCreationService:
     def __init__(
         self,
@@ -113,6 +121,21 @@ class ReportCreationService:
             return raw
         spec, name = raw
         return SpecGeneration(spec=spec, name=name)
+
+    @staticmethod
+    def _summary_for(
+        specs: list[ReportSpec], narratives: list[str] | None = None
+    ) -> str:
+        """Prefer the model's per-section summary; fall back to describe_spec."""
+
+        parts: list[str] = []
+        narratives = list(narratives or [])
+        for index, spec in enumerate(specs):
+            narrative = ""
+            if index < len(narratives):
+                narrative = (narratives[index] or "").strip()
+            parts.append(narrative or describe_spec(spec))
+        return " ".join(part for part in parts if part)
 
     def _resolve_companies(
         self,
@@ -181,27 +204,44 @@ class ReportCreationService:
             )
             return None, classification, message, [], suggestions
 
-        dataset = get_dataset(classification.domain)
-        if not user.has_perm(dataset.permission):
+        permitted = []
+        for domain in classification.supported_domains:
+            dataset = get_dataset(domain)
+            if user.has_perm(dataset.permission):
+                permitted.append(domain)
+        if not permitted:
+            denied = classification.supported_domains[0]
             raise PermissionDenied(
                 _("You do not have permission to create %(domain)s reports.")
-                % {"domain": ReportDomain(classification.domain).label}
+                % {"domain": ReportDomain(denied).label}
             )
 
+        context = ReportGenerationContext(
+            today=timezone.localdate(),
+            company_names=active_company_names(user),
+            client_names=active_client_names(user),
+        )
+        specs: list[ReportSpec] = []
+        summaries: list[str] = []
+        warnings: list[str] = []
+        gaps: list[str] = []
+        name = ""
         try:
-            context = ReportGenerationContext(
-                today=timezone.localdate(),
-                company_names=active_company_names(user),
-                client_names=active_client_names(user),
-            )
-            raw = self.spec_generator.generate(
-                prompt, classification.domain, context=context, api_key=api_key
-            )
-            draft = self._as_draft(raw)
-            if draft.spec is None:
-                return draft, classification, draft.gap, [], []
-            spec, warnings = resolve_spec_names(draft.spec, user)
-            draft = replace(draft, spec=spec)
+            for domain in permitted:
+                raw = self.spec_generator.generate(
+                    prompt, domain, context=context, api_key=api_key
+                )
+                draft = self._as_draft(raw)
+                if draft.spec is None:
+                    if draft.gap:
+                        gaps.append(draft.gap)
+                    continue
+                spec, name_warnings = resolve_spec_names(draft.spec, user)
+                warnings.extend(name_warnings)
+                specs.append(spec)
+                summaries.append((draft.summary or "").strip())
+                if not name:
+                    name = draft.name
         except ClaudeAPIKeyMissing as exc:
             raise ReportCreationError(missing_key) from exc
         except (ClaudeSpecError, OpenAISpecError) as exc:
@@ -209,7 +249,30 @@ class ReportCreationService:
                 _("Could not generate the report: %(error)s") % {"error": str(exc)}
             ) from exc
 
-        return draft, classification, _("Report created."), warnings, []
+        if not specs:
+            gap_message = (
+                " ".join(gaps) if gaps else _("Could not generate the report.")
+            )
+            return (
+                GeneratedReportDraft(specs=[], name="", gaps=gaps),
+                classification,
+                gap_message,
+                warnings,
+                [],
+            )
+
+        return (
+            GeneratedReportDraft(
+                specs=specs,
+                name=name or prompt[:200],
+                gaps=gaps,
+                summaries=summaries,
+            ),
+            classification,
+            _("Report created."),
+            warnings + gaps,
+            [],
+        )
 
     def apply(self, report: Report) -> None:
         """Fill a saved report from its prompt. The caller persists the row first."""
@@ -278,10 +341,12 @@ class ReportCreationService:
             )
             return
 
-        if generated.spec is None:
+        if not generated.specs:
             report.status = ReportGenerationStatus.ERROR
             report.spec = {}
-            report.generation_error = generated.gap or message
+            report.generation_error = (
+                " ".join(generated.gaps) if generated.gaps else message
+            )
             report.generation_summary = ""
             report.generation_suggestions = []
             report.save(
@@ -296,14 +361,18 @@ class ReportCreationService:
             )
             return
 
-        spec = self.scope_to_companies(generated.spec, companies)
+        scoped = [
+            self.scope_to_companies(spec, companies) for spec in generated.specs
+        ]
         report.company = self._record_company(companies, current=report.company)
         report.name = generated.name
         report.prompt = prompt
-        report.domain = classification.domain
-        report.spec = spec.to_dict()
+        report.domain = scoped[0].dataset
+        report.spec = Report.specs_payload(scoped)
         report.status = ReportGenerationStatus.CONFIRM
-        report.generation_summary = describe_spec(spec)
+        report.generation_summary = self._summary_for(
+            scoped, narratives=generated.summaries
+        )
         report.generation_error = ""
         report.generation_suggestions = []
         report.save(
@@ -357,19 +426,21 @@ class ReportCreationService:
                 suggestions=suggestions,
             )
 
-        if generated.spec is None:
-            raise ReportCreationError(generated.gap or message)
-        spec, name = generated.spec, generated.name
-        spec = self.scope_to_companies(spec, chosen)
+        if not generated.specs:
+            raise ReportCreationError(message)
+        scoped = [self.scope_to_companies(spec, chosen) for spec in generated.specs]
 
         report = Report.objects.create(
             company=billing,
             owner=user,
-            name=name,
+            name=generated.name,
             prompt=prompt,
-            domain=classification.domain,
-            spec=spec.to_dict(),
+            domain=scoped[0].dataset,
+            spec=Report.specs_payload(scoped),
             visibility=visibility,
+            generation_summary=self._summary_for(
+                scoped, narratives=generated.summaries
+            ),
         )
         report.included_companies.set(chosen)
         return ReportCreationResult(
@@ -426,17 +497,27 @@ class ReportCreationService:
                 suggestions=suggestions,
             )
 
-        if generated.spec is None:
-            raise ReportCreationError(generated.gap or message)
-        spec, name = generated.spec, generated.name
+        if not generated.specs:
+            raise ReportCreationError(message)
+        scoped = list(generated.specs)
         if chosen is not None:
-            spec = self.scope_to_companies(spec, chosen)
+            scoped = [self.scope_to_companies(spec, chosen) for spec in scoped]
             report.company = billing
-        report.name = name
+        report.name = generated.name
         report.prompt = prompt
-        report.domain = classification.domain
-        report.spec = spec.to_dict()
-        update_fields = ["name", "prompt", "domain", "spec", "updated_at"]
+        report.domain = scoped[0].dataset
+        report.spec = Report.specs_payload(scoped)
+        report.generation_summary = self._summary_for(
+            scoped, narratives=generated.summaries
+        )
+        update_fields = [
+            "name",
+            "prompt",
+            "domain",
+            "spec",
+            "generation_summary",
+            "updated_at",
+        ]
         if companies is not None:
             update_fields.append("company")
         if visibility is not None:

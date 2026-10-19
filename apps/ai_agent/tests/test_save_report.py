@@ -150,3 +150,47 @@ class SaveChatReportTests(TestCase):
         self.assertEqual(report.name, "Desde el chat")
         self.assertEqual(report.owner_id, self.user.pk)
         self.assertIn(str(report.pk), payload["url"])
+
+    def test_saves_every_dataset_and_the_chat_reply(self):
+        reply = (
+            "En San Carlos van 12 facturas.\n\n"
+            "| Mes | Facturado |\n| --- | --- |\n| enero | 1200 |"
+        )
+        quotes = _aggregate_call()
+        quotes["input"] = {
+            **quotes["input"],
+            "dataset": "quotes",
+            "dimensions": ["status"],
+            "aggregations": [
+                {"measure": "*", "function": "count", "alias": "presupuestos"}
+            ],
+            "chart": "none",
+            "chart_label_dimension": None,
+            "chart_value_aggregation": None,
+            "filters": [
+                {"field": "company", "op": "icontains", "value": "Otra"},
+            ],
+        }
+        message = AIMessage.objects.create(
+            conversation=self.conversation,
+            role=AIMessage.Role.ASSISTANT,
+            content=[{"type": "text", "text": reply}],
+            display_text=reply,
+            tool_calls=[_aggregate_call(), quotes],
+        )
+        report = save_report_from_message(
+            user=self.user,
+            message=message,
+            name="Facturas y presupuestos",
+            visibility=ReportVisibility.PRIVATE,
+            prompt="Facturas y presupuestos",
+        )
+        self.assertEqual(
+            [section.dataset for section in report.sections()],
+            ["sales_invoices", "quotes"],
+        )
+        self.assertEqual(report.generation_summary, reply)
+        self.assertEqual(
+            set(report.included_companies.values_list("name", flat=True)),
+            {"San Carlos", "Otra"},
+        )

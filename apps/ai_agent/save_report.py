@@ -6,7 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext as _
 
 from apps.ai_agent.models import AIMessage
-from apps.reports.constants import ReportDomain, ReportVisibility
+from apps.reports.constants import MAX_REPORT_SECTIONS, ReportDomain, ReportVisibility
 from apps.reports.models import Report
 from apps.reports.services.create_report import ReportCreationService
 from apps.reports.spec import ReportSpec, ReportSpecError
@@ -18,11 +18,14 @@ class SaveReportError(Exception):
     """The reply cannot be stored as a report."""
 
 
-def _aggregate_input(message: AIMessage) -> dict:
-    for call in reversed(message.tool_calls or []):
+def _aggregate_inputs(message: AIMessage) -> list[dict]:
+    inputs = []
+    for call in message.tool_calls or []:
         if call.get("name") == "aggregate" and isinstance(call.get("input"), dict):
-            return call["input"]
-    raise SaveReportError(_("This reply has no report to save."))
+            inputs.append(call["input"])
+    if not inputs:
+        raise SaveReportError(_("This reply has no report to save."))
+    return inputs[:MAX_REPORT_SECTIONS]
 
 
 def _spec_from_input(tool_input: dict) -> ReportSpec:
@@ -105,19 +108,24 @@ def save_report_from_message(
     if not allowed:
         raise SaveReportError(_("No active company available."))
 
-    spec = _spec_from_input(_aggregate_input(message))
-    chosen = sorted(
-        _named_companies(allowed, spec), key=lambda item: (item.name, item.pk)
-    )
-    spec = ReportCreationService.scope_to_companies(spec, chosen)
-    domain = spec.dataset if spec.dataset in ReportDomain.values else ""
+    specs = [_spec_from_input(raw) for raw in _aggregate_inputs(message)]
+    chosen_by_id = {}
+    scoped = []
+    for spec in specs:
+        named = _named_companies(allowed, spec)
+        for company in named:
+            chosen_by_id[company.pk] = company
+        scoped.append(ReportCreationService.scope_to_companies(spec, named))
+    chosen = sorted(chosen_by_id.values(), key=lambda item: (item.name, item.pk))
+    domain = scoped[0].dataset if scoped[0].dataset in ReportDomain.values else ""
     report = Report.objects.create(
         company=min(chosen, key=lambda item: item.pk),
         owner=user,
         name=name[:200],
         prompt=(prompt or name)[:4000],
         domain=domain,
-        spec=spec.to_dict(),
+        spec=Report.specs_payload(scoped),
+        generation_summary=(message.display_text or "").strip(),
         visibility=visibility,
     )
     report.included_companies.set(chosen)

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from apps.reports.constants import (
     CLASSIFICATION_CONFIDENCE_THRESHOLD,
+    MAX_REPORT_SECTIONS,
     ReportDomain,
     SUPPORTED_DOMAINS,
 )
+
+_SUPPORTED_VALUES = {d.value for d in SUPPORTED_DOMAINS}
 
 
 @dataclass(frozen=True)
@@ -17,14 +20,22 @@ class ReportClassification:
     confidence: float
     needs_clarification: bool
     source: str = "openai"
+    domains: list[str] = field(default_factory=list)
+
+    @property
+    def supported_domains(self) -> list[str]:
+        raw = list(self.domains) if self.domains else [self.domain]
+        chosen: list[str] = []
+        for item in raw:
+            if item in _SUPPORTED_VALUES and item not in chosen:
+                chosen.append(item)
+        return chosen
 
     @property
     def is_clear(self) -> bool:
         if self.needs_clarification:
             return False
-        if self.domain == ReportDomain.UNSUPPORTED:
-            return False
-        if self.domain not in {d.value for d in SUPPORTED_DOMAINS}:
+        if not self.supported_domains:
             return False
         return self.confidence >= CLASSIFICATION_CONFIDENCE_THRESHOLD
 
@@ -33,16 +44,23 @@ class ReportClassificationPrompt:
     """The tool schema and system prompt ``ClaudeReportClassifier`` uses."""
 
     TOOL_NAME = "classify_report_domain"
-    TOOL_DESCRIPTION = "Classify which ERP reporting domain this request belongs to."
+    TOOL_DESCRIPTION = (
+        "Classify which ERP reporting domain(s) this request belongs to."
+    )
 
     SCHEMA = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["domain", "confidence", "needs_clarification"],
+        "required": ["domains", "confidence", "needs_clarification"],
         "properties": {
-            "domain": {
-                "type": "string",
-                "enum": [d.value for d in ReportDomain],
+            "domains": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_REPORT_SECTIONS,
+                "items": {
+                    "type": "string",
+                    "enum": [d.value for d in ReportDomain],
+                },
             },
             "confidence": {
                 "type": "number",
@@ -216,7 +234,11 @@ class ReportClassificationPrompt:
             for key, description in cls.DOMAIN_CRITERIA.items()
         )
         return (
-            "You classify ERP report requests into one domain. "
+            "You classify ERP report requests into one or more domains "
+            f"(at most {MAX_REPORT_SECTIONS}). Return a list of domains "
+            "when the request clearly asks for several datasets in one "
+            "report (e.g. invoices and quotes for the same client). "
+            "Otherwise return a single-domain list. "
             "Return a confidence between 0 and 1. "
             "Set needs_clarification true ONLY when the request is so vague "
             "that neither a metric nor a grouping can be inferred "

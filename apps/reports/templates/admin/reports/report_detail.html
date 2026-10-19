@@ -5,6 +5,29 @@
 {{ block.super }}
 {% if parameter_form %}{{ parameter_form.media }}{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% if generation_summary %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  .report-md p { margin: 0.4rem 0; }
+  .report-md ul, .report-md ol { margin: 0.4rem 0; padding-left: 1.25rem; }
+  .report-md ul { list-style: disc; }
+  .report-md ol { list-style: decimal; }
+  .report-md li { margin: 0.2rem 0; }
+  .report-md strong { font-weight: 600; }
+  .report-md table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.875rem; }
+  .report-md th, .report-md td {
+    text-align: left;
+    padding: 0.4rem 0.75rem 0.4rem 0;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  }
+  .report-md th {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+</style>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -27,12 +50,36 @@
           {{ report.prompt }}
         </p>
         <p class="mt-2 text-xs text-font-subtle-light dark:text-font-subtle-dark">
-          {% trans "Domain" %}: {{ report.get_domain_display }} ·
+          {% trans "Domain" %}:
+          {% if domain_labels %}
+            {{ domain_labels|join:", " }}
+          {% else %}
+            {{ report.get_domain_display }}
+          {% endif %}
+          ·
           {% trans "Visibility" %}: {{ report.get_visibility_display }}
         </p>
+        {% if generation_summary %}
+          <div class="mt-4">
+            <p class="text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">
+              {% translate "Summary" context "report narrative" %}
+            </p>
+            <div id="report-summary" class="report-md mt-1 text-sm text-font-important-light dark:text-font-important-dark"></div>
+          </div>
+          {{ generation_summary|json_script:"report-summary-md" }}
+          <script>
+            (function () {
+              const source = document.getElementById("report-summary-md");
+              const target = document.getElementById("report-summary");
+              if (!source || !target || typeof marked === "undefined") return;
+              marked.setOptions({ breaks: true, gfm: true });
+              target.innerHTML = marked.parse(JSON.parse(source.textContent) || "");
+            })();
+          </script>
+        {% endif %}
       </div>
       <div class="flex flex-wrap gap-2">
-        {% if export_url and table_data.rows %}
+        {% if export_url and sections_data %}
           {% component "unfold/components/button.html" with href=export_url variant="primary" %}
             {% trans "Download Excel" %}
           {% endcomponent %}
@@ -72,71 +119,77 @@
   {% component "unfold/components/card.html" with title=title_error %}
     <p class="p-2 text-sm text-red-700 dark:text-red-400">{{ run_error }}</p>
   {% endcomponent %}
-  {% elif result %}
+  {% elif sections_data %}
 
-    {% if chart_labels %}
-    {% component "unfold/components/card.html" with title=title_chart %}
-      <div class="p-2">
-        <canvas id="report-chart" height="120"></canvas>
-        {% if chart_note %}
-          <p class="mt-2 text-xs text-font-subtle-light dark:text-font-subtle-dark">{{ chart_note }}</p>
-        {% endif %}
-      </div>
-      {{ chart_labels|json_script:"report-chart-labels" }}
-      {{ chart_values|json_script:"report-chart-values" }}
-      <script>
-        (function () {
-          const ctx = document.getElementById("report-chart");
-          const labelsNode = document.getElementById("report-chart-labels");
-          const valuesNode = document.getElementById("report-chart-values");
-          if (!ctx || !labelsNode || !valuesNode || typeof Chart === "undefined") return;
-          const isDark = document.documentElement.classList.contains("dark");
-          // Single validated hue (contrast-checked at this alpha against both
-          // surfaces) — one series never needs more than one color.
-          const textColor = isDark ? "#c3c2b7" : "#52514e";
-          const gridColor = isDark ? "#2a2a28" : "#e5e5e3";
-          new Chart(ctx, {
-            type: "{{ result.chart_type|escapejs }}",
-            data: {
-              labels: JSON.parse(labelsNode.textContent),
-              datasets: [{
-                label: "{{ chart_value_label|escapejs }}",
-                data: JSON.parse(valuesNode.textContent),
-                backgroundColor: "rgba(13, 148, 136, 0.9)",
-                borderColor: "rgb(13, 148, 136)",
-                borderWidth: 1,
-                tension: 0.2,
-              }],
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                legend: { display: true, labels: { color: textColor } },
+    {% for section in sections_data %}
+      {% if sections_data|length > 1 %}
+        <h2 class="text-lg font-semibold text-font-important-light dark:text-font-important-dark">
+          {{ section.dataset_label }}
+        </h2>
+      {% endif %}
+
+      {% if section.chart_labels %}
+      {% component "unfold/components/card.html" with title=title_chart %}
+        <div class="p-2">
+          <canvas id="{{ section.chart_canvas_id }}" height="120"></canvas>
+          {% if section.chart_note %}
+            <p class="mt-2 text-xs text-font-subtle-light dark:text-font-subtle-dark">{{ section.chart_note }}</p>
+          {% endif %}
+        </div>
+        {{ section.chart_labels|json_script:section.chart_labels_id }}
+        {{ section.chart_values|json_script:section.chart_values_id }}
+        <script>
+          (function () {
+            const ctx = document.getElementById("{{ section.chart_canvas_id|escapejs }}");
+            const labelsNode = document.getElementById("{{ section.chart_labels_id|escapejs }}");
+            const valuesNode = document.getElementById("{{ section.chart_values_id|escapejs }}");
+            if (!ctx || !labelsNode || !valuesNode || typeof Chart === "undefined") return;
+            const isDark = document.documentElement.classList.contains("dark");
+            const textColor = isDark ? "#c3c2b7" : "#52514e";
+            const gridColor = isDark ? "#2a2a28" : "#e5e5e3";
+            new Chart(ctx, {
+              type: "{{ section.result.chart_type|escapejs }}",
+              data: {
+                labels: JSON.parse(labelsNode.textContent),
+                datasets: [{
+                  label: "{{ section.chart_value_label|escapejs }}",
+                  data: JSON.parse(valuesNode.textContent),
+                  backgroundColor: "rgba(13, 148, 136, 0.9)",
+                  borderColor: "rgb(13, 148, 136)",
+                  borderWidth: 1,
+                  tension: 0.2,
+                }],
               },
-              scales: {
-                x: { ticks: { color: textColor }, grid: { color: gridColor } },
-                y: {
-                  beginAtZero: true,
-                  ticks: { color: textColor },
-                  grid: { color: gridColor },
+              options: {
+                responsive: true,
+                plugins: {
+                  legend: { display: true, labels: { color: textColor } },
+                },
+                scales: {
+                  x: { ticks: { color: textColor }, grid: { color: gridColor } },
+                  y: {
+                    beginAtZero: true,
+                    ticks: { color: textColor },
+                    grid: { color: gridColor },
+                  },
                 },
               },
-            },
-          });
-        })();
-      </script>
-    {% endcomponent %}
-    {% endif %}
-
-    {% component "unfold/components/card.html" with title=title_table %}
-      {% if table_data.rows %}
-        {% component "unfold/components/table.html" with table=table_data card_included=1 striped=1 %}{% endcomponent %}
-      {% else %}
-        <p class="p-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">
-          {% trans "No rows for the current filters." %}
-        </p>
+            });
+          })();
+        </script>
+      {% endcomponent %}
       {% endif %}
-    {% endcomponent %}
+
+      {% component "unfold/components/card.html" with title=title_table %}
+        {% if section.table_data.rows %}
+          {% component "unfold/components/table.html" with table=section.table_data card_included=1 striped=1 %}{% endcomponent %}
+        {% else %}
+          <p class="p-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+            {% trans "No rows for the current filters." %}
+          </p>
+        {% endif %}
+      {% endcomponent %}
+    {% endfor %}
 
   {% endif %}
 

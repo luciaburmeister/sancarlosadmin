@@ -47,17 +47,25 @@ _DATE_LABELS = {
 }
 
 
-def build_parameter_form(spec: ReportSpec, data=None):
-    """Dynamic form for parameter slots; date fields use UnfoldAdminDateWidget."""
+def build_parameter_form(specs: ReportSpec | list[ReportSpec], data=None):
+    """Dynamic form for parameter slots across one or more sections."""
+
+    if isinstance(specs, ReportSpec):
+        specs = [specs]
 
     initial = {}
-    for filt in spec.filters:
-        if filt.parameter and filt.value not in (None, ""):
-            initial[filt.parameter] = filt.value
+    parameter_names: list[str] = []
+    for spec in specs:
+        for filt in spec.filters:
+            if filt.parameter and filt.value not in (None, ""):
+                initial.setdefault(filt.parameter, filt.value)
+        for name in spec.parameters:
+            if name not in parameter_names:
+                parameter_names.append(name)
 
     fields = {}
     has_dates = False
-    for name in spec.parameters:
+    for name in parameter_names:
         if "date" in name.lower():
             has_dates = True
             fields[name] = forms.DateField(

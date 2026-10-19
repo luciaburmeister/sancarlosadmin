@@ -5,10 +5,12 @@ from django.utils.translation import gettext_lazy as _
 from company.models import CompanyOwnedModel
 
 from apps.reports.constants import (
+    MAX_REPORT_SECTIONS,
     ReportDomain,
     ReportGenerationStatus,
     ReportVisibility,
 )
+from apps.reports.spec import ReportSpec, ReportSpecError
 
 
 class Report(CompanyOwnedModel):
@@ -68,3 +70,35 @@ class Report(CompanyOwnedModel):
 
     def __str__(self):
         return self.name
+
+    def sections(self) -> list[ReportSpec]:
+        """One spec per dataset. A legacy row stores a single spec at the root."""
+
+        data = self.spec
+        if not data:
+            return []
+        if not isinstance(data, dict):
+            raise ReportSpecError("Spec must be an object.")
+
+        raw_sections = data.get("sections")
+        if raw_sections is None:
+            return [ReportSpec.from_dict(data)]
+        if not isinstance(raw_sections, list):
+            raise ReportSpecError("sections must be a list.")
+        if not raw_sections:
+            return []
+        if len(raw_sections) > MAX_REPORT_SECTIONS:
+            raise ReportSpecError(
+                f"At most {MAX_REPORT_SECTIONS} sections are supported."
+            )
+        return [ReportSpec.from_dict(section) for section in raw_sections]
+
+    @staticmethod
+    def specs_payload(specs: list[ReportSpec]) -> dict:
+        """One section stays a flat spec. Several are stored under ``sections``."""
+
+        if not specs:
+            return {}
+        if len(specs) == 1:
+            return specs[0].to_dict()
+        return {"sections": [spec.to_dict() for spec in specs]}

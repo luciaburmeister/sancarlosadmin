@@ -71,6 +71,9 @@ class FilterOperator(models.TextChoices):
 # A classifier result below this confidence is treated as unclear.
 CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.7
 
+# Hard cap on sections a saved report may hold (one dataset each).
+MAX_REPORT_SECTIONS = 5
+
 # Hard cap on grouped rows returned to the UI.
 REPORT_ROW_CAP = 500
 

@@ -7,8 +7,13 @@ from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
 
-from apps.reports.constants import ReportGenerationStatus, ReportVisibility
+from apps.reports.constants import (
+    ReportDomain,
+    ReportGenerationStatus,
+    ReportVisibility,
+)
 from apps.reports.models import Report
+from apps.reports.spec import ReportSpecError
 from apps.reports.views import (
     ReportConfirmAdminView,
     ReportCreateAdminView,
@@ -24,7 +29,7 @@ class ReportAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
         "name_link",
         "generation_status",
-        "domain",
+        "domains_display",
         "visibility",
         "owner",
         "company",
@@ -129,6 +134,22 @@ class ReportAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def name_link(self, obj):
         url = reverse("admin:reports_report_run", args=[obj.pk])
         return format_html('<a href="{}">{}</a>', url, obj.name)
+
+    @display(description=_("Domains"), ordering="domain")
+    def domains_display(self, obj):
+        try:
+            sections = obj.sections()
+        except ReportSpecError:
+            return obj.get_domain_display() or "—"
+        if not sections:
+            return obj.get_domain_display() or "—"
+        labels = []
+        for spec in sections:
+            try:
+                labels.append(str(ReportDomain(spec.dataset).label))
+            except ValueError:
+                labels.append(spec.dataset)
+        return ", ".join(labels)
 
     @display(description=_("Open"))
     def open_link(self, obj):

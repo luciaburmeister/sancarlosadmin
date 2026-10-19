@@ -2754,14 +2754,23 @@ class ReportCreationAsyncViewTests(TestCase):
         report.included_companies.add(self.company)
         return report
 
-    def test_confirm_page_shows_the_spec_summary_and_a_generate_button(self):
+    def test_confirm_page_shows_the_stored_summary_and_a_generate_button(self):
         report = self._confirmable_report()
+        response = self.client.get(
+            reverse("admin:reports_report_run", args=[report.pk])
+        )
+        self.assertContains(response, "the model invented this")
+        self.assertContains(response, "Generate report")
+
+    def test_confirm_page_falls_back_to_the_spec_summary(self):
+        report = self._confirmable_report()
+        report.generation_summary = ""
+        report.save(update_fields=["generation_summary"])
         response = self.client.get(
             reverse("admin:reports_report_run", args=[report.pk])
         )
         self.assertContains(response, "grouped by Payment method")
         self.assertContains(response, "Generate report")
-        self.assertNotContains(response, "the model invented this")
 
     def test_confirm_post_marks_the_report_ready(self):
         report = self._confirmable_report()

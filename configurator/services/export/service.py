@@ -58,6 +58,10 @@ class CustomJSONEncoder(DjangoJSONEncoder):
                         data[key] = float(value.amount)
                     elif isinstance(value, FieldFile):
                         keys_to_delete.append(key)
+                    elif isinstance(value, list):
+                        # many-to-many: model_to_dict gives instances; expanding
+                        # them loops on cycles (Asset.excluded_assets is symmetrical)
+                        data[key] = [item.pk if isinstance(item, Model) else item for item in value]
 
                 for key in keys_to_delete:
                     del data[key]

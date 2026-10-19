@@ -10,14 +10,18 @@ Run just this file:
 from datetime import date
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import RequestFactory, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone, translation
 
 from accounting.models import CostCenter
+from management.models import ProjectFile
 from purchasing.admin import PurchaseOrderAdmin, PurchaseOrderDetailsSection
 from purchasing.models import PurchaseOrderStatus, PurchaseOrderType
 from purchasing.tests.factories import make_company, make_provider, make_purchase_order
+from sales.models import Client
 
 
 class PurchaseOrderChangelistSectionTest(TestCase):
@@ -97,3 +101,36 @@ class PurchaseOrderChangelistSectionTest(TestCase):
         )
         html = self._render(bare)
         self.assertIn("Classification", html)
+
+    def test_changelist_query_count_does_not_grow_with_rows(self):
+        url = reverse("admin:purchasing_purchaseorder_changelist")
+
+        def count_queries():
+            with CaptureQueriesContext(connection) as ctx:
+                self.assertEqual(self.client.get(url).status_code, 200)
+            return len(ctx.captured_queries)
+
+        client = Client.objects.create(company=self.company, name="Buyer")
+        project = ProjectFile.objects.create(company=self.company, client=client, name="Project 0")
+        self.po.po_type = PurchaseOrderType.PROJECT
+        self.po.project_file = project
+        self.po.save()
+        count_queries()  # warm per-request caches
+        baseline = count_queries()
+
+        # Distinct related rows per order, and no items, so any per-row
+        # lookup (provider, project client, billing fallback) would show up.
+        for i in range(1, 6):
+            make_purchase_order(
+                company=self.company,
+                provider=make_provider(company=self.company, name=f"Prov {i}"),
+                project_file=ProjectFile.objects.create(
+                    company=self.company,
+                    client=Client.objects.create(company=self.company, name=f"Buyer {i}"),
+                    name=f"Project {i}",
+                ),
+                po_type=PurchaseOrderType.PROJECT,
+                requested_by=self.user,
+            )
+
+        self.assertEqual(count_queries(), baseline)

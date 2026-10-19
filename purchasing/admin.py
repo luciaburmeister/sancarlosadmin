@@ -5,7 +5,8 @@ from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import OuterRef, Subquery, Sum
+from django.db.models.functions import Coalesce
 from django.utils.formats import date_format
 from django.utils.html import format_html_join, format_html
 from django.utils.translation import gettext_lazy as _
@@ -19,6 +20,7 @@ from unfold.sections import TemplateSection
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.urls import path, reverse
 from copy import deepcopy
+from decimal import Decimal
 from datetime import timedelta
 from urllib.parse import urlparse
 from import_export.admin import ExportActionModelAdmin
@@ -221,7 +223,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
     readonly_fields = ["number", "total_amount_display", "total_amount_with_tax_display", "approved_at", "approved_by", "approved_automatically", "automatic_approval_due_at", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
-    list_select_related = ["provider", "company", "requested_by", "project_file", "cost_center", "approved_by", "rejected_by"]
+    list_select_related = ["provider", "company", "requested_by", "project_file__client", "cost_center", "approved_by", "rejected_by"]
     list_filter_submit = True
     fieldsets = (
         (_("General Information"), {
@@ -329,9 +331,10 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         return date_format(obj.date_ordered, "SHORT_DATE_FORMAT") if obj.date_ordered else ""
 
     def get_queryset(self, request):
+        items = PurchaseOrderItem.objects.filter(purchase_order=OuterRef("pk")).values("purchase_order")
         return super().get_queryset(request).annotate(
-            _total_qty=Sum("items__quantity"),
-            _total_invoiced=Sum("items__invoiced_quantity"),
+            _total_qty=Coalesce(Subquery(items.annotate(total=Sum("quantity")).values("total")), Decimal("0")),
+            _total_invoiced=Coalesce(Subquery(items.annotate(total=Sum("invoiced_quantity")).values("total")), Decimal("0")),
         )
 
     @display(description=_("Margin"))

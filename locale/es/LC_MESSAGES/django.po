@@ -240,15 +240,11 @@ msgstr ""
 msgid "Accounts Payable"
 msgstr "Cuentas por pagar"
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Collections Forecast"
-msgstr "Etapas de Producción"
+msgstr "Proyección de Cobros"
 
-#, fuzzy
-#| msgid "Payment Frequency"
 msgid "Payments Forecast"
-msgstr "Frecuencia de pago"
+msgstr "Proyección de Pagos"
 
 msgid "ERP Chatbot"
 msgstr "Chatbot ERP"
@@ -3207,10 +3203,8 @@ msgstr "Ver PDF"
 msgid "This reconciliation is already confirmed."
 msgstr "La configuración de planificación ya está actualizada."
 
-#, fuzzy
-#| msgid "Financial & Insurance"
 msgid "Bank Balance Summary"
-msgstr "Finanzas y Seguro"
+msgstr "Resumen de Saldo Bancario"
 
 #, fuzzy
 #| msgid "Reconciled"
@@ -4661,18 +4655,14 @@ msgstr ""
 "predeterminada (últimos 90 días). Nota: cuán atrás permite el banco depende "
 "del consentimiento PSD2."
 
-#, fuzzy
-#| msgid "Off Balance"
 msgid "Last Known Balance"
-msgstr "Fuera de balance"
+msgstr "Último Saldo Conocido"
 
 msgid "Balance reported by the bank on the last sync."
 msgstr "Saldo reportado por el banco en la última sincronización."
 
-#, fuzzy
-#| msgid "Off Balance"
 msgid "Balance Updated At"
-msgstr "Fuera de balance"
+msgstr "Saldo Actualizado El"
 
 msgid "When the balance was last refreshed from the bank."
 msgstr "Cuando se actualizó por última vez el saldo desde el banco."
@@ -7283,10 +7273,29 @@ msgstr "Pago"
 msgid "Tax Payments"
 msgstr "Pagos"
 
-#, fuzzy
-#| msgid "Cash"
 msgid "Cashflow"
-msgstr "Efectivo"
+msgstr "Cashflow"
+
+msgid "Invoice payments"
+msgstr "Pagos de facturas"
+
+msgid "Projected supplier payment plan"
+msgstr "Plan de pago a proveedores proyectado"
+
+msgid "Projected variable cost"
+msgstr "Costo variable proyectado"
+
+msgid "Fixed costs"
+msgstr "Costos fijos"
+
+msgid "Invoice collections"
+msgstr "Cobros de facturas"
+
+msgid "Proforma"
+msgstr "Proforma"
+
+msgid "Work pending invoicing"
+msgstr "Trabajo pendiente de facturar"
 
 #, fuzzy, python-format
 #| msgid ""
@@ -7299,61 +7308,45 @@ msgstr ""
 "El rango máximo visible es de %(max_window_days)s días — se ajustó "
 "automáticamente."
 
-#, fuzzy
-#| msgid "Current stage"
 msgid "Current Balance"
-msgstr "Etapa Actual"
+msgstr "Saldo Actual"
 
-#, fuzzy, python-format
-#| msgctxt "djangoql field"
-#| msgid "updated_at"
+#, python-format
 msgid "Updated: %(updated_at)s"
-msgstr "actualizado_en"
+msgstr "Actualizado: %(updated_at)s"
 
-#, fuzzy
-#| msgid "Project File"
 msgid "Projected Balance"
-msgstr "Expediente"
+msgstr "Saldo Proyectado"
 
-#, fuzzy
-#| msgid "Total Rows"
 msgid "Total Inflows"
-msgstr "Filas totales"
+msgstr "Total de Entradas"
 
-#, fuzzy
-#| msgid "Total Rows"
 msgid "Total Outflows"
-msgstr "Filas totales"
+msgstr "Total de Salidas"
 
-#, fuzzy
-#| msgid "Accepted"
 msgid "Export to Excel"
-msgstr "Aceptado"
+msgstr "Exportar a Excel"
 
 msgid "BANK BALANCE"
-msgstr ""
+msgstr "SALDO BANCARIO"
 
 msgid "OUTFLOWS"
-msgstr ""
+msgstr "SALIDAS"
 
 msgid "INFLOWS"
-msgstr ""
+msgstr "ENTRADAS"
 
-#, fuzzy
-#| msgid "Select a company"
 msgid "Select a company."
-msgstr "Seleccione una empresa"
+msgstr "Seleccione una empresa."
 
-#, fuzzy
-#| msgid "Off Balance"
 msgid "Bank Balance"
-msgstr "Fuera de balance"
+msgstr "Saldo Bancario"
 
 msgid "Outflows"
-msgstr ""
+msgstr "Salidas"
 
 msgid "Inflows"
-msgstr ""
+msgstr "Entradas"
 
 msgid "Amazon SES"
 msgstr ""
@@ -8437,10 +8430,10 @@ msgid "Late Commitment"
 msgstr "Fecha de compromiso"
 
 msgid "Payment commitment date agreed more than 30 days after the due date"
-msgstr ""
+msgstr "Fecha de compromiso de pago acordada más de 30 días después del vencimiento"
 
 msgid "LATE"
-msgstr ""
+msgstr "ATRASADO"
 
 msgid "Finalize selected pro forma invoices"
 msgstr "Finalizar las facturas pro forma seleccionadas"
@@ -8864,10 +8857,8 @@ msgstr "Puede ver el panel de cotizaciones."
 msgid "Can bulk update payment status (purchase invoices)"
 msgstr "Estado de pago"
 
-#, fuzzy
-#| msgid "Can view quote dashboard"
 msgid "Can view Payments Forecast dashboard"
-msgstr "Puede ver el panel de cotizaciones."
+msgstr "Puede ver el panel de proyección de pagos."
 
 msgid "Send Time"
 msgstr "Hora de envío"
@@ -8886,7 +8877,7 @@ msgid "How often to send the report: 1 = daily, 7 = weekly, etc."
 msgstr ""
 
 msgid "Forecast Window (Days)"
-msgstr ""
+msgstr "Ventana de Proyección (Días)"
 
 #, fuzzy
 #| msgid "Enter how many days between repetitions."
@@ -8924,11 +8915,11 @@ msgid ""
 "Internal recipients for the payments forecast report. Leave empty to send it "
 "to the company email."
 msgstr ""
+"Destinatarios internos del informe de proyección de pagos. Déjelo vacío para "
+"enviarlo al email de la empresa."
 
-#, fuzzy
-#| msgid "Payment Reminder Settings"
 msgid "Payments Forecast Email Settings"
-msgstr "Configuración de recordatorios de pago"
+msgstr "Configuración de Email de Proyección de Pagos"
 
 msgid "IVA"
 msgstr "IVA"
@@ -9129,10 +9120,8 @@ msgstr "Almacena las bases imponibles y montos agregados."
 msgid "Can bulk update payment status (sales invoices)"
 msgstr "Estado de pago"
 
-#, fuzzy
-#| msgid "Can view quote dashboard"
 msgid "Can view Collections Forecast dashboard"
-msgstr "Puede ver el panel de cotizaciones."
+msgstr "Puede ver el panel de proyección de cobros."
 
 msgid "Line Total"
 msgstr "Total de la línea"
@@ -9310,6 +9299,8 @@ msgid ""
 "Internal recipients for the collections forecast report. Leave empty to send "
 "it to the company email."
 msgstr ""
+"Destinatarios internos del informe de proyección de cobros. Déjelo vacío "
+"para enviarlo al email de la empresa."
 
 #, fuzzy
 #| msgid "Payment Terms (Days)"
@@ -9322,7 +9313,7 @@ msgid ""
 msgstr ""
 
 msgid "Collections Forecast Email Settings"
-msgstr ""
+msgstr "Configuración de Email de Proyección de Cobros"
 
 msgid "Days Before Due"
 msgstr "Días antes del vencimiento"
@@ -9456,46 +9447,46 @@ msgstr ""
 
 #, python-format
 msgid "Collections Forecast — %(company)s — %(date)s"
-msgstr ""
+msgstr "Proyección de Cobros — %(company)s — %(date)s"
 
 #, python-format
 msgid "Questions? Email us at %(email)s or call %(phone)s."
-msgstr ""
+msgstr "¿Preguntas? Escríbanos a %(email)s o llámenos al %(phone)s."
 
 #, python-format
 msgid "Questions? Email us at %(email)s."
-msgstr ""
+msgstr "¿Preguntas? Escríbanos a %(email)s."
 
 #, python-format
 msgid "Questions? Call us at %(phone)s."
-msgstr ""
+msgstr "¿Preguntas? Llámenos al %(phone)s."
 
 #, python-format
 msgid "%(date_from)s – %(date_to)s"
-msgstr ""
+msgstr "%(date_from)s – %(date_to)s"
 
 #, python-format
 msgid ""
 "Here is your collections forecast from %(date_from)s to %(date_to)s, plus "
 "everything already overdue:"
 msgstr ""
+"Aquí tiene su proyección de cobros desde %(date_from)s hasta %(date_to)s, "
+"además de todo lo que ya está vencido:"
 
-#, fuzzy
-#| msgid "Paid This Month"
 msgid "To Collect This Month"
-msgstr "Pagado Este Mes"
+msgstr "Por Cobrar Este Mes"
 
 msgid "No invoices are due for collection in this range."
-msgstr ""
+msgstr "No hay facturas pendientes de cobro en este rango."
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Open Collections Forecast"
-msgstr "Etapas de Producción"
+msgstr "Abrir Proyección de Cobros"
 
 msgid ""
 "This is an automated internal report generated by our collections system."
 msgstr ""
+"Este es un informe interno automático generado por nuestro sistema de "
+"cobros."
 
 msgid "At least one item is required."
 msgstr "Se requiere al menos un artículo."
@@ -9512,35 +9503,33 @@ msgstr "Esta orden de entrega no está vinculada a ningún expediente."
 
 #, python-format
 msgid "Payments Forecast — %(company)s — %(date)s"
-msgstr ""
+msgstr "Proyección de Pagos — %(company)s — %(date)s"
 
 #, python-format
 msgid "Showing only: %(methods)s"
-msgstr ""
+msgstr "Mostrando solo: %(methods)s"
 
 #, python-format
 msgid ""
 "Here is your payments forecast from %(date_from)s to %(date_to)s, plus "
 "everything already overdue:"
 msgstr ""
+"Aquí tiene su proyección de pagos desde %(date_from)s hasta %(date_to)s, "
+"además de todo lo que ya está vencido:"
 
-#, fuzzy
-#| msgid "Paid This Month"
 msgid "To Pay This Month"
-msgstr "Pagado Este Mes"
+msgstr "Por Pagar Este Mes"
 
-#, fuzzy
-#| msgid "No purchase invoices due in this period."
 msgid "No invoices are due for payment in this range."
-msgstr "No hay facturas de compra pendientes en este período."
+msgstr "No hay facturas pendientes de pago en este rango."
 
-#, fuzzy
-#| msgid "Quote Dashboard"
 msgid "View Dashboard"
-msgstr "Tablero de Cotizaciones"
+msgstr "Ver Panel"
 
 msgid "This is an automated internal report generated by our payments system."
 msgstr ""
+"Este es un informe interno automático generado por nuestro sistema de "
+"pagos."
 
 #, fuzzy
 #| msgid "Received Quantity"
@@ -9725,62 +9714,45 @@ msgstr "Volver a la factura"
 msgid "Approve all pending suggestions with the quantities shown below?"
 msgstr ""
 
-#, fuzzy
-#| msgid "Work Email"
 msgid "Send Report by Email Now"
 msgstr "Correo electrónico"
 
-#, fuzzy, python-format
-#| msgid "Started %(count)d items across all tickets."
+#, python-format
 msgid "%(count)s invoice"
 msgid_plural "%(count)s invoices"
-msgstr[0] "Se empezaron %(count)d elementos en todos los tickets."
-msgstr[1] "Se empezaron %(count)d elementos en todos los tickets."
+msgstr[0] "%(count)s factura"
+msgstr[1] "%(count)s facturas"
 
-#, fuzzy
-#| msgid "Loan Installments"
 msgid "Overdue and Uncollected"
-msgstr "Cuotas del préstamo"
+msgstr "Vencido y Sin Cobrar"
 
 #, python-format
 msgid "From %(df)s to %(dt)s"
-msgstr ""
+msgstr "Desde %(df)s hasta %(dt)s"
 
-#, fuzzy
-#| msgid "Request has no wallet assigned."
 msgid "You have no companies assigned."
-msgstr "La solicitud no tiene una billetera asignada."
+msgstr "No tiene empresas asignadas."
 
-#, fuzzy
-#| msgid "Balance owed"
 msgid "Balance Due"
-msgstr "Balance pendiente"
+msgstr "Saldo Pendiente"
 
 msgid "Total Invoiced"
 msgstr "Total Facturado"
 
 msgid "PRO FORMA"
-msgstr ""
+msgstr "PRO FORMA"
 
-#, fuzzy
-#| msgid "Payment Commitment Date"
 msgid "Edit Commitment Date"
-msgstr "Fecha de Compromiso de Pago"
+msgstr "Editar Fecha de Compromiso"
 
-#, fuzzy
-#| msgid "Linked Invoices"
 msgid "View Invoices"
-msgstr "Facturas relacionadas"
+msgstr "Ver Facturas"
 
-#, fuzzy
-#| msgid "Payment Reminder"
 msgid "Send Reminder"
-msgstr "Recordatorio de pago"
+msgstr "Enviar Recordatorio"
 
-#, fuzzy
-#| msgid "Payment Commitment Date"
 msgid "New commitment date"
-msgstr "Fecha de Compromiso de Pago"
+msgstr "Nueva fecha de compromiso"
 
 #, python-format
 msgid ""
@@ -9789,13 +9761,11 @@ msgid ""
 msgid_plural ""
 "This will update the commitment date of %(count)s invoices of %(client_name)s"
 " to:"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "Esto actualizará la fecha de compromiso de %(count)s factura de %(client_name)s a:"
+msgstr[1] "Esto actualizará la fecha de compromiso de %(count)s facturas de %(client_name)s a:"
 
-#, fuzzy
-#| msgid "Not Invoiced"
 msgid "No invoices due"
-msgstr "No Facturado"
+msgstr "No hay facturas pendientes"
 
 #, fuzzy
 #| msgid "Create Invoice"
@@ -10102,10 +10072,8 @@ msgstr "Después de aplicar el crédito acumulado"
 msgid "Tax Periods in this Range"
 msgstr "Tickets en esta fila"
 
-#, fuzzy
-#| msgid "Production"
 msgid "Cash Position"
-msgstr "Producción"
+msgstr "Posición de Caja"
 
 msgid "Money In — Clients"
 msgstr "Dinero Entrante — Clientes"
@@ -10251,13 +10219,11 @@ msgstr "Monto pendiente"
 msgid "Production Cost"
 msgstr "Costos de producción"
 
-#, fuzzy
-#| msgid "Overdue %(days)sd"
 msgid "Overdue and Unpaid"
-msgstr "Vencida hace %(days)s d"
+msgstr "Vencido y Sin Pagar"
 
 msgid "SEPA"
-msgstr ""
+msgstr "SEPA"
 
 #, fuzzy
 #| msgid "Create Invoice from Project File"

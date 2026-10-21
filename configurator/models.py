@@ -144,6 +144,15 @@ class ProductTemplate(CompanyOwnedModel):
             "production ticket and receival slip creation in the shop flow."
         ),
     )
+    business_unit = models.ForeignKey(
+        "accounting.BusinessUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="product_templates",
+        verbose_name=_("Business Unit"),
+        help_text=_("Decides whether its sales are goods or services; invoice lines take it when created."),
+    )
     exclude_from_commission = models.BooleanField(
         default=False,
         verbose_name=_("No commission"),
@@ -190,6 +199,8 @@ class ProductTemplate(CompanyOwnedModel):
 
     def clean(self):
         super().clean()
+        if self.business_unit_id and self.business_unit.company_id != self.company_id:
+            raise ValidationError({"business_unit": _("The business unit must belong to the same company.")})
 
         if not self.production_stages:
             return

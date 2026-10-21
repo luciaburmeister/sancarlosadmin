@@ -12,8 +12,8 @@ class ChartOfAccountsTemplateAdmin(ModelAdmin):
 
 @admin.register(TemplateAccount)
 class TemplateAccountAdmin(ModelAdmin):
-    list_display = ["code", "name", "template", "parent", "is_postable"]
-    list_filter = ["template", "is_postable"]
+    list_display = ["code", "name", "template", "parent", "is_postable", "role"]
+    list_filter = ["template", "is_postable", "role"]
     search_fields = ["code", "name"]
     ordering = ["template", "code"]
     list_select_related = ["template", "parent"]

@@ -53,8 +53,8 @@ class QuoteActiveCompanyScopeTests(TestCase):
 
     def test_configuration_wizard_picker_offers_only_the_active_company(self):
         request = self._request(self.beta)
-        request.method = "POST"  # a GET starts empty for the autocomplete
-        form = ClientSelectionForm(request=request)
+        request.method = "POST"
+        form = ClientSelectionForm(data={}, request=request)  # an unbound form starts empty for the autocomplete
 
         self.assertEqual(list(form.fields["quote"].queryset), [self.quote_beta])
 

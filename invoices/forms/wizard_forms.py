@@ -94,17 +94,17 @@ class SalesInvoiceBasicForm(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
         self.helper = SalesInvoiceBasicFormHelper()
-        
-        if self.request and self.request.method == "GET":
-             if "initial" not in kwargs:
-                 self.fields["client"].queryset = Client.objects.none()
 
-        if self.request and self.request.user and not self.request.user.is_superuser:
-            user_companies = get_user_companies(self.request.user)
-            self.fields["company"].queryset = user_companies
-            # We don't filter client queryset here for autocomplete, it's handled by the autocomplete view
-            if user_companies.count() == 1:
-                self.fields["company"].initial = user_companies.first()
+        if self.request and self.request.user:
+
+            companies = get_user_companies(self.request.user).filter(is_active=True)
+            self.fields["company"].queryset = companies
+            if len(companies) == 1:
+                self.fields["company"].initial = companies[0]
+
+            self.fields["client"].queryset = (
+                Client.objects.filter(company__in=companies) if self.is_bound else Client.objects.none()
+            )
 
         if self.request and self.fields.get('client'):
             self.fields['client'].widget = UnfoldAdminRelatedFieldWrapperWidget(
@@ -117,6 +117,9 @@ class SalesInvoiceBasicForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         client = cleaned.get("client")
+        company = cleaned.get("company")
+        if client and company and client.company_id != company.pk:
+            self.add_error("client", _("This client belongs to another company."))
         if client and not cleaned.get("payment_method"):
             cleaned["payment_method"] = client.payment_method or PaymentMethod.TRANSFER
         return cleaned

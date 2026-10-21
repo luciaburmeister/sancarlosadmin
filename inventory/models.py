@@ -401,6 +401,15 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         on_delete=models.PROTECT,
         related_name="items",
     )
+    business_unit = models.ForeignKey(
+        "accounting.BusinessUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_items",
+        verbose_name=_("Business Unit"),
+        help_text=_("Decides whether its sales are goods or services; invoice lines take it when created."),
+    )
     preferred_supplier = models.ForeignKey(
         Provider,
         verbose_name=_("Preferred Supplier"),
@@ -545,6 +554,8 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
 
     def clean(self):
         super().clean()
+        if self.business_unit_id and self.business_unit.company_id != self.company_id:
+            raise ValidationError({"business_unit": _("The business unit must belong to the same company.")})
         if self.item_type == ItemType.SERVICE and self.default_warehouse_id:
             raise ValidationError({"default_warehouse": _("Services cannot have a warehouse.")})
         if self.item_type in (ItemType.STOCKABLE, ItemType.FINISHED_PRODUCT, ItemType.OWN_PRODUCTION) and not self.default_warehouse_id:

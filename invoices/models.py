@@ -23,6 +23,7 @@ from djmoney.money import Money
 from simple_history.models import HistoricalRecords
 from company.models import Company
 from django.utils import timezone
+import logging
 import unicodedata
 import re
 import uuid
@@ -30,6 +31,8 @@ from payments.models import PaymentAllocation
 from payments.mixins import Payable
 from invoices import line_sources
 import os
+
+logger = logging.getLogger(__name__)
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -357,6 +360,17 @@ class Invoice(Timestampable, Payable):
         Returns None if they match within tolerance (1 cent), or a tuple
         (calculated_total, manual_total) if they don't.
         """
+        calc_total = self.calculated_total()
+        manual_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
+
+        tolerance = Decimal("0.01")
+        if abs(calc_total - manual_total) <= tolerance:
+            return None
+
+        return (calc_total, manual_total)
+
+    def calculated_total(self) -> Decimal:
+        """Sum of line items plus/minus taxes, as stored (no tax recalculation)."""
         items_sum = self.items.aggregate(total=Sum('line_total'))['total']
         if items_sum is not None:
             sum_lines = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
@@ -372,14 +386,7 @@ class Invoice(Timestampable, Payable):
                 else:
                     sum_taxes -= tax_val
 
-        calc_total = sum_lines + sum_taxes
-        manual_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
-
-        tolerance = Decimal("0.01")
-        if abs(calc_total - manual_total) <= tolerance:
-            return None
-
-        return (calc_total, manual_total)
+        return sum_lines + sum_taxes
 
     def verify_total_balance(self, save=True):
         """
@@ -391,6 +398,45 @@ class Invoice(Timestampable, Payable):
 
         if save:
             self.save(update_fields=['is_total_balanced'])
+
+    def apply_rounding_line(self):
+        """
+        Replace any rounding line with one absorbing the exact gap between
+        total_amount and lines + taxes, booked to the company's rounding
+        account. Skipped when the company has no chart or rounding account,
+        or the gap exceeds the chart's tolerance (that's an OCR misread,
+        not rounding).
+
+        Returns the created InvoiceItem, or None.
+        """
+        from accounting.models import AccountRole, CompanyAccount, CompanyChartOfAccounts
+
+        self.items.filter(is_rounding=True).delete()
+
+        if not self.company_id or not self.total_amount:
+            return None
+        account = CompanyAccount.for_role(self.company_id, AccountRole.ROUNDING)
+        tolerance = (
+            CompanyChartOfAccounts.objects
+            .filter(company_id=self.company_id)
+            .values_list("rounding_tolerance", flat=True)
+            .first()
+        )
+        if not account or tolerance is None:
+            return None
+
+        diff = (Decimal(str(self.total_amount.amount)) - self.calculated_total()).quantize(Decimal("0.01"))
+        if diff == 0 or abs(diff) > tolerance:
+            return None
+
+        return InvoiceItem.objects.create(
+            invoice=self,
+            description=str(_("Rounding")),
+            quantity=1,
+            unit_price=Money(diff, self.currency or "EUR"),
+            account=account,
+            is_rounding=True,
+        )
 
     def apply_provider_default_cost_center(self) -> bool:
         """
@@ -1449,6 +1495,25 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         if not self.payment_terms_days:
             self.payment_terms_days = terms_days
 
+    @property
+    def has_posted_journal_entry(self):
+        """Its sales entry is in the ledger (and not reversed): the lines' income types are final."""
+        from accounting.models import EntryStatus
+
+        return self.journal_entries.filter(
+            status=EntryStatus.POSTED, reversal_of__isnull=True, reversal__isnull=True,
+        ).exists()
+
+    def _reverse_journal_entries(self):
+        """Never blocks the cancellation: a failure is logged for the ledger to fix by hand."""
+        from accounting.services.journal_generator import SalesJournalGeneratorService
+
+        try:
+            with transaction.atomic():
+                SalesJournalGeneratorService(self.company).reverse_invoice_entries(self)
+        except Exception:
+            logger.exception("Could not reverse journal entries of sales invoice %s", self.pk)
+
     _MONEY_FIELDS = ("subtotal_amount", "tax_amount", "total_amount", "discount_amount")
 
     def _commission_state_changed(self):
@@ -1536,6 +1601,14 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                 calculated_amount_currency=self.currency,
             )
         self._loaded_currency = self.currency
+
+        # Cancelling an issued invoice reverses its journal entry
+        if (
+            not was_adding
+            and getattr(self, "_loaded_status", None) == SalesInvoiceStatus.FINAL
+            and self.status == SalesInvoiceStatus.CANCELLED
+        ):
+            self._reverse_journal_entries()
 
         # Issuing, cancelling or settling it releases (or takes back) agents' commissions
         if not was_adding and self._commission_state_changed():
@@ -1699,6 +1772,19 @@ class SalesInvoiceItem(PinnedLineTotalMixin):
         verbose_name=_("Advance line"),
         help_text=_("On a deduction line: the advance invoice line it deducts."),
     )
+    business_unit = models.ForeignKey(
+        "accounting.BusinessUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sales_invoice_items",
+        verbose_name=_("Business Unit"),
+        help_text=_(
+            "Taken from the product or item when the line is created (the company's "
+            "default otherwise); decides sales of goods or of services. Editable until "
+            "the invoice's journal entry is posted; a deduction follows its advance line."
+        ),
+    )
     # Per-line taxes (advance lines keep their VAT group here); deleted with the line.
     applied_taxes = GenericRelation(
         AppliedTax,
@@ -1707,6 +1793,21 @@ class SalesInvoiceItem(PinnedLineTotalMixin):
     )
 
     def save(self, *args, **kwargs):
+        # The business unit is the one thing an issued invoice's line may
+        # still change: it only decides the sales account, until that is posted.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and set(update_fields) == {"business_unit"}:
+            if self.invoice.status == SalesInvoiceStatus.CANCELLED:
+                raise ValidationError(_("Cannot edit items in a cancelled invoice."))
+            if self.invoice.has_posted_journal_entry:
+                raise ValidationError(_("The invoice's journal entry is posted: the business unit can no longer change."))
+            # A deduction already in the ledger was booked under this advance line's unit
+            if any(d.invoice.has_posted_journal_entry for d in self.deductions.select_related("invoice")):
+                raise ValidationError(_("An invoice deducting this advance is posted: the business unit can no longer change."))
+            self._settle_business_unit()
+            super().save(*args, **kwargs)
+            return
+
         # Issued and cancelled invoices are frozen: no new lines, no edits.
         if self.invoice.status == SalesInvoiceStatus.FINAL:
             raise ValidationError(_("Cannot edit items in a finalized invoice."))
@@ -1737,7 +1838,39 @@ class SalesInvoiceItem(PinnedLineTotalMixin):
         # A deduction takes an advance off the invoice, it never adds to it.
         if self.advance_line_id and self.line_total.amount > 0:
             raise ValidationError(_("An advance deduction line cannot have a positive total."))
+        if self._state.adding and not self.business_unit_id:
+            from accounting.models import BusinessUnit
+
+            self.business_unit = self._source_business_unit() or BusinessUnit.default_for(self.invoice.company_id)
+        self._settle_business_unit()
         super().save(*args, **kwargs)
+
+    def _settle_business_unit(self):
+        """A deduction takes the advance off the unit it was booked to; any
+        other line's unit must be the invoice company's."""
+        if self.advance_line_id:
+            self.business_unit_id = self.advance_line.business_unit_id
+        elif self.business_unit_id and self.business_unit.company_id != self.invoice.company_id:
+            raise ValidationError(_("The business unit must belong to the invoice's company."))
+
+    def _source_business_unit(self):
+        """The unit of the product or inventory item the line was billed from, if any."""
+        from accounting.models import BusinessUnit
+
+        prefix, pk = line_sources.parse(self.source_id)
+        if prefix in (line_sources.CONFIG, line_sources.DIRECT):
+            from configurator.models import Configuration
+
+            unit_id = Configuration.objects.filter(pk=pk).values_list("product__business_unit", flat=True).first()
+        elif prefix == line_sources.INV_ITEM:
+            from sales.models import QuoteInventoryItem
+
+            unit_id = QuoteInventoryItem.objects.filter(pk=pk).values_list(
+                "inventory_item__business_unit", flat=True,
+            ).first()
+        else:
+            return None
+        return BusinessUnit.objects.filter(pk=unit_id).first() if unit_id else None
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"
@@ -1793,6 +1926,11 @@ class InvoiceItem(models.Model):
         related_name='invoice_items',
         help_text="Accounting account assigned by Gemini or manually overridden for this specific line item."
     )
+    is_rounding = models.BooleanField(
+        default=False,
+        verbose_name=_("Rounding line"),
+        help_text=_("Absorbs the cents between the lines + taxes and the printed total. Skipped by PO matching."),
+    )
 
     def save(self, *args, **kwargs):
         currency = None
@@ -1819,6 +1957,13 @@ class InvoiceItem(models.Model):
     class Meta:
         verbose_name = "Invoice Item"
         verbose_name_plural = "Invoice Items"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice"],
+                condition=Q(is_rounding=True),
+                name="uniq_invoice_rounding_line",
+            ),
+        ]
 
 
 class InvoicePOAllocation(Timestampable):

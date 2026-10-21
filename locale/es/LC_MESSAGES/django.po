@@ -183,7 +183,7 @@ msgstr "La entrada no está equilibrada."
 #, fuzzy
 #| msgid "Only pending sessions can be started"
 msgid "Only draft entries can be posted."
-msgstr "Solo se pueden iniciar sesiones pendientes."
+msgstr "Solo se pueden contabilizar asientos en borrador."
 
 msgid "Cannot post empty entry."
 msgstr "No se puede publicar una entrada vacía."
@@ -3859,7 +3859,7 @@ msgid "Importación de términos"
 msgstr "Importación de términos"
 
 msgid "Install Chart"
-msgstr "Instalar gráfico"
+msgstr "Instalar plan contable"
 
 msgid "Company has no Chart of Accounts template assigned."
 msgstr "La empresa no tiene una plantilla de Plan de Cuentas asignada."
@@ -19836,3 +19836,387 @@ msgstr "Idioma en que está escrita esta plantilla. La usan los clientes con est
 #, python-format
 msgid "%(count)d period(s)"
 msgstr "%(count)d período(s)"
+
+
+#: accounting/models.py
+msgid ""
+"What the automatic journal entries book here: rounding differences, income "
+"from sales of goods or of services, or the discounts on sales invoices. One "
+"account per role per company."
+msgstr ""
+"Qué apuntan aquí los asientos automáticos: diferencias de redondeo, ingresos "
+"por ventas de mercaderías o de servicios, o los descuentos de las facturas de "
+"venta. Una cuenta por rol y empresa."
+
+#: accounting/models.py
+msgid "Rounding tolerance"
+msgstr "Tolerancia de redondeo"
+
+#: accounting/models.py
+msgid ""
+"Largest difference absorbed as rounding. Bigger gaps are left for manual "
+"review."
+msgstr ""
+"Diferencia máxima que se absorbe como redondeo. Las diferencias mayores se "
+"dejan para revisión manual."
+
+#: invoices/models.py
+msgid "Rounding"
+msgstr "Redondeo"
+
+#: invoices/models.py
+msgid "Rounding line"
+msgstr "Línea de redondeo"
+
+#: invoices/models.py
+msgid ""
+"Absorbs the cents between the lines + taxes and the printed total. Skipped "
+"by PO matching."
+msgstr ""
+"Absorbe los céntimos de diferencia entre líneas + impuestos y el total "
+"impreso. No se tiene en cuenta al casar con pedidos de compra."
+
+#: accounting/models.py
+msgid "An account with a role must be active and postable."
+msgstr "Una cuenta con rol debe estar activa y admitir apuntes."
+
+#: accounting/models.py
+msgid "Reverses"
+msgstr "Anula"
+
+#: accounting/models.py
+msgid "The posted entry this one cancels, debits and credits swapped."
+msgstr "El asiento contabilizado que este anula, con debe y haber invertidos."
+
+#: sales/models.py
+msgid ""
+"Created automatically when its first invoice is journalized: the chart's "
+"client root followed by the next number."
+msgstr ""
+"Se crea automáticamente al contabilizar su primera factura: la raíz de "
+"clientes del plan contable seguida del siguiente número."
+
+msgid "Client/provider account length"
+msgstr "Longitud de cuentas de clientes/proveedores"
+
+msgid ""
+"Total digits of the accounts created for clients and providers: the root "
+"followed by a consecutive number per company (e.g. 8 → 43000001)."
+msgstr ""
+"Dígitos totales de las cuentas creadas para clientes y proveedores: la raíz "
+"seguida de un número consecutivo por empresa (p. ej. 8 → 43000001)."
+
+msgid "The root must be numeric."
+msgstr "La raíz debe ser numérica."
+
+msgid "The root must be shorter than the client/provider account length."
+msgstr "La raíz debe ser más corta que la longitud de cuentas de clientes/proveedores."
+
+msgid "Debits and credits don't match."
+msgstr "El debe y el haber no cuadran."
+
+#, python-format
+msgid "No account has the role “%(role)s”: assign it in the company's accounts."
+msgstr "Ninguna cuenta tiene el rol «%(role)s»: asígnalo en las cuentas de la empresa."
+
+#, python-format
+msgid "No account for %(tax)s on sales: map the tax type or create a 477/473 account."
+msgstr "No hay cuenta para %(tax)s en ventas: asígnala en el tipo de impuesto o crea una cuenta 477/473."
+
+msgid "Generate Journal Entry"
+msgstr "Generar asiento"
+
+msgid "Only issued invoices are journalized."
+msgstr "Solo se contabilizan las facturas emitidas."
+
+msgid "The journal entry could not be created; the error was logged."
+msgstr "No se pudo crear el asiento; el error ha quedado registrado."
+
+msgid "This invoice already has a posted journal entry."
+msgstr "Esta factura ya tiene un asiento contabilizado."
+
+#, python-format
+msgid "Journal entry %s posted."
+msgstr "Asiento %s contabilizado."
+
+#, python-format
+msgid "Journal entry saved as draft: %s"
+msgstr "Asiento guardado como borrador: %s"
+
+#, python-format
+msgid "Account roles: %s"
+msgstr "Roles de cuentas: %s"
+
+msgid "none"
+msgstr "ninguno"
+
+msgid ""
+"Given to the company's copy of this account when the chart is installed, "
+"unless the company already has an account with that role."
+msgstr ""
+"Se asigna a la copia de esta cuenta en la empresa al instalar el plan "
+"contable, salvo que la empresa ya tenga una cuenta con ese rol."
+
+msgid "Sales of goods"
+msgstr "Ventas de mercaderías"
+
+msgid "Sales of services"
+msgstr "Prestaciones de servicios"
+
+msgid "Goods"
+msgstr "Mercaderías"
+
+msgid "Services"
+msgstr "Servicios"
+
+msgid "Goods or services"
+msgstr "Mercaderías o servicios"
+
+msgid "Sales discounts"
+msgstr "Descuentos sobre ventas"
+
+msgid "Business Unit"
+msgstr "Unidad de negocio"
+
+msgid "Business Units"
+msgstr "Unidades de negocio"
+
+msgid "Business unit"
+msgstr "Unidad de negocio"
+
+msgid "Business units"
+msgstr "Unidades de negocio"
+
+msgid "Default"
+msgstr "Predeterminada"
+
+msgid "The default business unit must be active."
+msgstr "La unidad de negocio predeterminada debe estar activa."
+
+msgid "Posted entries already book this unit's sales: it can no longer change."
+msgstr "Hay asientos contabilizados con las ventas de esta unidad: ya no se puede cambiar."
+
+msgid "The invoice's journal entry is posted: the business unit can no longer change."
+msgstr "El asiento de la factura está contabilizado: ya no se puede cambiar la unidad de negocio."
+
+msgid "An invoice deducting this advance is posted: the business unit can no longer change."
+msgstr "Una factura que descuenta este anticipo está contabilizada: ya no se puede cambiar la unidad de negocio."
+
+msgid "The business unit must belong to the invoice's company."
+msgstr "La unidad de negocio debe pertenecer a la empresa de la factura."
+
+msgid "The business unit must belong to the same company."
+msgstr "La unidad de negocio debe pertenecer a la misma empresa."
+
+msgid "Books its sales to sales of goods or of services. Fixed once a posted entry uses it."
+msgstr "Contabiliza sus ventas como mercaderías o servicios. Queda fija cuando un asiento contabilizado la usa."
+
+msgid "Used for invoice lines with no product or item behind them. One per company."
+msgstr "Se usa en las líneas de factura sin producto ni artículo detrás. Una por empresa."
+
+msgid "Decides whether its sales are goods or services; invoice lines take it when created."
+msgstr "Decide si sus ventas son mercaderías o servicios; las líneas de factura la toman al crearse."
+
+#, python-format
+msgid "Line “%(line)s” has no business unit and the company has no default one."
+msgstr "La línea «%(line)s» no tiene unidad de negocio y la empresa no tiene una predeterminada."
+
+msgid ""
+"Taken from the product or item when the line is created (the company's "
+"default otherwise); decides sales of goods or of services. Editable until the "
+"invoice's journal entry is posted; a deduction follows its advance line."
+msgstr ""
+"Se toma del producto o artículo al crear la línea (si no, la predeterminada "
+"de la empresa); decide si es venta de mercaderías o de servicios. Editable "
+"hasta que se contabilice el asiento de la factura; un descuento de anticipo "
+"sigue a su línea de anticipo."
+
+msgid "Assigned automatically, numbered per company (UN-001, UN-002, ...)."
+msgstr "Se asigna automáticamente, numerado por empresa (UN-001, UN-002, ...)."
+
+msgid "Chart of accounts"
+msgstr "Plan contable"
+
+msgid "No chart assigned: create one for this company."
+msgstr "Sin plan contable asignado: crea uno para esta empresa."
+
+#, python-format
+msgid "%(template)s is assigned but not installed: press Install Chart on the company."
+msgstr "%(template)s está asignado pero no instalado: pulsa Instalar plan contable en la empresa."
+
+msgid "Client / provider accounts"
+msgstr "Cuentas de clientes / proveedores"
+
+#, python-format
+msgid "%(client)s… / %(provider)s…, %(length)s digits"
+msgstr "%(client)s… / %(provider)s…, %(length)s dígitos"
+
+msgid "Lock date"
+msgstr "Fecha de bloqueo"
+
+msgid "Current fiscal year"
+msgstr "Ejercicio actual"
+
+msgid "None covers today: entries stay as drafts."
+msgstr "Ninguno cubre la fecha de hoy: los asientos quedan en borrador."
+
+#, python-format
+msgid "%(year)s is closed."
+msgstr "%(year)s está cerrado."
+
+msgid "Fiscal year"
+msgstr "Ejercicio fiscal"
+
+msgid "Account roles"
+msgstr "Roles de cuentas"
+
+msgid "Every sales invoice needs it."
+msgstr "Toda factura de venta la necesita."
+
+msgid "A business unit sells services."
+msgstr "Una unidad de negocio vende servicios."
+
+msgid "Needed once a business unit sells services."
+msgstr "Necesaria cuando una unidad de negocio venda servicios."
+
+msgid "Needed by invoices with a discount."
+msgstr "La necesitan las facturas con descuento."
+
+msgid "Without it, cent differences leave entries as drafts."
+msgstr "Sin ella, las diferencias de céntimos dejan los asientos en borrador."
+
+msgid "Taxes in use"
+msgstr "Impuestos en uso"
+
+msgid "No taxed invoices yet."
+msgstr "Aún no hay facturas con impuestos."
+
+msgid "No account set on the tax type."
+msgstr "El tipo de impuesto no tiene cuenta asignada."
+
+#, python-format
+msgid "Mapped to %(code)s, which this company doesn't have."
+msgstr "Asignado a %(code)s, que esta empresa no tiene."
+
+msgid "Default unit"
+msgstr "Unidad predeterminada"
+
+msgid "Lines with no product or item behind them need one."
+msgstr "Las líneas sin producto ni artículo detrás la necesitan."
+
+msgid "Products without a unit"
+msgstr "Productos sin unidad"
+
+msgid "Inventory items without a unit"
+msgstr "Artículos de inventario sin unidad"
+
+#, python-format
+msgid "%(count)s will use the default unit."
+msgstr "%(count)s usarán la unidad predeterminada."
+
+msgid "All assigned."
+msgstr "Todos asignados."
+
+msgid "Journalized invoices"
+msgstr "Facturas contabilizadas"
+
+msgid "No sales invoice journalized yet."
+msgstr "Aún no se ha contabilizado ninguna factura de venta."
+
+msgid "Without a journal entry"
+msgstr "Sin asiento"
+
+#, python-format
+msgid "%(count)s since %(date)s: open each and press Generate Journal Entry."
+msgstr "%(count)s desde el %(date)s: abre cada una y pulsa Generar asiento."
+
+msgid "None."
+msgstr "Ninguna."
+
+msgid "Draft entries"
+msgstr "Asientos en borrador"
+
+#, python-format
+msgid "%(count)s not posted."
+msgstr "%(count)s sin contabilizar."
+
+msgid "In another currency"
+msgstr "En otra moneda"
+
+#, python-format
+msgid "%(count)s can't be journalized: the ledger is in %(ledger)s."
+msgstr "%(count)s no se pueden contabilizar: la contabilidad está en %(ledger)s."
+
+msgid "Accounting setup"
+msgstr "Configuración contable"
+
+#, python-format
+msgid "Invoices in %(currency)s can't be journalized yet: the ledger is kept in %(ledger)s."
+msgstr "Las facturas en %(currency)s aún no se pueden contabilizar: la contabilidad se lleva en %(ledger)s."
+
+msgid "purchases"
+msgstr "compras"
+
+msgid "sales"
+msgstr "ventas"
+
+#, python-format
+msgid "Tax %(tax)s has no account for %(side)s: set it on the tax type."
+msgstr "El impuesto %(tax)s no tiene cuenta para %(side)s: asígnala en el tipo de impuesto."
+
+#, python-format
+msgid "Tax %(tax)s books %(side)s to %(code)s, which this company doesn't have: install the chart."
+msgstr "El impuesto %(tax)s contabiliza %(side)s en %(code)s, que esta empresa no tiene: instala el plan contable."
+
+msgid "Ready: issued invoices are journalized. Warnings below still deserve a look."
+msgstr "Lista: las facturas emitidas se contabilizan. Revisa igualmente los avisos."
+
+msgid "Not ready: invoices hitting a missing item below won't be journalized."
+msgstr "No está lista: las facturas afectadas por lo que falta abajo no se contabilizarán."
+
+msgid "Fix"
+msgstr "Corregir"
+
+msgid "Back to company"
+msgstr "Volver a la empresa"
+
+#, python-format
+msgid "%(count)s posted entries were kept: reverse them instead."
+msgstr "Se han conservado %(count)s asientos contabilizados: anúlalos con un contraasiento."
+
+msgid "Post selected entries"
+msgstr "Contabilizar asientos seleccionados"
+
+#, python-format
+msgid "%(count)s entries posted."
+msgstr "%(count)s asientos contabilizados."
+
+#, python-format
+msgid "%(count)s were not drafts and were left as they are."
+msgstr "%(count)s no eran borradores y se han dejado como estaban."
+
+#, python-format
+msgid "…and %(count)s more could not be posted."
+msgstr "…y otros %(count)s no se han podido contabilizar."
+
+msgid "Post"
+msgstr "Contabilizar"
+
+msgid "Generate journal entries"
+msgstr "Generar asientos"
+
+#, python-format
+msgid "%(count)s journal entries posted."
+msgstr "%(count)s asientos contabilizados."
+
+#, python-format
+msgid "%(count)s already had a posted entry."
+msgstr "%(count)s ya tenían un asiento contabilizado."
+
+#, python-format
+msgid "%(count)s are not issued and were skipped."
+msgstr "%(count)s no están emitidas y se han omitido."
+
+#, python-format
+msgid "…and %(count)s more with problems."
+msgstr "…y otras %(count)s con problemas."

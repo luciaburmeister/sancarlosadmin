@@ -442,6 +442,7 @@ class CompanyAdmin(ModelAdmin):
 
     def get_urls(self):
         from django.urls import path
+        from accounting.views import AccountingSetupView
         from company.views.switch_company import (
             SetActiveCompaniesView,
             SwitchActiveCompanyView,
@@ -457,6 +458,11 @@ class CompanyAdmin(ModelAdmin):
                 "switch-active/apply/",
                 self.admin_site.admin_view(SetActiveCompaniesView.as_view()),
                 name="company_switch_active_apply",
+            ),
+            path(
+                "<int:pk>/accounting-setup/",
+                self.admin_site.admin_view(AccountingSetupView.as_view(model_admin=self)),
+                name="company_company_accounting_setup",
             ),
         ] + super().get_urls()
 
@@ -562,7 +568,14 @@ class CompanyAdmin(ModelAdmin):
             """
         )
 
-    actions_row = ["install_chart_action"]
+    actions_row = ["install_chart_action", "accounting_setup_action"]
+    actions_detail = ["accounting_setup_action"]
+
+    @action(description=_("Accounting setup"), url_path="accounting-setup-action", icon="fact_check")
+    def accounting_setup_action(self, request, object_id: int):
+        from django.urls import reverse
+
+        return redirect(reverse("admin:company_company_accounting_setup", args=[object_id]))
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -574,8 +587,9 @@ class CompanyAdmin(ModelAdmin):
         icon="playlist_add"
     )
     def install_chart_action(self, request, object_id: int):
+        from accounting.models import CompanyAccount
         from accounting.services.chart_installer import install_chart_standard
-        
+
         company = get_object_or_404(Company, pk=object_id)
         
         if not hasattr(company, 'chart'):
@@ -585,6 +599,11 @@ class CompanyAdmin(ModelAdmin):
         try:
             count = install_chart_standard(company, company.chart.template)
             messages.success(request, _(f"Successfully installed {count} accounts from template."))
+            roles = ", ".join(
+                f"{account.get_role_display()} → {account.code}"
+                for account in CompanyAccount.objects.filter(company=company).exclude(role="").order_by("role")
+            )
+            messages.info(request, _("Account roles: %s") % (roles or _("none")))
         except Exception as e:
             messages.error(request, _(f"Error installing chart: {str(e)}"))
             

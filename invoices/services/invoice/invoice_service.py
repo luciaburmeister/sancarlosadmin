@@ -162,6 +162,8 @@ class InvoiceService:
                 invoice.save(update_fields=[
                     'ocr_processed', 'ocr_processing', 'ocr_error', 'needs_manual_review',
                 ])
+                if invoice.apply_rounding_line():
+                    messages.append("Added rounding line to match the invoice total")
                 invoice.verify_total_balance()
             
             return InvoiceProcessingResult(
@@ -306,6 +308,8 @@ class InvoiceService:
                     'document_type',
                     'needs_manual_review', 'ocr_processing', 'ocr_processed', 'ocr_error',
                 ])
+                if invoice.apply_rounding_line():
+                    messages.append("Added rounding line to match the invoice total")
                 invoice.verify_total_balance()
 
             return InvoiceProcessingResult(invoice=invoice, success=True, messages=messages, needs_review=True)

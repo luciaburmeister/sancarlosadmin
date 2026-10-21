@@ -518,7 +518,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ("company", AutocompleteSelectMultipleFilter),
         ("created_at", RangeDateFilter),
     ]
-    search_fields = ["reference", "name", "client__name"]
+    search_fields = ["reference", "name", "client__name","client__commercial_name"]
     autocomplete_fields = ["client", "company", "asset"]
     form = ProjectFileAdminForm
     list_select_related = ["client"]

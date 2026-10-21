@@ -1,0 +1,65 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Accounting setup" %} · {{ company }}{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-col gap-4">
+    <div class="rounded-lg border p-4 flex items-center gap-3
+        {% if ready %}border-green-200 bg-green-50 dark:bg-green-500/10 dark:border-green-500/30
+        {% else %}border-red-200 bg-red-50 dark:bg-red-500/10 dark:border-red-500/30{% endif %}">
+        <span class="material-symbols-outlined {% if ready %}text-green-600{% else %}text-red-600{% endif %}">
+            {% if ready %}check_circle{% else %}error{% endif %}
+        </span>
+        <div>
+            <p class="font-semibold">{{ company }}</p>
+            <p class="text-sm">
+                {% if ready %}
+                    {% trans "Ready: issued invoices are journalized. Warnings below still deserve a look." %}
+                {% else %}
+                    {% trans "Not ready: invoices hitting a missing item below won't be journalized." %}
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% for section in sections %}
+    <div class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700">
+        <h2 class="text-base font-semibold px-4 py-3 border-b border-base-200 dark:border-base-700 flex items-center gap-2">
+            {% if section.status == "ok" %}
+                <span class="material-symbols-outlined text-green-600">check_circle</span>
+            {% elif section.status == "warning" %}
+                <span class="material-symbols-outlined text-amber-500">warning</span>
+            {% else %}
+                <span class="material-symbols-outlined text-red-600">cancel</span>
+            {% endif %}
+            {{ section.title }}
+        </h2>
+        <ul class="divide-y divide-base-200 dark:divide-base-700">
+            {% for check in section.checks %}
+            <li class="px-4 py-2 flex items-center gap-3 text-sm">
+                {% if check.status == "ok" %}
+                    <span class="material-symbols-outlined text-green-600 text-base">check</span>
+                {% elif check.status == "warning" %}
+                    <span class="material-symbols-outlined text-amber-500 text-base">warning</span>
+                {% else %}
+                    <span class="material-symbols-outlined text-red-600 text-base">close</span>
+                {% endif %}
+                <span class="font-medium w-64 shrink-0">{{ check.label }}</span>
+                <span class="text-font-subtle-light dark:text-font-subtle-dark grow">{{ check.detail }}</span>
+                {% if check.url %}
+                    <a href="{{ check.url }}" class="text-primary-600 dark:text-primary-400 whitespace-nowrap">
+                        {% if check.status == "ok" %}{% trans "Open" %}{% else %}{% trans "Fix" %}{% endif %} →
+                    </a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+
+    <div>
+        <a href="{{ back_url }}" class="text-primary-600 dark:text-primary-400">← {% trans "Back to company" %}</a>
+    </div>
+</div>
+{% endblock %}

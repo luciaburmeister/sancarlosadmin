@@ -128,6 +128,8 @@ class POInvoiceMatchService:
         """Returns [(InvoiceItem, remaining_qty)] — remaining = qty minus already allocated."""
         out = []
         for item in invoice.items.all():
+            if item.is_rounding:
+                continue
             allocated = sum((a.quantity for a in item.po_allocations.all()), Decimal("0"))
             out.append((item, item.quantity - allocated))
         return out

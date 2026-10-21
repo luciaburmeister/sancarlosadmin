@@ -10,10 +10,7 @@ class ClientAutocompleteView(BaseAutocompleteView):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        user = self.request.user
-        
-        if not user.is_superuser:
-            qs = qs.filter(company__in=get_user_companies(user))
+        qs = qs.filter(company__in=get_user_companies(self.request.user).filter(is_active=True))
             
         term = self.request.GET.get("term")
         if term:

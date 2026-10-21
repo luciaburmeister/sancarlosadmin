@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from django.db import models, transaction
-from django.core.validators import RegexValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django_countries.fields import CountryField
 from timestamps.models import Timestampable
 from company.models import Company,CompanyOwnedModel
@@ -68,6 +68,17 @@ class FiscalYear(Timestampable, CompanyOwnedModel):
                      raise ValidationError(_("Fiscal year overlaps with an existing year."))
 
 
+class AccountRole(models.TextChoices):
+    """
+    What the journal generators book to an account. At most one account per
+    company, and per template, holds each role.
+    """
+    ROUNDING = "rounding", _("Rounding")
+    GOODS_SALES = "goods_sales", _("Sales of goods")
+    SERVICES_SALES = "services_sales", _("Sales of services")
+    SALES_DISCOUNTS = "sales_discounts", _("Sales discounts")
+
+
 class TemplateAccount(Timestampable):
     """
     Cuenta del plan base (template). Soporta jerarquía (padre/hijo).
@@ -90,10 +101,30 @@ class TemplateAccount(Timestampable):
         default=True,
         help_text=_("If this account is postable."),
     )
+    role = models.CharField(
+        max_length=20,
+        choices=AccountRole.choices,
+        blank=True,
+        default="",
+        verbose_name=_("Role"),
+        help_text=_(
+            "Given to the company's copy of this account when the chart is installed, "
+            "unless the company already has an account with that role."
+        ),
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["template", "code"], name="uniq_template_account_code"),
+            models.UniqueConstraint(
+                fields=["template", "role"],
+                condition=~models.Q(role=""),
+                name="uniq_template_account_role",
+            ),
+            models.CheckConstraint(
+                check=models.Q(role="") | models.Q(is_postable=True),
+                name="template_account_role_postable",
+            ),
         ]
         indexes = [
             models.Index(fields=["template", "code"]),
@@ -102,6 +133,20 @@ class TemplateAccount(Timestampable):
 
     def __str__(self) -> str:
         return f"{self.code} {self.name}"
+
+    def clean(self):
+        super().clean()
+        if self.role and not self.is_postable:
+            raise ValidationError({"role": _("An account with a role must be active and postable.")})
+
+    def save(self, *args, **kwargs):
+        # Taking a role moves it off the account that held it
+        with transaction.atomic():
+            if self.role:
+                TemplateAccount.objects.filter(
+                    template_id=self.template_id, role=self.role,
+                ).exclude(pk=self.pk).update(role="")
+            super().save(*args, **kwargs)
 
 
 class CompanyChartOfAccounts(Timestampable):
@@ -128,6 +173,49 @@ class CompanyChartOfAccounts(Timestampable):
         default="430",
         help_text=_("Default root for client accounts (e.g. 430 for Spain)")
     )
+
+    partner_account_length = models.PositiveSmallIntegerField(
+        default=7,
+        validators=[MinValueValidator(4), MaxValueValidator(12)],
+        verbose_name=_("Client/provider account length"),
+        help_text=_(
+            "Total digits of the accounts created for clients and providers: the root "
+            "followed by a consecutive number per company (e.g. 8 → 43000001)."
+        ),
+    )
+
+    rounding_tolerance = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal("0.05"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        verbose_name=_("Rounding tolerance"),
+        help_text=_("Largest difference absorbed as rounding. Bigger gaps are left for manual review."),
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(rounding_tolerance__gte=0),
+                name="chart_rounding_tolerance_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(partner_account_length__gte=4, partner_account_length__lte=12),
+                name="chart_partner_account_length_range",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        for field in ("provider_account_root", "client_account_root"):
+            root = getattr(self, field) or ""
+            if not root.isdigit():
+                errors[field] = _("The root must be numeric.")
+            elif self.partner_account_length and len(root) >= self.partner_account_length:
+                errors[field] = _("The root must be shorter than the client/provider account length.")
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self) -> str:
         return f"{self.company} -> {self.template}"
@@ -197,7 +285,19 @@ class CompanyAccount(Timestampable):
     
     is_reconcilable = models.BooleanField(default=False)
     is_tax_account = models.BooleanField(default=False)
-    
+    role = models.CharField(
+        max_length=20,
+        choices=AccountRole.choices,
+        blank=True,
+        default="",
+        verbose_name=_("Role"),
+        help_text=_(
+            "What the automatic journal entries book here: rounding differences, income "
+            "from sales of goods or of services, or the discounts on sales invoices. One "
+            "account per role per company."
+        ),
+    )
+
     a3_code_override = models.CharField(
         max_length=10, 
         blank=True, 
@@ -208,6 +308,15 @@ class CompanyAccount(Timestampable):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["company", "code"], name="uniq_company_account_code"),
+            models.UniqueConstraint(
+                fields=["company", "role"],
+                condition=~models.Q(role=""),
+                name="uniq_company_account_role",
+            ),
+            models.CheckConstraint(
+                check=models.Q(role="") | models.Q(is_postable=True, is_active=True),
+                name="account_role_postable_active",
+            ),
         ]
         indexes = [
             models.Index(fields=["company", "code"]),
@@ -217,6 +326,24 @@ class CompanyAccount(Timestampable):
 
     def __str__(self) -> str:
         return f"{self.code} {self.name}"
+
+    def clean(self):
+        super().clean()
+        if self.role and not (self.is_postable and self.is_active):
+            raise ValidationError({"role": _("An account with a role must be active and postable.")})
+
+    def save(self, *args, **kwargs):
+        # Taking a role moves it off the account that held it
+        with transaction.atomic():
+            if self.role:
+                CompanyAccount.objects.filter(
+                    company_id=self.company_id, role=self.role,
+                ).exclude(pk=self.pk).update(role="")
+            super().save(*args, **kwargs)
+
+    @classmethod
+    def for_role(cls, company_id, role):
+        return cls.objects.filter(company_id=company_id, role=role).first()
 
 
 class Statement(models.TextChoices):
@@ -383,6 +510,112 @@ class CostCenter(Timestampable, CompanyOwnedModel):
 # ... (omitted parts) ...
 
 
+class IncomeType(models.TextChoices):
+    """Which sales account a business unit's income is booked to (PGC 700 / 705)."""
+    GOODS = "goods", _("Goods")
+    SERVICES = "services", _("Services")
+
+
+class BusinessUnit(Timestampable, CompanyOwnedModel):
+    """
+    Unidad de negocio: what a product or inventory item sells, goods or
+    services, and so which sales account its invoice lines are booked to.
+
+    Products and inventory items point to one; an invoice line takes its
+    item's unit when created, and the company's default unit when there is
+    nothing behind it (manual lines, advances, imports).
+    """
+    code = models.CharField(
+        max_length=32,
+        blank=True,
+        verbose_name=_("Code"),
+        help_text=_("Assigned automatically, numbered per company (UN-001, UN-002, ...)."),
+    )
+    name = models.CharField(max_length=255, verbose_name=_("Name"))
+    income_type = models.CharField(
+        max_length=10,
+        choices=IncomeType.choices,
+        default=IncomeType.GOODS,
+        verbose_name=_("Goods or services"),
+        help_text=_("Books its sales to sales of goods or of services. Fixed once a posted entry uses it."),
+    )
+    is_default = models.BooleanField(
+        default=False,
+        verbose_name=_("Default"),
+        help_text=_("Used for invoice lines with no product or item behind them. One per company."),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Business Unit")
+        verbose_name_plural = _("Business Units")
+        ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "code"], name="uniq_business_unit_company_code"),
+            models.UniqueConstraint(
+                fields=["company"],
+                condition=models.Q(is_default=True),
+                name="uniq_business_unit_company_default",
+            ),
+            models.CheckConstraint(
+                check=models.Q(is_default=False) | models.Q(is_active=True),
+                name="business_unit_default_active",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} {self.name}"
+
+    @classmethod
+    def default_for(cls, company_id):
+        return cls.objects.filter(company_id=company_id, is_default=True).first()
+
+    def has_posted_sales(self):
+        """Lines of it (or deducting an advance of it) are in a posted, unreversed sales entry."""
+        from invoices.models import SalesInvoiceItem
+
+        return SalesInvoiceItem.objects.filter(
+            models.Q(business_unit=self) | models.Q(advance_line__business_unit=self),
+            invoice__journal_entries__status=EntryStatus.POSTED,
+            invoice__journal_entries__reversal_of__isnull=True,
+            invoice__journal_entries__reversal__isnull=True,
+        ).exists()
+
+    def clean(self):
+        super().clean()
+        if self.is_default and not self.is_active:
+            raise ValidationError({"is_default": _("The default business unit must be active.")})
+        if self._income_type_changed() and self.has_posted_sales():
+            raise ValidationError({"income_type": _("Posted entries already book this unit's sales: it can no longer change.")})
+
+    def _income_type_changed(self):
+        if not self.pk:
+            return False
+        stored = BusinessUnit.objects.filter(pk=self.pk).values_list("income_type", flat=True).first()
+        return stored is not None and stored != self.income_type
+
+    CODE_PREFIX = "UN"
+
+    def save(self, *args, **kwargs):
+        from configurator.utils.codegen import next_scoped_code
+
+        with transaction.atomic():
+            if not self.code:
+                self.code = next_scoped_code(
+                    model=BusinessUnit,
+                    scope_filter={"company_id": self.company_id},
+                    prefix=self.CODE_PREFIX,
+                    width=3,
+                )
+            if self._income_type_changed() and self.has_posted_sales():
+                raise ValidationError(_("Posted entries already book this unit's sales: it can no longer change."))
+            
+            if self.is_default:
+                BusinessUnit.objects.filter(
+                    company_id=self.company_id, is_default=True,
+                ).exclude(pk=self.pk).update(is_default=False)
+            super().save(*args, **kwargs)
+
 
 class JournalType(models.TextChoices):
     GENERAL = "GENERAL", _("General")
@@ -455,14 +688,19 @@ class JournalEntry(Timestampable, CompanyOwnedModel):
         related_name="journal_entries",
         verbose_name=_("Sales Invoice")
     )
-    
+    reversal_of = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversal",
+        verbose_name=_("Reverses"),
+        help_text=_("The posted entry this one cancels, debits and credits swapped."),
+    )
+
     posted_at = models.DateTimeField(null=True, blank=True)
     posted_by = models.ForeignKey(
-        "company.CompanyUser", # Using CompanyUser as reference? Or User? User requested "posted_by fields". 
-        # Usually it's the User model. models.py has no User import yet.
-        # But CompanyUser is safer link to tenant. 
-        # User prompt said "posted_by = models.ForeignKey(User...)" in implementation plan suggestion.
-        # I'll use settings.AUTH_USER_MODEL.
+        "company.CompanyUser", 
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -523,28 +761,24 @@ class JournalEntry(Timestampable, CompanyOwnedModel):
         if self.status == EntryStatus.POSTED and not self.is_balanced():
             raise ValidationError(_("Cannot post unbalanced entry."))
 
-    def delete(self, *args, **kwargs):
-        if self.status == EntryStatus.POSTED:
+    def delete(self, *args, allow_posted=False, **kwargs):
+
+        if self.status == EntryStatus.POSTED and not allow_posted:
              raise ValidationError(_("Cannot delete a posted entry."))
-        super().delete(*args, **kwargs)
+        return super().delete(*args, **kwargs)
 
     def save(self, *args, **kwargs):
         if self.pk:
             # Enforce protection even if clean() wasn't called
             db_instance = JournalEntry.objects.get(pk=self.pk)
             if db_instance.status == EntryStatus.POSTED:
-                 # We allow updating posted_at/posted_by ONLY during the post() transition if needed,
-                 # but generally standard edits are blocked.
-                 # The post() method calls save(). We need to allow that call.
-                 # post() updates status from DRAFT -> POSTED.
-                 # This check blocks updates IF DB STATUS IS ALREADY POSTED.
+
                  if (
                      self.date != db_instance.date
                      or self.journal_id != db_instance.journal_id
                      or self.company_id != db_instance.company_id
                      or self.status != db_instance.status
-                     # We might want to allow updating reference? User said "Prevent modification of POSTED entries". 
-                     # I will assume strict.
+
                  ):
                      raise ValidationError(_("Cannot modify a posted entry."))
         super().save(*args, **kwargs)

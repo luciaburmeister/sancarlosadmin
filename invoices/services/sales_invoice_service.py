@@ -177,6 +177,8 @@ class SalesInvoiceService:
         if sales_invoice.total_amount.amount == 0:
             sales_invoice.recalculate_payment_status()
 
+        cls.journalize(sales_invoice)
+
         # Submit to AEAT via e-invoicing provider (async, non-blocking), once
         # committed: a worker picking it up earlier would not find it issued
         if settings.AEAT_SUBMISSIONS_ENABLED:
@@ -201,6 +203,23 @@ class SalesInvoiceService:
             )
 
         return sales_invoice
+
+    @staticmethod
+    def journalize(sales_invoice):
+        """
+        Book the issued invoice in the sales journal. The ledger never blocks
+        issuing: a missing account is logged and the invoice goes out without
+        an entry; one the ledger won't post (no fiscal year, lock date) stays
+        DRAFT.
+        """
+        from accounting.services.journal_generator import SalesJournalGeneratorService
+
+        try:
+            with transaction.atomic():
+                return SalesJournalGeneratorService(sales_invoice.company).journalize_invoice(sales_invoice)
+        except Exception:
+            logger.exception("Could not journalize sales invoice %s", sales_invoice.pk)
+            return None
 
     @classmethod
     def _already_final(cls, sales_invoice):

@@ -43,9 +43,8 @@ class ProjectFileSelectionForm(forms.Form):
         
         super().__init__(*args, **kwargs)
         
-        if self.request and self.request.method == "GET":
-             if "initial" not in kwargs:
-                  self.fields["project_file"].queryset = ProjectFile.objects.none()
+        if not self.is_bound:
+            self.fields["project_file"].queryset = ProjectFile.objects.none()
 
         self.helper = ProjectFileSelectionFormHelper()
         

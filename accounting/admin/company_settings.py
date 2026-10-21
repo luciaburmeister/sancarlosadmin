@@ -19,7 +19,7 @@ class CompanyChartOfAccountsAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields = ["company__name", "template__name"]
     list_select_related = ["company", "template"]
     autocomplete_fields = ["company","template"]
-    
+
     fieldsets = (
         (
             None,
@@ -28,7 +28,8 @@ class CompanyChartOfAccountsAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "company",
                     "template",
                     "lock_date",
-                    ("provider_account_root", "client_account_root"),
+                    ("provider_account_root", "client_account_root", "partner_account_length"),
+                    "rounding_tolerance",
                 )
             },
         ),

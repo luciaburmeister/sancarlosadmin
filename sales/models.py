@@ -496,6 +496,15 @@ class Client(Timestampable, CompanyOwnedModel):
         related_name="is_default_for_client",
         verbose_name=_("Default Client Bank Account")
     )
+    account = models.ForeignKey(
+        'accounting.CompanyAccount',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clients",
+        verbose_name=_("Accounting Account"),
+        help_text=_("Created automatically when its first invoice is journalized: the chart's client root followed by the next number."),
+    )
 
     # Términos y condiciones
     terms_accepted_at = models.DateTimeField(

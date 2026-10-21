@@ -116,7 +116,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
     ]
     list_filter = ["sale_zone", "is_insured", "contacts__role"]
-    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account"]
+    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account","account"]
     list_select_related = ["company"]   
 
     def get_list_filter(self, request):
@@ -238,6 +238,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
                 ("payment_method", "payment_terms_days"),
                 "payment_terms_observations",
                 ("our_bank_account", "default_client_bank_account"),
+                "account",
             )
         }),
         (_("Payment Reminders"), {

@@ -627,7 +627,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "provider_info__provider_ref",
     )
     ordering = ("-created_at",)
-    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice", "company")
+    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice", "company", "business_unit")
     change_form_outer_before_template = "admin/inventory/item_stock_actions.html"
     readonly_fields = (
         "code",
@@ -645,7 +645,8 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
             "fields": (
                 ("company"),
                 ("code", "item_type"),
-                ("name", "stock_on_hand_display"),
+                ("name", "business_unit"),
+                "stock_on_hand_display",
                 ("incoming_quantity_display", "reserved_quantity_display"),
                 ("selling_price", "cost_price"),
                 ("min_stock", "exclude_from_commission"),

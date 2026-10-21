@@ -76,10 +76,10 @@ class ClientSelectionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         
         # Optimization for GET requests: return empty results initially for autocomplete
-        if self.request and self.request.method == "GET":
-             if "initial" not in kwargs:
-                 self.fields["quote"].queryset = Quote.objects.none()
-                 self.fields["asset"].queryset = Asset.objects.none()
+        # A wizard always passes initial, so test the binding, not kwargs.
+        if not self.is_bound:
+            self.fields["quote"].queryset = Quote.objects.none()
+            self.fields["asset"].queryset = Asset.objects.none()
 
         # Ensure we have the right helper attached for Crispy rendering
         self.helper = ClientSelectionFormHelper()

@@ -137,8 +137,28 @@ class ChartInstallerService:
             
             existing_map[c_acc.code] = c_acc
             installed_count += 1
-            
+
+        self._assign_roles(company, template_accounts, existing_map)
         return installed_count
+
+    @staticmethod
+    def _assign_roles(company, template_accounts, existing_map):
+        """
+        Give each template role to the company's account of the same code.
+        A role the company already gave an account is left where it is, so
+        re-installing fills in what's missing without undoing choices.
+        """
+        taken = set(
+            CompanyAccount.objects.filter(company=company).exclude(role="").values_list("role", flat=True)
+        )
+        for t_acc in template_accounts:
+            if not t_acc.role or t_acc.role in taken:
+                continue
+            account = existing_map.get(t_acc.code)
+            if account and account.is_active and account.is_postable:
+                account.role = t_acc.role
+                account.save(update_fields=["role"])
+                taken.add(t_acc.role)
 
 def install_chart_standard(company, template) -> int:
     """

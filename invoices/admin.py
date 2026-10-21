@@ -320,7 +320,7 @@ class InvoiceItemInline(StackedInline):
                     "description",
                     ("quantity", "unit_price"),
                     ("gross_total", "discount_percentage", "discount_amount", "line_total"),
-                    "account",
+                    ("account", "is_rounding"),
                 )
             },
         ),
@@ -1049,7 +1049,10 @@ class SalesInvoiceItemInlineFormSet(forms.BaseInlineFormSet):
                 is_advance_line_source(line.source_id) or is_advance_deduction_source(line.source_id)
             ):
                 continue
-            if self._should_delete_form(form) or form.has_changed():
+            changed = set(form.changed_data)
+            if is_advance_line_source(line.source_id):
+                changed.discard("business_unit")  # what the advance sells is still the user's call
+            if self._should_delete_form(form) or changed:
                 raise ValidationError(_(
                     "Advance lines and advance deductions cannot be edited or deleted here. "
                     "Deductions are changed with the pro forma's Remove advances and "
@@ -1063,6 +1066,7 @@ class SalesInvoiceItemInline(StackedInline):
     extra = 0
     tab = True
     readonly_fields = ("discount_amount", "line_total", "source_id", "project_file")
+    autocomplete_fields = ("business_unit",)
     formfield_overrides = {
         models.CharField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
     }
@@ -1076,7 +1080,7 @@ class SalesInvoiceItemInline(StackedInline):
                     ("discount_percentage", "discount_amount"), 
                     "description",
                     ("reference", "line_total", "source_id"),
-                    "project_file",
+                    ("project_file", "business_unit"),
                 )
             },
         ),
@@ -1100,6 +1104,40 @@ class SalesInvoiceItemInline(StackedInline):
         if obj and obj.status in FROZEN_SALES_INVOICE_STATUSES:
             return False
         return super().has_delete_permission(request, obj)
+
+class SalesInvoiceBusinessUnitFormSet(forms.BaseInlineFormSet):
+    def save_existing(self, form, obj, commit=True):
+        # The line itself is frozen: only its business unit is saved
+        if commit:
+            obj.save(update_fields=["business_unit"])
+        return obj
+
+
+class SalesInvoiceBusinessUnitInline(TabularInline):
+    """An issued invoice's lines, to correct their business unit until its
+    journal entry is posted (SalesInvoiceItem.save allows only that)."""
+
+    model = SalesInvoiceItem
+    formset = SalesInvoiceBusinessUnitFormSet
+    extra = 0
+    tab = True
+    verbose_name = _("Business unit")
+    verbose_name_plural = _("Business units")
+    fields = ("description", "line_total", "business_unit")
+    autocomplete_fields = ("business_unit",)
+    can_delete = False
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.has_posted_journal_entry:
+            return self.fields
+        return ("description", "line_total")
+
+    def has_add_permission(self, request, obj):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 class EmailLogInline(GenericTabularInline):
     model = EmailLog
@@ -1177,6 +1215,12 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     search_fields = ("invoice_number", "proforma_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline, DocumentPaymentsInline, EmailLogInline, EInvoicingSubmissionInline, PaymentReminderLogInline]
+
+    def get_inlines(self, request, obj):
+        inlines = list(super().get_inlines(request, obj))
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            inlines.insert(1, SalesInvoiceBusinessUnitInline)
+        return inlines
     list_filter_submit = True
     list_select_related = ["company","client"]
     
@@ -1403,7 +1447,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 level=messages.WARNING,
             )
     
-    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel","run_matcher_bulk"]
+    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel","run_matcher_bulk", "journalize_selected"]
     actions_row = [
         "view_pdf_row_action",
         "download_pdf_row_action",
@@ -1439,6 +1483,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             "title": _("Accounting"),
             "items": [
                 "view_journal_entry_detail_action",
+                "journalize_detail_action",
             ],
         },
         {
@@ -1781,6 +1826,76 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     def view_journal_entry_detail_action(self, request, object_id):
         url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
         return redirect(url)
+
+    # Outcomes of journalizing one invoice, and how they're shown
+    _JOURNALIZE_LEVELS = {
+        "posted": messages.SUCCESS,
+        "draft": messages.WARNING,
+        "already": messages.WARNING,
+        "not_issued": messages.ERROR,
+        "error": messages.ERROR,
+    }
+
+    @staticmethod
+    def _journalize_one(invoice):
+        """
+        Build (or rebuild a draft of) an issued invoice's journal entry and
+        post it. Returns (outcome, message): outcome is a _JOURNALIZE_LEVELS key.
+        """
+        from accounting.models import EntryStatus
+        from accounting.services.journal_generator import SalesJournalGeneratorService
+
+        if invoice.status != SalesInvoiceStatus.FINAL:
+            return "not_issued", _("Only issued invoices are journalized.")
+        try:
+            with transaction.atomic():
+                entry = SalesJournalGeneratorService(invoice.company).retry_invoice(invoice)
+        except SalesJournalGeneratorService.JournalizeError as e:
+            return "error", str(e)
+        except Exception:
+            logger.exception("Could not journalize sales invoice %s", invoice.pk)
+            return "error", _("The journal entry could not be created; the error was logged.")
+        if entry is None:
+            return "already", _("This invoice already has a posted journal entry.")
+        if entry.status == EntryStatus.POSTED:
+            return "posted", _("Journal entry %s posted.") % entry.number
+        return "draft", _("Journal entry saved as draft: %s") % entry.post_error
+
+    @action(description=_("Generate Journal Entry"), icon="post_add", permissions=["change_salesinvoice"])
+    def journalize_detail_action(self, request, object_id):
+        invoice = get_object_or_404(self.get_queryset(request), pk=object_id)
+        outcome, message = self._journalize_one(invoice)
+        self.message_user(request, message, level=self._JOURNALIZE_LEVELS[outcome])
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @admin.action(description=_("Generate journal entries"), permissions=["change_salesinvoice"])
+    def journalize_selected(self, request, queryset):
+        results = {outcome: [] for outcome in self._JOURNALIZE_LEVELS}
+        # By issue date, so the entries' numbers follow the invoices' dates
+        for invoice in queryset.select_related("company").order_by("date_issued", "pk"):
+            outcome, message = self._journalize_one(invoice)
+            results[outcome].append(f"{invoice.display_number}: {message}")
+
+        if results["posted"]:
+            self.message_user(request, _("%(count)s journal entries posted.") % {"count": len(results["posted"])})
+        if results["already"]:
+            self.message_user(
+                request, _("%(count)s already had a posted entry.") % {"count": len(results["already"])},
+                level=messages.WARNING,
+            )
+        if results["not_issued"]:
+            self.message_user(
+                request, _("%(count)s are not issued and were skipped.") % {"count": len(results["not_issued"])},
+                level=messages.WARNING,
+            )
+        problems = [(m, messages.ERROR) for m in results["error"]] + [(m, messages.WARNING) for m in results["draft"]]
+        for message, level in problems[:10]:
+            self.message_user(request, message, level=level)
+        if len(problems) > 10:
+            self.message_user(
+                request, _("…and %(count)s more with problems.") % {"count": len(problems) - 10},
+                level=messages.ERROR,
+            )
 
     @action(description=_("Register Payment"), icon="payments")
     def register_payment_detail_action(self, request, object_id):

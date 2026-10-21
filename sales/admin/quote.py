@@ -343,7 +343,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         ("date_sent", RangeDateFilter),
         ("date_accepted",RangeDateFilter),
         ("agent", AutocompleteSelectMultipleFilter)]
-    search_fields = ["project_name", "client__name", "id", "external_id"]
+    search_fields = ["project_name", "client__name", "id", "external_id", "client__commercial_name"]
     autocomplete_fields = ["client", "agent", "project_file","discount_policies"]
     readonly_fields = [
         "subtotal_price", "tax_amount", "total_price", "tax_breakdown",

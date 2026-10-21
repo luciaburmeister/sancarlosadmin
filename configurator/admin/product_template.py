@@ -199,7 +199,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     actions_row = ["duplicate_product", "stage_report_action"]
     actions = ["export_planning_config"]
     list_select_related = ["company"]
-    autocomplete_fields = ["company"]
+    autocomplete_fields = ["company", "business_unit"]
 
     inlines = [
         ProductParameterInline,
@@ -213,7 +213,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     fieldsets = (
         (_("Product Template"), {
-            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), ("allow_production_without_accepted_quote", "allow_parameter_values_edit_in_any_status"), ("exclude_from_invoicing", "is_labor_hours_template"), "exclude_from_commission"),
+            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), ("allow_production_without_accepted_quote", "allow_parameter_values_edit_in_any_status"), ("exclude_from_invoicing", "is_labor_hours_template"), ("exclude_from_commission", "business_unit")),
         })
         ,(_("Ownership"), {
             "fields": ("company",),

@@ -94,10 +94,11 @@ class PresetClientLinkForm(forms.ModelForm):
         self.request = request
         super().__init__(*args, **kwargs)
 
-        if self.request and self.request.method == "GET":
-            if "initial" not in kwargs:
-                self.fields["quote"].queryset = Quote.objects.none()
-                self.fields["asset"].queryset = Asset.objects.none()
+        # Unbound (first load): the autocomplete fetches choices as typed.
+        # A wizard always passes initial, so test the binding, not kwargs.
+        if not self.is_bound:
+            self.fields["quote"].queryset = Quote.objects.none()
+            self.fields["asset"].queryset = Asset.objects.none()
 
         self.helper = PresetClientLinkFormHelper()
 

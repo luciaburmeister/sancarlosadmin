@@ -90,6 +90,8 @@ class ProjectFileInvoiceService:
             if quote.observations and quote.observations.strip()
         ]
 
+    GROUPS_IF_DEDUCTIBLE = "if_deductible"
+
     @classmethod
     def get_invoiceable_summary(cls, project_file, with_groups=False, exclude_invoice=None):
         """
@@ -117,7 +119,9 @@ class ProjectFileInvoiceService:
         With ``with_groups``, also goods_remaining_net_by_group: the same
         figure per VAT group (keyed like PricedLines.groups), and
         invoiceable_net_by_group: the expediente's net base per VAT group.
-        It re-prices the expediente and its invoices' lines, so it is opt-in.
+        It re-prices the expediente and its invoices' lines, so it is opt-in;
+        ``with_groups=GROUPS_IF_DEDUCTIBLE`` adds them only when
+        advances_deductible_net > 0, the only case a deduction needs them.
         With ``exclude_invoice``, the expediente as if that invoice (its
         goods and its deductions) did not exist: what it can bill.
         """
@@ -337,6 +341,8 @@ class ProjectFileInvoiceService:
                 if total_invoiceable > 0 else Decimal("0.00")
             ),
         }
+        if with_groups == cls.GROUPS_IF_DEDUCTIBLE:
+            with_groups = summary['advances_deductible_net'] > 0
         if with_groups:
             # The whole expediente priced at 100 %, squared with its net base
             summary['invoiceable_net_by_group'] = cls._reconcile_groups(
@@ -993,7 +999,7 @@ class ProjectFileInvoiceService:
         from configurator.models import Configuration
         from invoices.services.delivery_order_service import DeliveryOrderService
         from management.models import WorkEntry
-        from sales.models import QuoteInventoryItem, QuoteItem
+        from sales.models import QuoteInventoryItem
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
@@ -1004,53 +1010,52 @@ class ProjectFileInvoiceService:
         source_lines = []  # SourceLine records for the discount resolver
         header_taxes = {}  # quote id → its client-tax header taxes, or None
 
-        def own_taxes(source_ct, obj_id, quote_id):
-            # A client-tax quote taxes the line with its header taxes
-            if quote_id is not None:
-                taxes = DeliveryOrderService._quote_header_taxes(quote_id, header_taxes)
-                if taxes is not None:
-                    return taxes
-            return list(
-                AppliedTax.objects.filter(
-                    content_type=source_ct, object_id=obj_id
-                ).select_related("tax_type")
-            )
+        # Sources carrying their own AppliedTax; quote_item_ lines have no taxes
+        taxed_cts = {
+            line_sources.CONFIG: config_ct,
+            line_sources.DIRECT: config_ct,
+            line_sources.INV_ITEM: inv_item_ct,
+            line_sources.WORK_ENTRY: work_entry_ct,
+        }
+        quote_prefixes = (
+            line_sources.CONFIG, line_sources.DIRECT, line_sources.INV_ITEM, line_sources.QUOTE_ITEM,
+        )
 
-        for item_data in items_data:
+        # The lines' owning quotes and own taxes, fetched for all lines at once
+        parsed = [line_sources.parse(item_data.get('source_id', '')) for item_data in items_data]
+        quote_ids = line_sources.quote_ids_by_source(
+            line_sources.source_id(prefix, obj_id)
+            for prefix, obj_id in parsed if prefix in quote_prefixes
+        )
+        taxed_pks = {}
+        for prefix, obj_id in parsed:
+            if prefix in taxed_cts:
+                taxed_pks.setdefault(taxed_cts[prefix], set()).add(obj_id)
+        source_taxes_by_object = {}
+        if taxed_pks:
+            query = Q()
+            for source_ct, pks in taxed_pks.items():
+                query |= Q(content_type=source_ct, object_id__in=pks)
+            for tax in AppliedTax.objects.filter(query).select_related("tax_type"):
+                source_taxes_by_object.setdefault((tax.content_type_id, tax.object_id), []).append(tax)
+
+        for item_data, (prefix, obj_id) in zip(items_data, parsed):
             line_total = cls.line_total(item_data)
             subtotal += line_total
 
-            # Resolve the source's taxes and owning quote from its source_id
             source_id = item_data.get('source_id', '')
-            source_taxes = []
             quote_id = None
+            if prefix in quote_prefixes:
+                quote_id = quote_ids.get(line_sources.source_id(prefix, obj_id))
 
-            prefix, obj_id = line_sources.parse(source_id)
-            if prefix in (line_sources.CONFIG, line_sources.DIRECT):
-                quote_id = (
-                    Configuration.objects.filter(pk=obj_id)
-                    .values_list("quote_id", flat=True).first()
-                )
-                source_taxes = own_taxes(config_ct, obj_id, quote_id)
-            elif prefix == line_sources.INV_ITEM:
-                quote_id = (
-                    QuoteInventoryItem.objects.filter(pk=obj_id)
-                    .values_list("quote_id", flat=True).first()
-                )
-                source_taxes = own_taxes(inv_item_ct, obj_id, quote_id)
-            elif prefix == line_sources.QUOTE_ITEM:
-                # quote_item_ lines have no taxes
-                quote_id = (
-                    QuoteItem.objects.filter(pk=obj_id)
-                    .values_list("quote_id", flat=True).first()
-                )
-            elif prefix == line_sources.WORK_ENTRY:
-                # Work entries carry their own AppliedTax and belong to no quote
-                source_taxes = list(
-                    AppliedTax.objects.filter(
-                        content_type=work_entry_ct, object_id=obj_id
-                    ).select_related("tax_type")
-                )
+            source_taxes = []
+            if prefix in taxed_cts:
+                # A client-tax quote taxes the line with its header taxes;
+                # work entries belong to no quote and keep their own
+                if quote_id is not None:
+                    source_taxes = DeliveryOrderService._quote_header_taxes(quote_id, header_taxes)
+                if not source_taxes:
+                    source_taxes = source_taxes_by_object.get((taxed_cts[prefix].pk, obj_id), [])
 
             kind = source_kind(source_id)
             source_lines.append(SourceLine(source_id, line_total, quote_id, kind))

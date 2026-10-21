@@ -439,12 +439,9 @@ class AdvanceDeductionService:
         for project_file in ProjectFile.objects.filter(pk__in=billed).order_by("pk"):
             summary = ProjectFileInvoiceService.get_invoiceable_summary(
                 project_file, exclude_invoice=invoice,
+                with_groups=ProjectFileInvoiceService.GROUPS_IF_DEDUCTIBLE,
             )
-            if summary["advances_deductible_net"] > 0:
-                summary = ProjectFileInvoiceService.get_invoiceable_summary(
-                    project_file, with_groups=True, exclude_invoice=invoice,
-                )
-            elif not lines:
+            if summary["advances_deductible_net"] <= 0 and not lines:
                 continue
             summaries[project_file.pk] = summary
 
@@ -614,14 +611,13 @@ class AdvanceDeductionService:
             return []
         summaries = {}
         for project_file in ProjectFile.objects.filter(pk__in=billed).order_by("pk"):
+            # The per-group figures are only worth pricing with something to deduct
             summary = ProjectFileInvoiceService.get_invoiceable_summary(
                 project_file, exclude_invoice=invoice,
+                with_groups=ProjectFileInvoiceService.GROUPS_IF_DEDUCTIBLE,
             )
-            # The per-group figures are only worth pricing with something to deduct
             if summary["advances_deductible_net"] > 0:
-                summaries[project_file.pk] = ProjectFileInvoiceService.get_invoiceable_summary(
-                    project_file, with_groups=True, exclude_invoice=invoice,
-                )
+                summaries[project_file.pk] = summary
         if not summaries:
             return []
         goods = cls._invoice_goods(invoice, summaries)

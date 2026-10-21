@@ -844,7 +844,7 @@ class AppliedTax(models.Model):
         """The sales invoice this tax belongs to: the invoice itself for an
         invoice-level tax, the line's invoice for a per-line tax on a sales
         invoice item. None for taxes on anything else."""
-        model = self.content_type.model
+        model = ContentType.objects.get_for_id(self.content_type_id).model
         if model == 'salesinvoice':
             return self.content_object
         if model == 'salesinvoiceitem':
@@ -1312,10 +1312,15 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         current_total = taxable_base
         
         # 2. Sequential tax application (Additive)
-        taxes = list(AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'id'))
-        
+        taxes = list(
+            AppliedTax.objects.filter(content_type=ct, object_id=self.pk)
+            .select_related("tax_type").order_by('order', 'id')
+        )
+
         total_tax = Decimal("0.00")
         for tax in taxes:
+            # Spares AppliedTax.save a query for the invoice it belongs to
+            tax.content_object = self
             # Use the tax's own stored base_amount if it exists (multi-IVA
             # invoices set a per-line base during import); otherwise fall
             # back to the full taxable base.

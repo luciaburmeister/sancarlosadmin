@@ -125,14 +125,15 @@ class AccountingSetupCheck:
         }
         accounts_url = reverse("admin:accounting_companyaccount_changelist")
         for role, (severity, why) in needed.items():
+            label = str(AccountRole(role).label)
             account = holders.get(role)
             if account:
                 section.checks.append(Check(
-                    AccountRole(role).label, OK, str(account),
+                    label, OK, str(account),
                     reverse("admin:accounting_companyaccount_change", args=[account.pk]),
                 ))
             else:
-                section.checks.append(Check(AccountRole(role).label, severity, why, accounts_url))
+                section.checks.append(Check(label, severity, why, accounts_url))
         return section
 
     def _taxes(self):

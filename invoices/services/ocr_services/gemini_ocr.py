@@ -299,6 +299,27 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
                         item.gross_total = (item.gross_total / divisor).quantize(Decimal("0.01"))
                     if item.net_total is not None:
                         item.net_total = (item.net_total / divisor).quantize(Decimal("0.01"))
+            return data
+
+        # A line can mix both: its net_total the base, its unit_price with
+        # the tax in (fuel receipts: 16.05 L × 1.870 € = 30.00 €, base 24.79 €).
+        # The totals then match net_amount, but quantity × unit_price would
+        # bill the tax twice.
+        for item in data.line_items:
+            if not (item.tax_rate and item.tax_rate > 0 and item.unit_price and item.net_total):
+                continue
+            divisor = Decimal("1") + item.tax_rate / Decimal("100")
+            quantity = item.quantity or Decimal("1")
+            priced = item.unit_price * quantity
+            # Half a cent of unit-price rounding per unit, on top of the line's own cent
+            line_tolerance = tolerance + abs(quantity) * Decimal("0.005")
+            if (
+                abs(priced - item.net_total * divisor) <= line_tolerance
+                and abs(priced - item.net_total) > line_tolerance
+            ):
+                item.unit_price = (item.unit_price / divisor).quantize(Decimal("0.01"))
+                if item.gross_total is not None:
+                    item.gross_total = (item.gross_total / divisor).quantize(Decimal("0.01"))
 
         return data
 

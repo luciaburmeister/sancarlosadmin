@@ -537,6 +537,7 @@ class Client(Timestampable, CompanyOwnedModel):
     class Meta:
         verbose_name = _("Client")
         verbose_name_plural = _("Clients")
+        ordering = ["name", "pk"]
 
     def __str__(self):
         return self.commercial_name or self.name

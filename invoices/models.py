@@ -1889,9 +1889,11 @@ class InvoiceItem(models.Model):
     )
     description = models.CharField(max_length=255, verbose_name=_("Description"))
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    # Four decimals, like purchase order lines: a per-litre or per-kilo price
+    # derived from a printed base must give that base back
     unit_price = MoneyField(
-        max_digits=12,
-        decimal_places=2,
+        max_digits=14,
+        decimal_places=4,
         default_currency='EUR',
         verbose_name=_("Unit Price")
     )

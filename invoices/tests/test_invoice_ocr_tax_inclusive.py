@@ -39,8 +39,19 @@ class TaxInclusivePriceTests(SimpleTestCase):
 
         self.assertEqual(
             [(line.unit_price, line.gross_total, line.net_total) for line in out.line_items],
-            [(d("1.55"), d("24.80"), d("24.79")), (d("0.93"), d("31.56"), d("31.55"))],
+            [(d("1.5445"), d("24.80"), d("24.79")), (d("0.9337"), d("31.56"), d("31.55"))],
         )
+        # The line InvoiceItem.save computes is the printed base
+        self.assertEqual(
+            [(line.quantity * line.unit_price).quantize(d("0.01")) for line in out.line_items],
+            [d("24.79"), d("31.55")],
+        )
+
+    def test_discounted_line_keeps_its_discount_out_of_the_price(self):
+        line = LineItem("x", d("10"), d("12.10"), d("50"), d("121.00"), d("50.00"), d("21"))
+        out = self._adjust(_data(d("50.00"), d("60.50"), line))
+
+        self.assertEqual(out.line_items[0].unit_price, d("10.0000"))
 
     def test_whole_document_with_tax_in_prices(self):
         out = self._adjust(_data(d("100.00"), d("121.00"), _line("2", "60.50", "121.00", "121.00")))

@@ -293,12 +293,12 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
             for item in data.line_items:
                 if item.tax_rate and item.tax_rate > 0:
                     divisor = Decimal("1") + item.tax_rate / Decimal("100")
-                    if item.unit_price is not None:
-                        item.unit_price = (item.unit_price / divisor).quantize(Decimal("0.01"))
                     if item.gross_total is not None:
                         item.gross_total = (item.gross_total / divisor).quantize(Decimal("0.01"))
                     if item.net_total is not None:
                         item.net_total = (item.net_total / divisor).quantize(Decimal("0.01"))
+                    if item.unit_price is not None:
+                        item.unit_price = self._net_unit_price(item, divisor)
             return data
 
         # A line can mix both: its net_total the base, its unit_price with
@@ -310,18 +310,33 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
                 continue
             divisor = Decimal("1") + item.tax_rate / Decimal("100")
             quantity = item.quantity or Decimal("1")
-            priced = item.unit_price * quantity
+            # The line as InvoiceItem.save will compute it
+            undiscounted = Decimal("1") - (item.discount_percentage or Decimal("0")) / Decimal("100")
+            priced = item.unit_price * quantity * undiscounted
             # Half a cent of unit-price rounding per unit, on top of the line's own cent
             line_tolerance = tolerance + abs(quantity) * Decimal("0.005")
             if (
                 abs(priced - item.net_total * divisor) <= line_tolerance
                 and abs(priced - item.net_total) > line_tolerance
             ):
-                item.unit_price = (item.unit_price / divisor).quantize(Decimal("0.01"))
+                item.unit_price = self._net_unit_price(item, divisor)
                 if item.gross_total is not None:
                     item.gross_total = (item.gross_total / divisor).quantize(Decimal("0.01"))
 
         return data
+
+    @staticmethod
+    def _net_unit_price(item, divisor) -> Decimal:
+        """The line's price without the tax, to InvoiceItem.unit_price's four
+        decimals. Taken from its printed base when it has one, so quantity ×
+        price gives that base back; else the taxed price divided out."""
+        undiscounted = Decimal("1") - (item.discount_percentage or Decimal("0")) / Decimal("100")
+        quantity = item.quantity or Decimal("1")
+        if item.net_total is not None and undiscounted > 0:
+            price = item.net_total / (quantity * undiscounted)
+        else:
+            price = item.unit_price / divisor
+        return price.quantize(Decimal("0.0001"))
 
     # =========================
     # HELPERS

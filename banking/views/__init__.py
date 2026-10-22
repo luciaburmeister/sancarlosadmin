@@ -17,6 +17,7 @@ from banking.views.matcher_status_views import (
     MatcherTaskStatusAPIView,
 )
 from banking.views.reconciliation_views import (
+    CategoryReconcileView,
     LinkTransactionView,
     ManualReconcileView,
     ReviewReconciliationView,
@@ -33,6 +34,7 @@ __all__ = [
     "ReviewReconciliationView",
     "SkipReconciliationView",
     "ManualReconcileView",
+    "CategoryReconcileView",
     "LinkTransactionView",
     "ReviewInvoiceReconciliationView",
     "MatcherStatusPageView",

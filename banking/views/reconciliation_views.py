@@ -171,7 +171,7 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
                 pk=category_id, company_id=recon.bank_transaction.company_id
             ).first()
 
-        if category is None:
+        if category is None and not confirmed_allocations:
             messages.error(
                 self.request,
                 _("Please select a category before confirming this reconciliation."),
@@ -214,6 +214,32 @@ class SkipReconciliationView(UnfoldModelAdminViewMixin, View):
         return redirect(reverse("admin:banking_banktransaction_changelist"))
 
 
+class CategoryReconcileView(UnfoldModelAdminViewMixin, View):
+    """POST handler — reconcile a movement with no document behind it to a category's account."""
+
+    title = _("Book to Category")
+    permission_required = ("banking.change_banktransaction",)
+
+    def post(self, request, pk):
+        txn = get_object_or_404(BankTransaction, pk=pk)
+        category = BankTransactionCategory.objects.filter(
+            pk=request.POST.get("category") or None, company_id=txn.company_id,
+        ).first()
+        if category is None:
+            messages.error(request, _("Please select a category before confirming this reconciliation."))
+            return redirect(reverse("admin:banking_banktransaction_manual_reconcile", args=[pk]))
+        try:
+            TransactionMatcher.confirm_without_documents(txn, category, request.user)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(reverse("admin:banking_banktransaction_manual_reconcile", args=[pk]))
+        messages.success(
+            request,
+            _("Reconciled and booked to %(account)s.") % {"account": category.account},
+        )
+        return redirect(reverse("admin:banking_banktransaction_changelist"))
+
+
 class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
     """Manual reconciliation — user picks invoices directly without the matcher."""
 
@@ -224,7 +250,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         txn = get_object_or_404(
-            BankTransaction.objects.select_related("bank_account", "company"),
+            BankTransaction.objects.select_related("bank_account__account", "company"),
             pk=self.kwargs["pk"],
         )
 
@@ -240,17 +266,34 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             effective_amount = abs(txn.amount.amount)
 
         documents = self._get_candidate_documents(txn)
+        kinds = {
+            ct.model: ct.model_class()._meta.verbose_name
+            for ct in ContentType.objects.filter(model__in={doc["content_type"] for doc in documents})
+            if ct.model_class()
+        }
+        for doc in documents:
+            doc["kind"] = kinds.get(doc["content_type"], doc["content_type"])
 
+        bank_ledger = txn.bank_account.account
         context.update({
             "txn": txn,
             "txn_amount": effective_amount,
             "is_partial": is_partial,
+            "is_inbound": txn.amount.amount > 0,
             "documents": documents,
-            "categories": BankTransactionCategory.objects.filter(
-                company=txn.company
-            ).order_by("name"),
+            # The bank's own ledger account is opened on its first booking
+            "bank_ledger_label": f"{bank_ledger.code} {bank_ledger.name}" if bank_ledger else _("Bank (572…)"),
+            "categories_url": reverse("admin:banking_banktransactioncategory_changelist"),
             "submit_url": reverse(
                 "admin:banking_banktransaction_manual_reconcile",
+                args=[txn.pk],
+            ),
+            # Movements no document backs are booked to a category's account
+            "account_categories": BankTransactionCategory.objects.filter(
+                company=txn.company, account__isnull=False,
+            ).select_related("account").order_by("name"),
+            "category_reconcile_url": reverse(
+                "admin:banking_banktransaction_reconcile_category",
                 args=[txn.pk],
             ),
             "back_url": reverse(
@@ -294,13 +337,6 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             category = BankTransactionCategory.objects.filter(
                 pk=category_id, company_id=txn.company_id
             ).first()
-
-        if category is None:
-            messages.error(
-                request,
-                _("Please select a category before confirming this reconciliation."),
-            )
-            return redirect(reverse("admin:banking_banktransaction_manual_reconcile", args=[pk]))
 
         is_partial = txn.reconciliation_status == ReconciliationStatus.PARTIAL
         existing_recon = None

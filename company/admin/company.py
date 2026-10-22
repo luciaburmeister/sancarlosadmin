@@ -37,7 +37,7 @@ class BankAccountAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_display = ("bank_name", "account_number", "iban", "consent_status_badge", "is_default", "sync_from_date", "company")
     list_filter = ("consent_status",)
     search_fields = ("bank_name", "account_number", "iban")
-    autocomplete_fields = ("company",)
+    autocomplete_fields = ("company", "account")
     readonly_fields = ("consent_status", "consent_status_message", "consent_valid_until", "consent_checked_at")
     actions_detail = ["sync_transactions_action", "check_consent_action", "renew_consent_action", "reconnect_bank_action"]
 

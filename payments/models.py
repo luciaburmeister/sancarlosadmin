@@ -126,6 +126,21 @@ class Payment(CompanyOwnedModel):
         ),
     )
 
+    account = models.ForeignKey(
+        "accounting.CompanyAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payments",
+        verbose_name=_("Accounting Account"),
+        help_text=_(
+            "Where the money not allocated to any document is booked, for payments "
+            "with no client or provider behind them (bank fees, interest...). "
+            "Leave empty to use the client's or provider's account, or else the "
+            "bank transaction category's."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Payment")
         verbose_name_plural = _("Payments")
@@ -139,6 +154,8 @@ class Payment(CompanyOwnedModel):
             raise ValidationError({
                 "bank_account": _("A bank account is required for bank transfers.")
             })
+        if self.account_id and self.company_id and self.account.company_id != self.company_id:
+            raise ValidationError({"account": _("The account belongs to another company.")})
 
     def save(self, *args, **kwargs):
         # A brand-new payment has no allocations yet, so everything is
@@ -148,6 +165,10 @@ class Payment(CompanyOwnedModel):
         if self._state.adding:
             self.amount_pending_allocation = Money(self.amount.amount, self.amount_currency)
         super().save(*args, **kwargs)
+        # Every allocation change saves the payment too (recalculate_pending_allocation)
+        from accounting.services.payment_journal.engine import PaymentJournalService
+
+        PaymentJournalService.schedule(self.pk)
 
     def sync_client_from_document(self, content_type, object_id):
         """
@@ -227,6 +248,19 @@ class PaymentAllocation(models.Model):
         ),
     )
 
+    account = models.ForeignKey(
+        "accounting.CompanyAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payment_allocations",
+        verbose_name=_("Accounting Account"),
+        help_text=_(
+            "Where this allocation is booked, for documents the ledger has no "
+            "strategy or rule for. Invoices always settle their client or provider."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Payment Allocation")
         verbose_name_plural = _("Payment Allocations")
@@ -236,6 +270,21 @@ class PaymentAllocation(models.Model):
 
     def __str__(self):
         return f"{self.amount_applied} allocated to {self.related_object}"
+
+    def clean(self):
+        super().clean()
+        if not self.account_id:
+            return
+        from accounting.services.payment_journal import strategy_for
+
+        if self.payment.company_id and self.account.company_id != self.payment.company_id:
+            raise ValidationError({"account": _("The account belongs to another company.")})
+        model = self.content_type.model_class() if self.content_type_id else None
+        if model and strategy_for(model):
+            raise ValidationError({
+                "account": _("%(documents)s always book to their own account: leave it empty.")
+                % {"documents": model._meta.verbose_name_plural.capitalize()}
+            })
 
     def save(self, *args, **kwargs):
         with transaction.atomic():

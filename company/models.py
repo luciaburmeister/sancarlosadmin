@@ -1075,6 +1075,16 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         help_text=_("When the balance was last refreshed from the bank."),
     )
 
+    account = models.ForeignKey(
+        "accounting.CompanyAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bank_accounts",
+        verbose_name=_("Accounting Account"),
+        help_text=_("Created automatically when its first payment is journalized: the chart's bank root followed by the next number."),
+    )
+
     history = HistoricalRecords()
 
     class Meta:

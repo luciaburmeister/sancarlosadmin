@@ -28,6 +28,18 @@ class BankTransactionCategory(CompanyOwnedModel):
         max_length=150,
         verbose_name=_("Name"),
     )
+    account = models.ForeignKey(
+        "accounting.CompanyAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="bank_transaction_categories",
+        verbose_name=_("Accounting Account"),
+        help_text=_(
+            "Where a reconciled payment with no document, client or provider is "
+            "booked (e.g. bank fees → 626)."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Bank Transaction Category")

@@ -38,12 +38,12 @@ class JournalEntryLineInline(TabularInline):
 @admin.register(JournalEntry)
 class JournalEntryAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["number", "date", "journal", "company", "status", "total_debit", "total_credit", "is_balanced"]
-    list_filter = ["company", "journal", "status", "date"]
+    list_filter = ["company", "journal", "status", "is_opening", "date"]
     search_fields = ["number", "reference", "description"]
     
     ordering = ["-date", "-number"]
     list_select_related = ["company", "journal"]
-    autocomplete_fields = ["company","journal","purchase_invoice","sales_invoice"]
+    autocomplete_fields = ["company", "journal", "purchase_invoice", "sales_invoice", "payment"]
     date_hierarchy = "date"
     
     inlines = [JournalEntryLineInline]

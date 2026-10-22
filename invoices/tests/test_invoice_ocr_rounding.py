@@ -108,6 +108,14 @@ class RoundingLineTests(TestCase):
         self.assertEqual(entry.status, EntryStatus.POSTED)
         self.assertTrue(entry.lines.filter(account=self.rounding_account, debit=Money("0.01", "EUR")).exists())
 
+    def test_journal_entry_skips_zero_lines(self):
+        invoice = self._invoice("121.00", lines=("100.00", "0.00"))
+
+        entry = JournalGeneratorService(self.company).journalize_invoice(invoice)
+
+        self.assertEqual(entry.status, EntryStatus.POSTED)
+        self.assertEqual(entry.lines.filter(account=self.expense_account).count(), 1)
+
     def test_po_matching_ignores_rounding_line(self):
         invoice = self._invoice("121.00")
         invoice.apply_rounding_line()

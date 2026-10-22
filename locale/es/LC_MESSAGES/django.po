@@ -151,10 +151,8 @@ msgstr "Nómina"
 msgid "Draft"
 msgstr "Borrador"
 
-#, fuzzy
-#| msgid "Post time"
 msgid "Posted"
-msgstr "Hora de publicación"
+msgstr "Contabilizado"
 
 msgid "Cancelled"
 msgstr "Cancelado"
@@ -3163,10 +3161,8 @@ msgstr "Revisar y Aprobar (%(alt)d alternativas)"
 msgid "Document"
 msgstr "Documento"
 
-#, fuzzy
-#| msgid "Country"
 msgid "Counterparty"
-msgstr "País"
+msgstr "Contraparte"
 
 #, fuzzy
 #| msgid "Reconciled"
@@ -3182,10 +3178,8 @@ msgstr "No existe sugerencia de conciliación. Ejecuta el emparejador primero."
 msgid "This transaction is already reconciled."
 msgstr "Esta transacción ya está reconciliada."
 
-#, fuzzy
-#| msgid "Reconciled"
 msgid "Reconcile Manually"
-msgstr "Reconciliado"
+msgstr "Conciliar manualmente"
 
 msgid "Confirmed"
 msgstr "Confirmado"
@@ -3214,15 +3208,11 @@ msgstr "Reconciliado"
 msgid "Reconciled"
 msgstr "Reconciliado"
 
-#, fuzzy
-#| msgid "Transaction"
 msgid "Bank Transaction Category"
-msgstr "Transacción"
+msgstr "Categoría de movimiento bancario"
 
-#, fuzzy
-#| msgid "Bank Transactions"
 msgid "Bank Transaction Categories"
-msgstr "Transacciónes bancarias"
+msgstr "Categorías de movimientos bancarios"
 
 msgid "Bank Account"
 msgstr "Cuenta de Banco"
@@ -3544,15 +3534,11 @@ msgstr "Reconciliación de Revisión"
 msgid "Invalid combination selected."
 msgstr "Acción inválida"
 
-#, fuzzy
-#| msgid "Timestamp when a human confirmed this reconciliation."
 msgid "Please select a category before confirming this reconciliation."
-msgstr "Marca de tiempo cuando un humano confirmó esta reconciliación."
+msgstr "Selecciona una categoría antes de confirmar esta conciliación."
 
-#, fuzzy
-#| msgid "Reconciliation confirmed. Payment created."
 msgid "Reconciliation confirmed. Payment(s) created."
-msgstr "Conciliación confirmada. Pago creado."
+msgstr "Conciliación confirmada. Pago(s) creado(s)."
 
 #, fuzzy, python-format
 #| msgid "Invalid expression: %(error)s"
@@ -3586,10 +3572,8 @@ msgstr "Por favor, selecciona un expediente existente."
 msgid "Invalid document selection."
 msgstr "Acción inválida"
 
-#, fuzzy
-#| msgid "Reconciliation confirmed. Payment created."
 msgid "Reconciliation confirmed successfully."
-msgstr "Conciliación confirmada. Pago creado."
+msgstr "Conciliación confirmada correctamente."
 
 #, fuzzy, python-format
 #| msgid "Invalid expression: %(error)s"
@@ -8346,10 +8330,8 @@ msgstr "Sin pagar"
 msgid "Pending Amount"
 msgstr "Registrar Pago"
 
-#, fuzzy
-#| msgid "Country"
 msgid "Journal Entry"
-msgstr "País"
+msgstr "Asiento"
 
 msgid "Import invoices from Excel"
 msgstr "Importar facturas desde Excel"
@@ -12486,10 +12468,8 @@ msgstr ""
 "Lista de direcciones de correo electrónico desde las cuales se reciben "
 "facturas para este proveedor. Separe con comas."
 
-#, fuzzy
-#| msgid "Bank Account"
 msgid "Accounting Account"
-msgstr "Cuenta de Banco"
+msgstr "Cuenta contable"
 
 #, fuzzy
 #| msgctxt "djangoql field"
@@ -12751,10 +12731,8 @@ msgstr ""
 msgid "Pending allocation"
 msgstr "Pendiente de asignar"
 
-#, fuzzy
-#| msgid "Allowance"
 msgid "Allocated"
-msgstr "Asignación"
+msgstr "Asignado"
 
 msgid "Credit (unallocated payments)"
 msgstr "Saldo a favor (pagos sin asignar)"
@@ -12819,15 +12797,11 @@ msgstr "Monto Aplicado"
 msgid "Document ID"
 msgstr "Documentos de Activos"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment Allocation"
-msgstr "Método de Pago"
+msgstr "Asignación de pago"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment Allocations"
-msgstr "Método de Pago"
+msgstr "Asignaciones de pago"
 
 msgid "Pending invoices"
 msgstr "Facturas pendientes"
@@ -15242,10 +15216,8 @@ msgstr "Convertido"
 msgid "Responded"
 msgstr "respondidas"
 
-#, fuzzy
-#| msgid "Select"
 msgid "Selected"
-msgstr "Seleccionar"
+msgstr "Seleccionado"
 
 #, fuzzy
 #| msgid "Date rejected"
@@ -16955,10 +16927,8 @@ msgstr "Transacción"
 msgid "No unreconciled bank transactions found for this payment."
 msgstr "No hay facturas de compra pendientes en este período."
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Add Allocations"
-msgstr "Método de Pago"
+msgstr "Añadir asignaciones"
 
 msgid "Search by invoice number or counterparty…"
 msgstr "Buscar por número de factura o contraparte…"
@@ -16986,21 +16956,14 @@ msgstr "Transacción"
 msgid "Selection exceeds transaction amount"
 msgstr "La selección excede el monto de la transacción."
 
-#, fuzzy
-#| msgid "Imported invoices will be marked as Final and External."
 msgid "This invoice will be marked as partially paid with this amount"
-msgstr "Las facturas importadas se marcarán como Finales y Externas."
+msgstr "Esta factura quedará parcialmente pagada con este importe"
 
-#, fuzzy
-#| msgid "Bank Reconciliation"
 msgid "Confirm Reconciliation"
-msgstr "Conciliación Bancaria"
+msgstr "Confirmar conciliación"
 
-#, fuzzy
-#| msgid "No matching combinations were found for this transaction."
 msgid "No unpaid documents found for this transaction."
-msgstr ""
-"No se encontraron combinaciones que coincidieran para esta transacción."
+msgstr "No se encontraron documentos pendientes de pago para este movimiento."
 
 #, fuzzy
 #| msgid "Run Matcher"
@@ -17052,44 +17015,30 @@ msgstr "Esta reconciliación ya ha sido confirmada."
 msgid "matching combination(s) found"
 msgstr "combinación(es) coincidente(s) encontrada(s)"
 
-#, fuzzy
-#| msgid "Options"
 msgid "Option"
-msgstr "Opciones"
+msgstr "Opción"
 
-#, fuzzy
-#| msgid "Transaction"
 msgid "transaction(s)"
-msgstr "Transacción"
+msgstr "movimiento(s)"
 
-#, fuzzy
-#| msgid "No matching combinations were found for this transaction."
 msgid "No matching bank transactions were found for this document."
 msgstr ""
-"No se encontraron combinaciones que coincidieran para esta transacción."
+"No se encontraron movimientos bancarios que coincidan con este documento."
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Combination"
-msgstr "Configuración"
+msgstr "Combinación"
 
-#, fuzzy
-#| msgid "Asset Documents"
 msgid "document(s)"
-msgstr "Documentos de Activos"
+msgstr "documento(s)"
 
 msgid "Are you sure you want to skip this suggestion?"
 msgstr "¿Está seguro de que quiere ignorar esta sugerencia?"
 
-#, fuzzy
-#| msgid "Skipped"
 msgid "Skip"
-msgstr "Omitido"
+msgstr "Omitir"
 
-#, fuzzy
-#| msgid "Item Transactions"
 msgid "Back to Transactions"
-msgstr "Transacciones de artículo"
+msgstr "Volver a movimientos"
 
 msgid "No matching combinations were found for this transaction."
 msgstr ""
@@ -20220,3 +20169,397 @@ msgstr "%(count)s no están emitidas y se han omitido."
 #, python-format
 msgid "…and %(count)s more with problems."
 msgstr "…y otras %(count)s con problemas."
+
+
+#: accounting/admin/company_settings.py
+msgid "Draft Opening Entry"
+msgstr "Generar asiento de apertura"
+
+#: accounting/admin/company_settings.py
+msgid ""
+"Opening entry drafted: replace the suspense line with the bank, equity and "
+"other balances, then post it."
+msgstr ""
+"Asiento de apertura generado en borrador: sustituye la línea de partidas "
+"pendientes por los saldos de bancos, patrimonio y demás, y contabilízalo."
+
+#: accounting/models.py
+msgid "Suspense (pending items)"
+msgstr "Partidas pendientes de aplicación"
+
+#: accounting/models.py accounting/services/setup_check.py
+msgid "Ledger start date"
+msgstr "Fecha de inicio de la contabilidad"
+
+#: accounting/models.py
+msgid ""
+"Invoices and payments dated earlier stay out of the ledger: their balances "
+"come in with the opening entry, dated this day."
+msgstr ""
+"Las facturas y pagos con fecha anterior quedan fuera de la contabilidad: sus "
+"saldos entran con el asiento de apertura, fechado este día."
+
+#: accounting/models.py
+msgid "Default root for the company's bank accounts (e.g. 572 for Spain)"
+msgstr ""
+"Raíz por defecto de las cuentas bancarias de la empresa (p. ej. 572 en "
+"España)"
+
+#: accounting/models.py
+msgid "The opening entry is posted on this date: reverse it before moving it."
+msgstr ""
+"El asiento de apertura está contabilizado en esta fecha: anúlalo antes de "
+"cambiarla."
+
+#: accounting/models.py
+msgid ""
+"What the automatic journal entries book here: rounding differences, income "
+"from sales of goods or of services, the discounts on sales invoices, cash "
+"payments, or what the opening entry leaves pending. One account per role per "
+"company."
+msgstr ""
+"Lo que los asientos automáticos registran aquí: diferencias de redondeo, "
+"ingresos por ventas de mercaderías o de servicios, descuentos sobre ventas, "
+"pagos en efectivo o lo que el asiento de apertura deja pendiente. Una cuenta "
+"por rol y empresa."
+
+#: accounting/models.py
+msgid "Document type"
+msgstr "Tipo de documento"
+
+#: accounting/models.py
+msgid "Payment account rule"
+msgstr "Regla contable de pagos"
+
+#: accounting/models.py
+msgid "Payment account rules"
+msgstr "Reglas contables de pagos"
+
+#: accounting/models.py payments/models.py
+msgid "The account belongs to another company."
+msgstr "La cuenta pertenece a otra empresa."
+
+#: accounting/models.py
+msgid ""
+"A journalized payment can't be deleted: cancel it, and its entry is reversed."
+msgstr ""
+"Un pago contabilizado no se puede eliminar: anúlalo y su asiento se "
+"revertirá."
+
+#: accounting/models.py accounting/services/setup_check.py
+msgid "Opening entry"
+msgstr "Asiento de apertura"
+
+#: accounting/models.py
+msgid ""
+"The balances the ledger starts from, on the chart's ledger start date. One "
+"per company."
+msgstr ""
+"Los saldos con los que empieza la contabilidad, en la fecha de inicio del "
+"plan contable. Uno por empresa."
+
+#: accounting/services/opening_balance.py
+msgid "Set the ledger start date on the chart of accounts first."
+msgstr ""
+"Indica primero la fecha de inicio de la contabilidad en el plan contable."
+
+#: accounting/services/opening_balance.py
+msgid "The opening entry is already posted: reverse it to draft it again."
+msgstr ""
+"El asiento de apertura ya está contabilizado: anúlalo para volver a "
+"generarlo."
+
+#: accounting/services/opening_balance.py
+#, python-format
+msgid "Payment %(payment)s: %(error)s"
+msgstr "Pago %(payment)s: %(error)s"
+
+#: accounting/services/payment_journal/engine.py
+#, python-format
+msgid ""
+"Payments in %(currency)s can't be journalized yet: the ledger is kept in "
+"%(ledger)s."
+msgstr ""
+"Los pagos en %(currency)s aún no se pueden contabilizar: la contabilidad se "
+"lleva en %(ledger)s."
+
+#: accounting/services/payment_journal/engine.py
+#, python-format
+msgid ""
+"The lines booked for %(document)s don't add up to the %(amount)s allocated to"
+" it."
+msgstr ""
+"Las líneas registradas para %(document)s no suman los %(amount)s asignados."
+
+#: accounting/services/payment_journal/engine.py
+#, python-format
+msgid ""
+"Payments allocated to %(documents)s can't be journalized: add a payment "
+"account rule for them, or set an account on the allocation."
+msgstr ""
+"Los pagos asignados a %(documents)s no se pueden contabilizar: añade una "
+"regla contable de pagos para ellos o indica una cuenta en la asignación."
+
+#: accounting/services/payment_journal/engine.py
+#, python-format
+msgid "An allocation points to %(type)s #%(id)s, which no longer exists."
+msgstr "Una asignación apunta a %(type)s n.º %(id)s, que ya no existe."
+
+#: accounting/services/payment_journal/engine.py
+msgid "The payment has no bank account: set the one the money went through."
+msgstr ""
+"El pago no tiene cuenta bancaria: indica la cuenta por la que pasó el dinero."
+
+#: accounting/services/payment_journal/engine.py
+msgid ""
+"Part of the payment isn't allocated and nothing says where to book it: set a "
+"client or provider, an account on the payment, or one on its bank transaction"
+" category."
+msgstr ""
+"Parte del pago no está asignada y nada indica dónde registrarla: indica un "
+"cliente o proveedor, una cuenta en el pago o una en la categoría de su "
+"movimiento bancario."
+
+#: accounting/services/setup_check.py
+msgid "Opening balances"
+msgstr "Saldos de apertura"
+
+#: accounting/services/setup_check.py
+msgid ""
+"Not set: payments of any date are booked, and older invoices have no entry."
+msgstr ""
+"Sin indicar: se contabilizan pagos de cualquier fecha y las facturas "
+"anteriores no tienen asiento."
+
+#: accounting/services/setup_check.py
+msgid "Not drafted yet: press Draft Opening Entry on the chart."
+msgstr ""
+"Aún sin generar: pulsa «Generar asiento de apertura» en el plan contable."
+
+#: accounting/services/setup_check.py
+msgid "Drafted: complete the pending balances and post it."
+msgstr "En borrador: completa los saldos pendientes y contabilízalo."
+
+#: accounting/services/setup_check.py
+msgid "Needed by cash payments."
+msgstr "Necesaria para los pagos en efectivo."
+
+#: accounting/services/setup_check.py
+msgid "Needed to draft the opening entry."
+msgstr "Necesaria para generar el asiento de apertura."
+
+#: accounting/services/setup_check.py
+msgid "Journalized payments"
+msgstr "Pagos contabilizados"
+
+#: accounting/services/setup_check.py
+msgid "No payment journalized yet."
+msgstr "Aún no se ha contabilizado ningún pago."
+
+#: accounting/services/setup_check.py
+#, python-format
+msgid ""
+"%(count)s since %(date)s: select them and run Generate journal entries to see"
+" why."
+msgstr ""
+"%(count)s desde el %(date)s: selecciónalos y ejecuta «Generar asientos» para "
+"ver el motivo."
+
+#: accounting/services/setup_check.py
+#, python-format
+msgid "%(count)s allocations wait for a payment account rule."
+msgstr "%(count)s asignaciones esperan una regla contable de pagos."
+
+#: banking/models.py
+msgid ""
+"Where a reconciled payment with no document, client or provider is booked "
+"(e.g. bank fees → 626)."
+msgstr ""
+"Dónde se registra un pago conciliado sin documento, cliente ni proveedor (p. "
+"ej. comisiones bancarias → 626)."
+
+#: banking/services/transaction_matching/matcher.py
+msgid "A movement with no document needs a category to be booked to."
+msgstr ""
+"Un movimiento sin documento necesita una categoría en la que registrarse."
+
+#: banking/services/transaction_matching/matcher.py
+#, python-format
+msgid ""
+"“%(category)s” has no accounting account: set one on the category first."
+msgstr ""
+"«%(category)s» no tiene cuenta contable: indícala primero en la categoría."
+
+#: banking/services/transaction_matching/matcher.py
+msgid "Only unreconciled transactions can be booked to a category."
+msgstr ""
+"Solo los movimientos sin conciliar se pueden registrar en una categoría."
+
+#: banking/views/reconciliation_views.py
+#: templates/admin/banking/manual_reconcile.html
+msgid "Book to Category"
+msgstr "Registrar en categoría"
+
+#: banking/views/reconciliation_views.py
+#, python-format
+msgid "Reconciled and booked to %(account)s."
+msgstr "Conciliado y registrado en %(account)s."
+
+#: banking/views/reconciliation_views.py
+msgid "Bank (572…)"
+msgstr "Banco (572…)"
+
+#: company/models.py
+msgid ""
+"Created automatically when its first payment is journalized: the chart's bank"
+" root followed by the next number."
+msgstr ""
+"Se crea automáticamente al contabilizar su primer pago: la raíz de bancos del"
+" plan contable seguida del siguiente número."
+
+#: invoices/ledger_strategies.py
+#, python-format
+msgid ""
+"Purchase invoice %(number)s has no provider: set it so the payment can settle"
+" their account."
+msgstr ""
+"La factura de compra %(number)s no tiene proveedor: indícalo para que el pago"
+" salde su cuenta."
+
+#: payments/admin.py
+msgid "Journal entry"
+msgstr "Asiento"
+
+#: payments/admin.py
+msgid "The ledger already matches this payment."
+msgstr "La contabilidad ya refleja este pago."
+
+#: payments/admin.py
+msgid "View Journal Entries"
+msgstr "Ver asientos"
+
+#: payments/admin.py
+#, python-format
+msgid "%(count)s already matched the ledger."
+msgstr "%(count)s ya coincidían con la contabilidad."
+
+#: payments/models.py
+msgid ""
+"Where the money not allocated to any document is booked, for payments with no"
+" client or provider behind them (bank fees, interest...). Leave empty to use "
+"the client's or provider's account, or else the bank transaction category's."
+msgstr ""
+"Dónde se registra el dinero no asignado a ningún documento, para pagos sin "
+"cliente ni proveedor detrás (comisiones bancarias, intereses...). Déjalo "
+"vacío para usar la cuenta del cliente o proveedor o, si no, la de la "
+"categoría del movimiento bancario."
+
+#: payments/models.py
+msgid ""
+"Where this allocation is booked, for documents the ledger has no strategy or "
+"rule for. Invoices always settle their client or provider."
+msgstr ""
+"Dónde se registra esta asignación, para documentos sin estrategia ni regla "
+"contable. Las facturas siempre saldan su cliente o proveedor."
+
+#: payments/models.py
+#, python-format
+msgid "%(documents)s always book to their own account: leave it empty."
+msgstr "%(documents)s siempre se registran en su propia cuenta: déjalo vacío."
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Money in"
+msgstr "Entrada"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Money out"
+msgstr "Salida"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Remaining unmatched"
+msgstr "Pendiente de conciliar"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Match documents"
+msgstr "Conciliar con documentos"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Invoices, installments, expense claims"
+msgstr "Facturas, cuotas, notas de gastos"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Without a document"
+msgstr "Sin documento"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Bank fees, interest, own transfers"
+msgstr "Comisiones, intereses, traspasos propios"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Search by number, counterparty or type…"
+msgstr "Buscar por número, contraparte o tipo…"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "No document matches the search."
+msgstr "Ningún documento coincide con la búsqueda."
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Left"
+msgstr "Pendiente"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Book it without a document"
+msgstr "Registrarlo sin documento"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "— Book to a category —"
+msgstr "— Registrar en una categoría —"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Journal entry it will book"
+msgstr "Asiento que se registrará"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Pick a category to see the entry."
+msgstr "Elige una categoría para ver el asiento."
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Dr"
+msgstr "Debe"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Cr"
+msgstr "Haber"
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "No category has an accounting account yet."
+msgstr "Ninguna categoría tiene cuenta contable todavía."
+
+#: templates/admin/banking/manual_reconcile.html
+msgid ""
+"Give one an account (e.g. bank fees → 626) to book movements no document "
+"backs."
+msgstr ""
+"Asigna una cuenta a alguna (p. ej. comisiones bancarias → 626) para registrar"
+" movimientos sin documento."
+
+#: templates/admin/banking/manual_reconcile.html
+msgid "Open bank transaction categories"
+msgstr "Abrir categorías de movimientos bancarios"
+
+#: templates/admin/banking/review_invoice_reconciliation.html
+#: templates/admin/banking/review_reconciliation.html
+msgid "— No category —"
+msgstr "— Sin categoría —"
+
+#: alumniniooerp/settings.py
+msgid "Journal Entries"
+msgstr "Asientos"
+
+#: alumniniooerp/settings.py
+msgid "Ledger Accounts"
+msgstr "Cuentas contables"
+
+#: alumniniooerp/settings.py
+msgid "Fiscal Years"
+msgstr "Ejercicios fiscales"

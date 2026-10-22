@@ -168,13 +168,6 @@ class ReviewInvoiceReconciliationView(UnfoldModelAdminViewMixin, FormView):
                 pk=category_id, company_id=suggestion.company_id
             ).first()
 
-        if category is None:
-            messages.error(
-                self.request,
-                _("Please select a category before confirming this reconciliation."),
-            )
-            return redirect(self.request.path)
-
         try:
             InvoiceMatcher.confirm(suggestion, combos[selected_idx], self.request.user, category=category)
             messages.success(self.request, _("Reconciliation confirmed. Payment(s) created."))

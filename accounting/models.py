@@ -77,6 +77,8 @@ class AccountRole(models.TextChoices):
     GOODS_SALES = "goods_sales", _("Sales of goods")
     SERVICES_SALES = "services_sales", _("Sales of services")
     SALES_DISCOUNTS = "sales_discounts", _("Sales discounts")
+    CASH = "cash", _("Cash")
+    SUSPENSE = "suspense", _("Suspense (pending items)")
 
 
 class TemplateAccount(Timestampable):
@@ -174,6 +176,22 @@ class CompanyChartOfAccounts(Timestampable):
         help_text=_("Default root for client accounts (e.g. 430 for Spain)")
     )
 
+    ledger_start_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Ledger start date"),
+        help_text=_(
+            "Invoices and payments dated earlier stay out of the ledger: their balances "
+            "come in with the opening entry, dated this day."
+        ),
+    )
+
+    bank_account_root = models.CharField(
+        max_length=12,
+        default="572",
+        help_text=_("Default root for the company's bank accounts (e.g. 572 for Spain)")
+    )
+
     partner_account_length = models.PositiveSmallIntegerField(
         default=7,
         validators=[MinValueValidator(4), MaxValueValidator(12)],
@@ -208,12 +226,19 @@ class CompanyChartOfAccounts(Timestampable):
     def clean(self):
         super().clean()
         errors = {}
-        for field in ("provider_account_root", "client_account_root"):
+        for field in ("provider_account_root", "client_account_root", "bank_account_root"):
             root = getattr(self, field) or ""
             if not root.isdigit():
                 errors[field] = _("The root must be numeric.")
             elif self.partner_account_length and len(root) >= self.partner_account_length:
                 errors[field] = _("The root must be shorter than the client/provider account length.")
+        if self.pk:
+            stored = CompanyChartOfAccounts.objects.filter(pk=self.pk).values_list("ledger_start_date", flat=True).first()
+            opened = JournalEntry.objects.filter(
+                company_id=self.company_id, is_opening=True, status=EntryStatus.POSTED,
+            ).exists()
+            if stored != self.ledger_start_date and opened:
+                errors["ledger_start_date"] = _("The opening entry is posted on this date: reverse it before moving it.")
         if errors:
             raise ValidationError(errors)
 
@@ -293,8 +318,8 @@ class CompanyAccount(Timestampable):
         verbose_name=_("Role"),
         help_text=_(
             "What the automatic journal entries book here: rounding differences, income "
-            "from sales of goods or of services, or the discounts on sales invoices. One "
-            "account per role per company."
+            "from sales of goods or of services, the discounts on sales invoices, cash "
+            "payments, or what the opening entry leaves pending. One account per role per company."
         ),
     )
 
@@ -617,6 +642,40 @@ class BusinessUnit(Timestampable, CompanyOwnedModel):
             super().save(*args, **kwargs)
 
 
+class AllocationAccountRule(Timestampable, CompanyOwnedModel):
+    """
+    Where a payment allocated to a kind of document books its counterpart,
+    for documents with no ledger strategy in code (e.g. expense claims →
+    465). An account set on the allocation itself takes precedence.
+    """
+    content_type = models.ForeignKey(
+        "contenttypes.ContentType",
+        on_delete=models.CASCADE,
+        verbose_name=_("Document type"),
+    )
+    account = models.ForeignKey(
+        CompanyAccount,
+        on_delete=models.PROTECT,
+        related_name="allocation_rules",
+        verbose_name=_("Account"),
+    )
+
+    class Meta:
+        verbose_name = _("Payment account rule")
+        verbose_name_plural = _("Payment account rules")
+        constraints = [
+            models.UniqueConstraint(fields=["company", "content_type"], name="uniq_allocation_rule_document_type"),
+        ]
+
+    def __str__(self):
+        return f"{self.content_type} → {self.account}"
+
+    def clean(self):
+        super().clean()
+        if self.account_id and self.company_id and self.account.company_id != self.company_id:
+            raise ValidationError({"account": _("The account belongs to another company.")})
+
+
 class JournalType(models.TextChoices):
     GENERAL = "GENERAL", _("General")
     SALES = "SALES", _("Sales")
@@ -688,6 +747,20 @@ class JournalEntry(Timestampable, CompanyOwnedModel):
         related_name="journal_entries",
         verbose_name=_("Sales Invoice")
     )
+    payment = models.ForeignKey(
+        "payments.Payment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="journal_entries",
+        verbose_name=_("Payment"),
+        help_text=_("A journalized payment can't be deleted: cancel it, and its entry is reversed."),
+    )
+    is_opening = models.BooleanField(
+        default=False,
+        verbose_name=_("Opening entry"),
+        help_text=_("The balances the ledger starts from, on the chart's ledger start date. One per company."),
+    )
     reversal_of = models.OneToOneField(
         "self",
         on_delete=models.PROTECT,
@@ -717,6 +790,11 @@ class JournalEntry(Timestampable, CompanyOwnedModel):
                 fields=["journal", "number"],
                 name="uniq_journal_posted_number",
                 condition=models.Q(status="POSTED"),
+            ),
+            models.UniqueConstraint(
+                fields=["company"],
+                name="uniq_company_opening_entry",
+                condition=models.Q(is_opening=True),
             ),
         ]
 

@@ -6,6 +6,7 @@ from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from djmoney.money import Money
 
 from banking.models import (
@@ -128,7 +129,8 @@ class TransactionMatcher:
         If `category` is given, it's assigned to the bank transaction so
         confirming a reconciliation (manual or automatic) also categorizes
         it. Leaving it None keeps whatever category the transaction already
-        had.
+        had. It's only required with no documents: then the category's
+        account is what the payment is booked to.
 
         Idempotent — if the reconciliation is already confirmed, returns it.
         """
@@ -137,8 +139,8 @@ class TransactionMatcher:
 
         txn = reconciliation.bank_transaction
 
-        if category is None and txn.category_id is None:
-            raise ValueError("A category is required to confirm a reconciliation.")
+        if not confirmed_allocations and category is None and txn.category_id is None:
+            raise ValueError(_("A movement with no document needs a category to be booked to."))
 
         # Step 1 — Did the human change the suggestion?
         method = TransactionMatcher._determine_method(
@@ -213,6 +215,40 @@ class TransactionMatcher:
             update_fields.append("category")
         txn.save(update_fields=update_fields)
 
+        return reconciliation
+
+    @staticmethod
+    @db_transaction.atomic
+    def confirm_without_documents(
+        txn: BankTransaction,
+        category: BankTransactionCategory,
+        user,
+    ) -> BankReconciliation:
+        """
+        Reconcile a movement no document will ever back (bank fees, interest,
+        transfers between own accounts): the whole amount becomes a payment
+        with nothing allocated, which the ledger books to the category's
+        account. A category without an account is refused, or the payment
+        could never be journalized.
+        """
+        if not category.account_id:
+            raise ValueError(_("“%(category)s” has no accounting account: set one on the category first.")
+                             % {"category": category.name})
+        if txn.reconciliation_status != ReconciliationStatus.UNRECONCILED:
+            raise ValueError(_("Only unreconciled transactions can be booked to a category."))
+
+        BankReconciliation.objects.filter(bank_transaction=txn, is_confirmed=False).delete()
+        reconciliation = BankReconciliation.objects.create(
+            bank_transaction=txn,
+            is_confirmed=False,
+            method=ReconciliationMethod.MANUAL,
+            suggested_allocations=[],
+            unmatched_amount=Money(0, txn.amount_currency),
+        )
+        TransactionMatcher.confirm(reconciliation, [], user, category=category)
+        # Nothing is left to match: the category accounts for all of it
+        reconciliation.unmatched_amount = Money(0, txn.amount_currency)
+        reconciliation.save(update_fields=["unmatched_amount"])
         return reconciliation
 
     # ------------------------------------------------------------------

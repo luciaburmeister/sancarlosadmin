@@ -4,3 +4,4 @@ from .accounts import CompanyAccountAdmin, ReportingLineAdmin, AccountReportingM
 from .cost_center import CostCenterAdmin
 from .entries import JournalEntryAdmin
 from .business_unit import BusinessUnitAdmin
+from .allocation_rules import AllocationAccountRuleAdmin

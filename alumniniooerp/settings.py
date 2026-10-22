@@ -917,6 +917,69 @@ UNFOLD = {
                 ],
             },
             {
+                "title": _("Accounting"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Journal Entries"),
+                        "icon": "menu_book",
+                        "link": reverse_lazy("admin:accounting_journalentry_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_journalentry"
+                        ),
+                    },
+                    {
+                        "title": _("Payments"),
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:payments_payment_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "payments.view_payment"
+                        ),
+                    },
+                    {
+                        "title": _("Ledger Accounts"),
+                        "icon": "list_alt",
+                        "link": reverse_lazy("admin:accounting_companyaccount_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_companyaccount"
+                        ),
+                    },
+                    {
+                        "title": _("Payment account rules"),
+                        "icon": "rule",
+                        "link": reverse_lazy("admin:accounting_allocationaccountrule_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_allocationaccountrule"
+                        ),
+                    },
+                    {
+                        "title": _("Bank Transaction Categories"),
+                        "icon": "label",
+                        "link": reverse_lazy("admin:banking_banktransactioncategory_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "banking.view_banktransactioncategory"
+                        ),
+                    },
+                    {
+                        "title": _("Fiscal Years"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy("admin:accounting_fiscalyear_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_fiscalyear"
+                        ),
+                    },
+                    {
+                        "title": _("Chart of accounts"),
+                        "icon": "settings",
+                        "link": reverse_lazy("admin:accounting_companychartofaccounts_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_companychartofaccounts"
+                        ),
+                    },
+                ],
+            },
+            {
                 "title": _("Loans"),
                 "separator": True,
                 "collapsible": True,

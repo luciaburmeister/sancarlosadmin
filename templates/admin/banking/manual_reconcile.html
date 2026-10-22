@@ -4,6 +4,7 @@
 {% block title %}{% if is_partial %}{% trans "Add Allocations" %}{% else %}{% trans "Reconcile Manually" %}{% endif %}{% endblock %}
 
 {% block content %}
+{% get_current_language as current_language %}
 <style>
     .review-container {
         max-width: 960px;
@@ -11,37 +12,82 @@
         padding: 2rem 1rem;
     }
 
-    .txn-header {
+    .card {
         background: var(--bg-primary, #fff);
         border: 1px solid var(--border-default, #e2e8f0);
         border-radius: 12px;
+    }
+
+    /* ── Transaction header ─────────────────────────── */
+    .txn-header {
         padding: 1.5rem;
         margin-bottom: 1.5rem;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem 1.5rem;
+        align-items: start;
     }
 
     .txn-header h2 {
         font-size: 1.35rem;
         font-weight: 700;
-        margin: 0 0 0.75rem;
+        margin: 0;
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
 
+    .txn-description {
+        margin: 0.35rem 0 0;
+        font-size: 0.95rem;
+        color: var(--font-subtle-light, #64748b);
+    }
+
+    .txn-amount-block {
+        text-align: right;
+    }
+
+    .txn-amount {
+        font-size: 1.75rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+    }
+
+    .txn-amount.in { color: #16a34a; }
+    .txn-amount.out { color: #dc2626; }
+
+    .direction-badge {
+        display: inline-block;
+        margin-top: 0.35rem;
+        padding: 0.15rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: var(--bg-secondary, #f1f5f9);
+        color: var(--font-subtle-light, #64748b);
+    }
+
     .txn-meta {
+        grid-column: 1 / -1;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         gap: 0.75rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-default, #f1f5f9);
     }
 
     .txn-meta-item {
         display: flex;
         flex-direction: column;
         gap: 0.15rem;
+        min-width: 0;
     }
 
     .txn-meta-label {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -49,17 +95,69 @@
     }
 
     .txn-meta-value {
-        font-size: 0.95rem;
+        font-size: 0.9rem;
         font-weight: 500;
+        overflow-wrap: anywhere;
     }
 
-    .txn-amount {
-        font-size: 1.5rem;
-        font-weight: 700;
+    /* ── Mode tabs ──────────────────────────────────── */
+    .mode-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .mode-tab {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.9rem 1.1rem;
+        text-align: left;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .mode-tab:hover {
+        border-color: var(--primary-400, oklch(65% .125 190));
+    }
+
+    .mode-tab[aria-selected="true"] {
+        border-color: var(--primary-600, oklch(57% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.12);
+    }
+
+    .mode-tab .material-symbols-outlined {
+        font-size: 24px;
         color: var(--primary-600, oklch(57% .125 190));
     }
 
-    /* ── Search bar ─────────────────────────────────── */
+    .mode-tab-title {
+        display: block;
+        font-weight: 700;
+        font-size: 0.95rem;
+    }
+
+    .mode-tab-hint {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .count-pill {
+        margin-left: auto;
+        min-width: 1.6rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-align: center;
+        background: var(--bg-secondary, #f1f5f9);
+    }
+
+    /* ── Search ─────────────────────────────────────── */
     .search-bar {
         margin-bottom: 1rem;
     }
@@ -81,37 +179,10 @@
         box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
     }
 
-    /* ── Category select ────────────────────────────── */
-    .category-bar {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-    }
-
-    .category-bar label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--font-subtle-light, #888);
-        white-space: nowrap;
-    }
-
-    .category-bar select {
-        flex: 0 1 260px;
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-default, #e2e8f0);
-        border-radius: 8px;
-        font-size: 0.9rem;
-        background: var(--bg-primary, #fff);
-        color: var(--font-default-light, #333);
-    }
-
     /* ── Document table ─────────────────────────────── */
     .doc-table-wrapper {
-        border: 1px solid var(--border-default, #e2e8f0);
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 1.5rem;
+        overflow-x: auto;
+        margin-bottom: 1rem;
     }
 
     .doc-table {
@@ -122,7 +193,7 @@
 
     .doc-table th {
         text-align: left;
-        padding: 0.75rem 1.25rem;
+        padding: 0.75rem 1rem;
         font-size: 0.7rem;
         font-weight: 700;
         text-transform: uppercase;
@@ -133,27 +204,17 @@
     }
 
     .doc-table td {
-        padding: 0.75rem 1.25rem;
+        padding: 0.7rem 1rem;
         border-bottom: 1px solid var(--border-default, #f1f5f9);
         vertical-align: middle;
     }
 
-    .doc-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .doc-table tr.selected-row {
-        background: oklch(57% .125 190 / 0.06);
-    }
-
-    .doc-table tr:hover {
-        background: var(--bg-secondary, #f8fafc);
-        cursor: pointer;
-    }
-
-    .doc-table tr.selected-row:hover {
-        background: oklch(57% .125 190 / 0.1);
-    }
+    .doc-table tr:last-child td { border-bottom: none; }
+    .doc-table tbody tr { cursor: pointer; }
+    .doc-table tbody tr:hover { background: var(--bg-secondary, #f8fafc); }
+    .doc-table tr.selected-row { background: oklch(57% .125 190 / 0.07); }
+    .doc-table tr.selected-row:hover { background: oklch(57% .125 190 / 0.11); }
+    .doc-table tr.is-disabled { opacity: 0.4; cursor: not-allowed; }
 
     .doc-checkbox {
         width: 16px;
@@ -162,53 +223,160 @@
         cursor: pointer;
     }
 
-    .doc-link {
-        color: var(--primary-600, oklch(57% .125 190));
-        text-decoration: none;
-        font-weight: 500;
+    .kind-badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        background: var(--bg-secondary, #f1f5f9);
+        color: var(--font-subtle-light, #64748b);
+        white-space: nowrap;
     }
 
-    .doc-link:hover {
-        text-decoration: underline;
-    }
+    .doc-number { font-weight: 600; }
 
     .amount-col {
         font-weight: 600;
         font-variant-numeric: tabular-nums;
         text-align: right;
+        white-space: nowrap;
     }
 
-    /* ── Running total ──────────────────────────────── */
-    .running-total {
-        display: flex;
+    .no-results {
+        display: none;
+        padding: 1.5rem;
+        text-align: center;
+        color: var(--font-subtle-light, #888);
+        font-size: 0.875rem;
+    }
+
+    /* ── Allocation footer ──────────────────────────── */
+    .alloc-footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        padding: 1rem 1.25rem;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.75rem 1.5rem;
         align-items: center;
-        justify-content: flex-end;
-        gap: 1rem;
-        padding: 0.75rem 1.25rem;
-        background: var(--bg-secondary, #f8fafc);
+        box-shadow: 0 -6px 16px -10px rgb(0 0 0 / 0.2);
+    }
+
+    .alloc-figures {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 1.5rem;
+        font-size: 0.85rem;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .alloc-figures strong {
+        font-size: 1.05rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--font-default-light, #333);
+    }
+
+    .alloc-figures strong.match { color: #16a34a; }
+    .alloc-figures strong.over { color: #dc2626; }
+
+    .progress {
+        grid-column: 1 / -1;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--bg-secondary, #f1f5f9);
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        height: 100%;
+        width: 0;
+        background: var(--primary-600, oklch(57% .125 190));
+        transition: width 0.15s ease;
+    }
+
+    .progress-bar.match { background: #16a34a; }
+    .progress-bar.over { background: #dc2626; }
+
+    .alloc-note {
+        grid-column: 1 / -1;
+        display: none;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .alloc-note.warn { color: #dc2626; }
+    .alloc-note.info { color: #0f766e; }
+
+    /* ── Category select ────────────────────────────── */
+    .category-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .category-field label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .category-field select {
+        width: 100%;
+        max-width: 480px;
+        padding: 0.625rem 0.75rem;
         border: 1px solid var(--border-default, #e2e8f0);
         border-radius: 8px;
-        margin-bottom: 1.5rem;
         font-size: 0.9rem;
+        background: var(--bg-primary, #fff);
+        color: var(--font-default-light, #333);
     }
 
-    .running-total-label {
-        color: var(--font-subtle-light, #888);
-        font-weight: 500;
+    .category-field select:focus {
+        outline: none;
+        border-color: var(--primary-400, oklch(65% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
     }
 
-    .running-total-value {
-        font-size: 1.25rem;
+    /* ── Entry preview ──────────────────────────────── */
+    .entry-preview {
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .entry-preview h3 {
+        margin: 0 0 0.6rem;
+        font-size: 0.7rem;
         font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .entry-preview table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    .entry-preview td {
+        padding: 0.35rem 0;
         font-variant-numeric: tabular-nums;
     }
 
-    .running-total-value.match {
-        color: #16a34a;
+    .entry-preview .side {
+        width: 3rem;
+        font-weight: 700;
+        color: var(--font-subtle-light, #888);
     }
 
-    .running-total-value.over {
-        color: #dc2626;
+    .entry-preview .empty {
+        color: var(--font-subtle-light, #888);
+        font-size: 0.85rem;
     }
 
     /* ── Actions ────────────────────────────────────── */
@@ -216,15 +384,15 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding-top: 1.5rem;
-        border-top: 1px solid var(--border-default, #e2e8f0);
+        gap: 0.75rem;
+        padding-top: 1.25rem;
     }
 
     .btn {
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
-        padding: 0.75rem 1.5rem;
+        padding: 0.7rem 1.4rem;
         border-radius: 8px;
         font-size: 0.9rem;
         font-weight: 600;
@@ -232,6 +400,7 @@
         border: none;
         transition: all 0.15s ease;
         text-decoration: none;
+        white-space: nowrap;
     }
 
     .btn-confirm {
@@ -239,14 +408,8 @@
         color: #fff;
     }
 
-    .btn-confirm:hover {
-        background: var(--primary-700, oklch(49% .105 190));
-    }
-
-    .btn-confirm:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
+    .btn-confirm:hover { background: var(--primary-700, oklch(49% .105 190)); }
+    .btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .btn-back {
         background: transparent;
@@ -254,47 +417,62 @@
         color: var(--font-default-light, #333);
     }
 
-    .btn-back:hover {
-        background: var(--bg-secondary, #f8fafc);
+    .btn-back:hover { background: var(--bg-secondary, #f8fafc); }
+
+    .btn-link {
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--primary-600, oklch(57% .125 190));
+        font-weight: 600;
+        cursor: pointer;
+        font: inherit;
+        text-decoration: underline;
     }
 
     .empty-state {
         text-align: center;
-        padding: 3rem;
+        padding: 2.5rem 1.5rem;
         color: var(--font-subtle-light, #888);
     }
 
     .empty-state .material-symbols-outlined {
-        font-size: 48px;
+        font-size: 44px;
         margin-bottom: 0.5rem;
         opacity: 0.4;
+    }
+
+    .empty-state p { margin: 0.25rem 0; }
+
+    [hidden] { display: none !important; }
+
+    @media (max-width: 640px) {
+        .txn-header, .alloc-footer { grid-template-columns: 1fr; }
+        .txn-amount-block { text-align: left; }
+        .mode-tabs { grid-template-columns: 1fr; }
+        .doc-table .hide-sm { display: none; }
     }
 </style>
 
 <div class="review-container">
 
-    <!-- Transaction header -->
-    <div class="txn-header">
-        <h2>
-            <span class="material-symbols-outlined">edit_note</span>
-            {% if is_partial %}{% trans "Add Allocations" %}{% else %}{% trans "Reconcile Manually" %}{% endif %}
-        </h2>
+    <!-- Transaction -->
+    <div class="card txn-header">
+        <div>
+            <h2>
+                <span class="material-symbols-outlined">edit_note</span>
+                {% if is_partial %}{% trans "Add Allocations" %}{% else %}{% trans "Reconcile Manually" %}{% endif %}
+            </h2>
+            <p class="txn-description">{{ txn.description|default:"—" }}</p>
+        </div>
+        <div class="txn-amount-block">
+            <div class="txn-amount {% if is_inbound %}in{% else %}out{% endif %}">{{ txn.amount }}</div>
+            <span class="direction-badge">{% if is_inbound %}{% trans "Money in" %}{% else %}{% trans "Money out" %}{% endif %}</span>
+        </div>
         <div class="txn-meta">
-            <div class="txn-meta-item">
-                <span class="txn-meta-label">{% trans "Transaction" %}</span>
-                <span class="txn-meta-value">#{{ txn.pk }}</span>
-            </div>
             <div class="txn-meta-item">
                 <span class="txn-meta-label">{% trans "Date" %}</span>
                 <span class="txn-meta-value">{{ txn.transaction_date }}</span>
-            </div>
-            <div class="txn-meta-item">
-                <span class="txn-meta-label">{% trans "Amount" %}</span>
-                <span class="txn-amount">{{ txn.amount }}</span>
-            </div>
-            <div class="txn-meta-item">
-                <span class="txn-meta-label">{% trans "Description" %}</span>
-                <span class="txn-meta-value">{{ txn.description|default:"—" }}</span>
             </div>
             <div class="txn-meta-item">
                 <span class="txn-meta-label">{% trans "Counterparty" %}</span>
@@ -302,116 +480,200 @@
             </div>
             <div class="txn-meta-item">
                 <span class="txn-meta-label">{% trans "Bank Account" %}</span>
-                <span class="txn-meta-value">{{ txn.bank_account }}</span>
+                <span class="txn-meta-value">{{ txn.bank_account.bank_name }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% if is_partial %}{% trans "Remaining unmatched" %}{% else %}{% trans "Transaction" %}{% endif %}</span>
+                <span class="txn-meta-value">{% if is_partial %}{{ txn_amount|floatformat:2 }} €{% else %}#{{ txn.pk }}{% endif %}</span>
             </div>
         </div>
     </div>
 
-    {% if documents %}
-    <form method="post" action="{{ submit_url }}" id="manualForm">
-        {% csrf_token %}
-
-        <div class="search-bar">
-            <input type="text" id="docSearch" placeholder="{% trans 'Search by invoice number or counterparty…' %}"
-                   oninput="filterDocs(this.value)">
-        </div>
-
-        <div class="category-bar">
-            <label for="categorySelect">{% trans "Category" %} <span style="color:#dc2626;">*</span></label>
-            {% if categories %}
-            <select name="category" id="categorySelect" required>
-                <option value="" disabled {% if not txn.category_id %}selected{% endif %}>{% trans "— Select a category —" %}</option>
-                {% for cat in categories %}
-                <option value="{{ cat.pk }}"{% if txn.category_id == cat.pk %} selected{% endif %}>{{ cat.name }}</option>
-                {% endfor %}
-            </select>
-            {% else %}
-            <span style="color:#dc2626; font-size:0.85rem;">
-                {% trans "No categories configured for this company yet. Add one before confirming a match." %}
+    {% if not is_partial %}
+    <div class="mode-tabs" role="tablist">
+        <button type="button" class="card mode-tab" role="tab" data-mode="docs" aria-controls="pane-docs">
+            <span class="material-symbols-outlined">receipt_long</span>
+            <span>
+                <span class="mode-tab-title">{% trans "Match documents" %}</span>
+                <span class="mode-tab-hint">{% trans "Invoices, installments, expense claims" %}</span>
             </span>
+            <span class="count-pill">{{ documents|length }}</span>
+        </button>
+        <button type="button" class="card mode-tab" role="tab" data-mode="account" aria-controls="pane-account">
+            <span class="material-symbols-outlined">account_balance</span>
+            <span>
+                <span class="mode-tab-title">{% trans "Without a document" %}</span>
+                <span class="mode-tab-hint">{% trans "Bank fees, interest, own transfers" %}</span>
+            </span>
+            <span class="count-pill">{{ account_categories|length }}</span>
+        </button>
+    </div>
+    {% endif %}
+
+    <!-- Match documents -->
+    <section id="pane-docs" role="tabpanel">
+        {% if documents %}
+        <form method="post" action="{{ submit_url }}" id="manualForm">
+            {% csrf_token %}
+
+            <div class="search-bar">
+                <input type="search" id="docSearch" placeholder="{% trans 'Search by number, counterparty or type…' %}"
+                       oninput="filterDocs(this.value)" autocomplete="off">
+            </div>
+
+            <div class="card doc-table-wrapper">
+                <table class="doc-table" id="docTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>{% trans "Document" %}</th>
+                            <th class="hide-sm">{% trans "Type" %}</th>
+                            <th class="hide-sm">{% trans "Date" %}</th>
+                            <th>{% trans "Counterparty" %}</th>
+                            <th style="text-align: right;">{% trans "Remaining" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for doc in documents %}
+                        <tr onclick="toggleRow(this)" data-search="{{ doc.number|lower }} {{ doc.counterparty|lower }} {{ doc.kind|lower }}">
+                            <td>
+                                <input type="checkbox"
+                                       name="selected_docs"
+                                       value="{{ doc.form_value }}"
+                                       class="doc-checkbox"
+                                       data-amount="{{ doc.remaining|unlocalize }}"
+                                       aria-label="{{ doc.number }}"
+                                       onclick="event.stopPropagation();">
+                            </td>
+                            <td class="doc-number">{{ doc.number }}</td>
+                            <td class="hide-sm"><span class="kind-badge">{{ doc.kind|capfirst }}</span></td>
+                            <td class="hide-sm">{{ doc.date|default:"—" }}</td>
+                            <td>{{ doc.counterparty }}</td>
+                            <td class="amount-col">{{ doc.remaining|floatformat:2 }} €</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="no-results" id="noResults">{% trans "No document matches the search." %}</div>
+            </div>
+
+            <div class="card alloc-footer">
+                <div class="alloc-figures">
+                    <span>{% trans "Selected" %} <strong id="runningTotal">{{ 0|floatformat:2 }} €</strong></span>
+                    <span>{% trans "of" %} <strong>{{ txn_amount|floatformat:2 }} €</strong></span>
+                    <span>{% trans "Left" %} <strong id="leftTotal">{{ txn_amount|floatformat:2 }} €</strong></span>
+                </div>
+                <div style="display:flex; gap:0.75rem;">
+                    <a href="{{ back_url }}" class="btn btn-back">{% trans "Back" %}</a>
+                    <button type="submit" class="btn btn-confirm" id="confirmBtn" disabled>
+                        <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
+                        {% trans "Confirm Reconciliation" %}
+                    </button>
+                </div>
+                <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+                <div class="alloc-note warn" id="overLimitWarning">{% trans "Selection exceeds transaction amount" %}</div>
+                <div class="alloc-note info" id="partialNote">{% trans "This invoice will be marked as partially paid with this amount" %}</div>
+            </div>
+        </form>
+        {% else %}
+        <div class="card empty-state">
+            <span class="material-symbols-outlined">inbox</span>
+            <p>{% trans "No unpaid documents found for this transaction." %}</p>
+            {% if not is_partial %}
+            <p><button type="button" class="btn-link" onclick="showMode('account')">{% trans "Book it without a document" %}</button></p>
             {% endif %}
         </div>
-
-        <!-- Running total -->
-        <div class="running-total">
-            {% if is_partial %}
-            <span class="running-total-label">{% trans "Remaining unmatched:" %} {{ txn_amount|floatformat:2 }} €</span>
-            {% else %}
-            <span class="running-total-label">{% trans "Transaction amount:" %} {{ txn_amount|floatformat:2 }} €</span>
-            {% endif %}
-            <span class="running-total-label">{% trans "Selected:" %}</span>
-            <span class="running-total-value" id="runningTotal">0.00 €</span>
-            <span id="overLimitWarning" style="display:none; color:#dc2626; font-size:0.8rem; font-weight:600;">
-                {% trans "Selection exceeds transaction amount" %}
-            </span>
-            <span id="partialNote" style="display:none; color:#0f766e; font-size:0.8rem; font-weight:600;">
-                {% trans "This invoice will be marked as partially paid with this amount" %}
-            </span>
-        </div>
-
-        <div class="doc-table-wrapper">
-            <table class="doc-table" id="docTable">
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"></th>
-                        <th>{% trans "Invoice" %}</th>
-                        <th>{% trans "Date" %}</th>
-                        <th>{% trans "Counterparty" %}</th>
-                        <th style="text-align: right;">{% trans "Remaining" %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for doc in documents %}
-                    <tr onclick="toggleRow(this)" data-search="{{ doc.number|lower }} {{ doc.counterparty|lower }}">
-                        <td>
-                            <input type="checkbox"
-                                   name="selected_docs"
-                                   value="{{ doc.form_value }}"
-                                   class="doc-checkbox"
-                                   data-amount="{{ doc.remaining|unlocalize }}"
-                                   onclick="event.stopPropagation();">
-                        </td>
-                        <td>{{ doc.number }}</td>
-                        <td>{{ doc.date|default:"—" }}</td>
-                        <td>{{ doc.counterparty }}</td>
-                        <td class="amount-col">{{ doc.remaining|floatformat:2 }} €</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
         <div class="review-actions">
-            <a href="{{ back_url }}" class="btn btn-back">
-                <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-                {% trans "Back" %}
-            </a>
-            <button type="submit" class="btn btn-confirm" id="confirmBtn" disabled>
-                <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
-                {% trans "Confirm Reconciliation" %}
-            </button>
+            <a href="{{ back_url }}" class="btn btn-back">{% trans "Back" %}</a>
         </div>
-    </form>
+        {% endif %}
+    </section>
 
-    {% else %}
-    <div class="empty-state">
-        <span class="material-symbols-outlined">inbox</span>
-        <p>{% trans "No unpaid documents found for this transaction." %}</p>
-    </div>
-    <div class="review-actions">
-        <a href="{{ back_url }}" class="btn btn-back">
-            <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-            {% trans "Back" %}
-        </a>
-    </div>
+    {% if not is_partial %}
+    <!-- Without a document: booked to a category's account -->
+    <section id="pane-account" role="tabpanel" hidden>
+        {% if account_categories %}
+        <form method="post" action="{{ category_reconcile_url }}" id="categoryForm">
+            {% csrf_token %}
+            <div class="category-field">
+                <label for="accountCategorySelect">{% trans "Category" %}</label>
+                <select name="category" id="accountCategorySelect" required>
+                    <option value="" {% if not txn.category.account_id %}selected{% endif %}>{% trans "— Book to a category —" %}</option>
+                    {% for cat in account_categories %}
+                    <option value="{{ cat.pk }}" data-account="{{ cat.account.code }} {{ cat.account.name }}"
+                            {% if txn.category_id == cat.pk %}selected{% endif %}>{{ cat.name }} · {{ cat.account.code }} {{ cat.account.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="card entry-preview">
+                <h3>{% trans "Journal entry it will book" %}</h3>
+                <p class="empty" id="previewEmpty">{% trans "Pick a category to see the entry." %}</p>
+                <table id="previewTable" hidden>
+                    <tr>
+                        <td class="side">{% trans "Dr" %}</td>
+                        <td id="previewDebit"></td>
+                        <td class="amount-col">{{ txn_amount|floatformat:2 }} €</td>
+                    </tr>
+                    <tr>
+                        <td class="side">{% trans "Cr" %}</td>
+                        <td id="previewCredit"></td>
+                        <td class="amount-col">{{ txn_amount|floatformat:2 }} €</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="review-actions">
+                <a href="{{ back_url }}" class="btn btn-back">{% trans "Back" %}</a>
+                <button type="submit" class="btn btn-confirm" id="categoryBtn" disabled>
+                    <span class="material-symbols-outlined" style="font-size: 18px;">account_balance</span>
+                    {% trans "Book to Category" %}
+                </button>
+            </div>
+        </form>
+        {% else %}
+        <div class="card empty-state">
+            <span class="material-symbols-outlined">account_balance</span>
+            <p>{% trans "No category has an accounting account yet." %}</p>
+            <p>{% trans "Give one an account (e.g. bank fees → 626) to book movements no document backs." %}</p>
+            <p><a class="btn-link" href="{{ categories_url }}">{% trans "Open bank transaction categories" %}</a></p>
+        </div>
+        <div class="review-actions">
+            <a href="{{ back_url }}" class="btn btn-back">{% trans "Back" %}</a>
+        </div>
+        {% endif %}
+    </section>
     {% endif %}
 
 </div>
 
 <script>
     const txnAmount = parseFloat("{{ txn_amount|unlocalize }}");
-    const hasCategories = {% if categories %}true{% else %}false{% endif %};
+    const isInbound = {% if is_inbound %}true{% else %}false{% endif %};
+    const bankLedger = "{{ bank_ledger_label|escapejs }}";
+    // Same separators as the amounts Django renders in the page's language
+    const moneyFormat = new Intl.NumberFormat("{{ current_language }}", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const euro = value => moneyFormat.format(value) + ' €';
 
+    // ── Modes ──────────────────────────────────────────
+    function showMode(mode) {
+        document.querySelectorAll('.mode-tab').forEach(tab => {
+            tab.setAttribute('aria-selected', tab.dataset.mode === mode ? 'true' : 'false');
+        });
+        const docs = document.getElementById('pane-docs');
+        const account = document.getElementById('pane-account');
+        if (docs) docs.hidden = mode !== 'docs';
+        if (account) account.hidden = mode !== 'account';
+    }
+
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.addEventListener('click', () => showMode(tab.dataset.mode));
+    });
+    {% if not is_partial %}
+    showMode('docs');
+    {% endif %}
+
+    // ── Document selection ─────────────────────────────
     function updateTotal() {
         const checked = document.querySelectorAll('.doc-checkbox:checked');
         let total = 0;
@@ -424,15 +686,22 @@
             && parseFloat(checked[0].dataset.amount || 0) > txnAmount + 0.01;
 
         const isOver = total > txnAmount + 0.01 && !oversizedSelected;
-        const isMatch = Math.abs(total - txnAmount) < 0.01;
+        const isMatch = Math.abs(total - txnAmount) < 0.01 || oversizedSelected;
+        const state = isOver ? 'over' : (isMatch ? 'match' : '');
 
-        const el = document.getElementById('runningTotal');
-        el.textContent = total.toFixed(2) + ' €';
-        el.className = 'running-total-value' + (isOver ? ' over' : ((isMatch || oversizedSelected) ? ' match' : ''));
+        const applied = oversizedSelected ? txnAmount : total;
+        const runningTotal = document.getElementById('runningTotal');
+        runningTotal.textContent = euro(total);
+        runningTotal.className = state;
+        document.getElementById('leftTotal').textContent = euro(Math.max(txnAmount - applied, 0));
 
-        document.getElementById('overLimitWarning').style.display = isOver ? 'inline' : 'none';
-        document.getElementById('partialNote').style.display = oversizedSelected ? 'inline' : 'none';
-        document.getElementById('confirmBtn').disabled = checked.length === 0 || isOver || !hasCategories;
+        const bar = document.getElementById('progressBar');
+        bar.style.width = Math.min(txnAmount ? applied / txnAmount * 100 : 0, 100) + '%';
+        bar.className = 'progress-bar ' + state;
+
+        document.getElementById('overLimitWarning').style.display = isOver ? 'block' : 'none';
+        document.getElementById('partialNote').style.display = oversizedSelected ? 'block' : 'none';
+        document.getElementById('confirmBtn').disabled = checked.length === 0 || isOver;
 
         document.querySelectorAll('.doc-checkbox:not(:checked)').forEach(cb => {
             const amount = parseFloat(cb.dataset.amount || 0);
@@ -450,13 +719,13 @@
                 disable = total + amount > txnAmount + 0.01;
             }
             cb.disabled = disable;
-            cb.closest('tr').style.opacity = disable ? '0.4' : '1';
+            cb.closest('tr').classList.toggle('is-disabled', disable);
         });
 
         // Always keep checked boxes enabled so they can be unchecked
         document.querySelectorAll('.doc-checkbox:checked').forEach(cb => {
             cb.disabled = false;
-            cb.closest('tr').style.opacity = '1';
+            cb.closest('tr').classList.remove('is-disabled');
         });
     }
 
@@ -476,10 +745,33 @@
     });
 
     function filterDocs(query) {
-        const q = query.toLowerCase();
+        const q = query.toLowerCase().trim();
+        let shown = 0;
         document.querySelectorAll('#docTable tbody tr').forEach(row => {
-            row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+            const match = row.dataset.search.includes(q);
+            row.style.display = match ? '' : 'none';
+            if (match) shown++;
         });
+        document.getElementById('noResults').style.display = shown ? 'none' : 'block';
     }
+
+    // ── Booking to a category ──────────────────────────
+    function updatePreview() {
+        const select = document.getElementById('accountCategorySelect');
+        const button = document.getElementById('categoryBtn');
+        if (!select || !button) return;
+        const picked = select.value ? select.selectedOptions[0] : null;
+        button.disabled = !picked;
+        document.getElementById('previewEmpty').hidden = !!picked;
+        document.getElementById('previewTable').hidden = !picked;
+        if (!picked) return;
+        // Money in debits the bank; money out debits the category's account
+        document.getElementById('previewDebit').textContent = isInbound ? bankLedger : picked.dataset.account;
+        document.getElementById('previewCredit').textContent = isInbound ? picked.dataset.account : bankLedger;
+    }
+
+    const accountCategorySelect = document.getElementById('accountCategorySelect');
+    if (accountCategorySelect) accountCategorySelect.addEventListener('change', updatePreview);
+    updatePreview();
 </script>
 {% endblock %}

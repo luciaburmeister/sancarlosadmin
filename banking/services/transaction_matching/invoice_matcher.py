@@ -106,16 +106,14 @@ class InvoiceMatcher:
           create only the BankReconciliation to link it to the bank transaction.
           No new Payment is created.
 
-        `category` is required and is assigned to every BankTransaction
-        reconciled as part of this confirmation.
+        `category`, when given, is assigned to every BankTransaction
+        reconciled as part of this confirmation; the invoice decides the
+        booking, so it's only a label here.
 
         Idempotent — skips if suggestion is already confirmed.
         """
         if suggestion.is_confirmed:
             return
-
-        if category is None:
-            raise ValueError("A category is required to confirm a reconciliation.")
 
         invoice = suggestion.invoice
         invoice_ct = ContentType.objects.get_for_model(invoice)
@@ -180,8 +178,11 @@ class InvoiceMatcher:
                     if unmatched <= Decimal("0.01")
                     else ReconciliationStatus.PARTIAL
                 )
-                txn.category = category
-                txn.save(update_fields=["reconciliation_status", "category"])
+                update_fields = ["reconciliation_status"]
+                if category is not None:
+                    txn.category = category
+                    update_fields.append("category")
+                txn.save(update_fields=update_fields)
                 continue
 
             # Invoice has remaining balance — standard flow: create new Payment.
@@ -249,8 +250,11 @@ class InvoiceMatcher:
                 if new_unmatched <= Decimal("0.01")
                 else ReconciliationStatus.PARTIAL
             )
-            txn.category = category
-            txn.save(update_fields=["reconciliation_status", "category"])
+            update_fields = ["reconciliation_status"]
+            if category is not None:
+                txn.category = category
+                update_fields.append("category")
+            txn.save(update_fields=update_fields)
 
             invoice_remaining -= amount_to_apply
 

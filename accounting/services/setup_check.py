@@ -50,10 +50,12 @@ class AccountingSetupCheck:
         return [
             self._chart(),
             self._fiscal_year(),
+            self._opening(),
             self._roles(),
             self._taxes(),
             self._business_units(),
             self._pending(),
+            self._payments(),
         ]
 
     def is_ready(self, sections=None):
@@ -105,6 +107,40 @@ class AccountingSetupCheck:
                           reverse("admin:accounting_fiscalyear_change", args=[year.pk]))
         return Section(_("Fiscal year"), [check])
 
+    def _opening(self):
+        """Where the ledger starts, and the entry carrying the balances from before."""
+        from accounting.models import JournalEntry
+
+        section = Section(_("Opening balances"))
+        if not self.chart:
+            return section
+        chart_url = reverse("admin:accounting_companychartofaccounts_change", args=[self.chart.pk])
+        start = self.chart.ledger_start_date
+        if not start:
+            section.checks.append(Check(
+                _("Ledger start date"), WARNING,
+                _("Not set: payments of any date are booked, and older invoices have no entry."), chart_url,
+            ))
+            return section
+        section.checks.append(Check(_("Ledger start date"), OK, str(start), chart_url))
+
+        opening = JournalEntry.objects.filter(company=self.company, is_opening=True).first()
+        if not opening:
+            section.checks.append(Check(
+                _("Opening entry"), WARNING, _("Not drafted yet: press Draft Opening Entry on the chart."), chart_url,
+            ))
+        elif opening.status == EntryStatus.DRAFT:
+            section.checks.append(Check(
+                _("Opening entry"), WARNING, _("Drafted: complete the pending balances and post it."),
+                reverse("admin:accounting_journalentry_change", args=[opening.pk]),
+            ))
+        else:
+            section.checks.append(Check(
+                _("Opening entry"), OK, opening.number,
+                reverse("admin:accounting_journalentry_change", args=[opening.pk]),
+            ))
+        return section
+
     def _roles(self):
         section = Section(_("Account roles"))
         holders = {
@@ -122,6 +158,8 @@ class AccountingSetupCheck:
             ),
             AccountRole.SALES_DISCOUNTS: (WARNING, _("Needed by invoices with a discount.")),
             AccountRole.ROUNDING: (WARNING, _("Without it, cent differences leave entries as drafts.")),
+            AccountRole.CASH: (WARNING, _("Needed by cash payments.")),
+            AccountRole.SUSPENSE: (WARNING, _("Needed to draft the opening entry.")),
         }
         accounts_url = reverse("admin:accounting_companyaccount_changelist")
         for role, (severity, why) in needed.items():
@@ -241,3 +279,67 @@ class AccountingSetupCheck:
             ),
         ]
         return section
+
+    def _payments(self):
+        """Confirmed payments the ledger is missing, since the company's first payment entry."""
+        from accounting.models import JournalEntry
+        from accounting.services.payment_journal.engine import BOOKED_STATUSES
+        from payments.models import Payment
+
+        section = Section(_("Payments"))
+        since = JournalEntry.objects.filter(
+            company=self.company, payment__isnull=False,
+        ).aggregate(first=Min("date"))["first"]
+        if not since:
+            section.checks.append(Check(_("Journalized payments"), OK, _("No payment journalized yet.")))
+            return section
+
+        booked = Payment.objects.filter(
+            company=self.company, status__in=BOOKED_STATUSES, payment_date__gte=since,
+        ).exclude(amount=0)
+        live = JournalEntry.objects.filter(payment__isnull=False, reversal_of__isnull=True, reversal__isnull=True)
+        without = booked.exclude(pk__in=live.values("payment_id")).count()
+        drafts = booked.filter(pk__in=live.filter(status=EntryStatus.DRAFT).values("payment_id")).count()
+        payments_url = reverse("admin:payments_payment_changelist")
+        entries_url = reverse("admin:accounting_journalentry_changelist")
+        section.checks += self._unconfigured_document_types(booked)
+        section.checks += [
+            Check(
+                _("Without a journal entry"), WARNING if without else OK,
+                _("%(count)s since %(date)s: select them and run Generate journal entries to see why.")
+                % {"count": without, "date": since} if without else _("None."),
+                payments_url if without else None,
+            ),
+            Check(
+                _("Draft entries"), WARNING if drafts else OK,
+                _("%(count)s not posted.") % {"count": drafts} if drafts else _("None."),
+                f"{entries_url}?status__exact={EntryStatus.DRAFT}&payment__isnull=False" if drafts else None,
+            ),
+        ]
+        return section
+
+    def _unconfigured_document_types(self, payments):
+        """Document types those payments are allocated to that nothing says how to book."""
+        from accounting.models import AllocationAccountRule
+        from accounting.services.payment_journal import strategy_for
+        from payments.models import PaymentAllocation
+
+        ruled = set(AllocationAccountRule.objects.filter(company=self.company).values_list("content_type", flat=True))
+        counts = {}
+        for content_type_id in PaymentAllocation.objects.filter(
+            payment__in=payments, is_mirror=False, account__isnull=True,
+        ).exclude(content_type__in=ruled).values_list("content_type", flat=True):
+            counts[content_type_id] = counts.get(content_type_id, 0) + 1
+
+        checks = []
+        rules_url = reverse("admin:accounting_allocationaccountrule_add")
+        for content_type_id, count in counts.items():
+            model = ContentType.objects.get_for_id(content_type_id).model_class()
+            if model and strategy_for(model):
+                continue
+            label = model._meta.verbose_name_plural.capitalize() if model else str(content_type_id)
+            checks.append(Check(
+                label, WARNING,
+                _("%(count)s allocations wait for a payment account rule.") % {"count": count}, rules_url,
+            ))
+        return checks

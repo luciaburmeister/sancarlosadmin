@@ -27,6 +27,7 @@ from banking.models import (
 )
 from banking.resources import BankTransactionCategoryResource
 from banking.views import (
+    CategoryReconcileView,
     ConnectBankView,
     ConsentDoneView,
     InitiateConsentView,
@@ -202,11 +203,11 @@ class BankTransactionCategoryAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExp
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
 
-    list_display = ("name", "company")
+    list_display = ("name", "account", "company")
     list_filter = (("company", AutocompleteSelectMultipleFilter),)
     list_filter_submit = True
     search_fields = ("name",)
-    autocomplete_fields = ("company",)
+    autocomplete_fields = ("company", "account")
     ordering = ("company__name", "name")
 
 
@@ -308,6 +309,13 @@ class BankTransactionAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     ManualReconcileView.as_view(model_admin=self)
                 ),
                 name="banking_banktransaction_manual_reconcile",
+            ),
+            path(
+                "<int:pk>/reconcile-to-category/",
+                self.admin_site.admin_view(
+                    CategoryReconcileView.as_view(model_admin=self)
+                ),
+                name="banking_banktransaction_reconcile_category",
             ),
             path(
                 "payment/<int:payment_id>/link-transaction/",

@@ -48,13 +48,12 @@ class _JournalGeneratorBase:
     UnsupportedCurrency = UnsupportedCurrency
 
     @staticmethod
-    def _check_currency(invoice):
-        currency = invoice.currency or LEDGER_CURRENCY
+    def _check_currency(currency, message=None):
+        """``message`` replaces the invoices' one; it takes %(currency)s and %(ledger)s."""
+        currency = str(currency or LEDGER_CURRENCY)
         if currency != LEDGER_CURRENCY:
-            raise UnsupportedCurrency(
-                _("Invoices in %(currency)s can't be journalized yet: the ledger is kept in %(ledger)s.")
-                % {"currency": currency, "ledger": LEDGER_CURRENCY}
-            )
+            message = message or _("Invoices in %(currency)s can't be journalized yet: the ledger is kept in %(ledger)s.")
+            raise UnsupportedCurrency(message % {"currency": currency, "ledger": LEDGER_CURRENCY})
 
     def __init__(self, company):
         self.company = company
@@ -67,13 +66,14 @@ class _JournalGeneratorBase:
         )
         return journal
 
-    def _get_partner_account(self, partner, root_field):
+    def _get_partner_account(self, partner, root_field, name=None):
         """
-        The provider's or client's own account, created on first use and
-        stored back on the partner. Its code is the chart's root for that
-        kind of partner (``root_field``) followed by the next consecutive
-        number in the company, padded to the chart's account length
-        (e.g. 4300001, 4300002, ...).
+        The provider's, client's or bank account's own account, created on
+        first use and stored back on the partner. Its code is the chart's
+        root for that kind of partner (``root_field``) followed by the next
+        consecutive number in the company, padded to the chart's account
+        length (e.g. 4300001, 4300002, ...). ``name`` defaults to the
+        partner's.
         """
         if not partner:
             return None
@@ -92,10 +92,10 @@ class _JournalGeneratorBase:
         account = CompanyAccount.objects.create(
             company=self.company,
             code=code,
-            name=partner.name,
+            name=name or partner.name,
             parent=CompanyAccount.objects.filter(company=self.company, code=root).first(),
         )
-        logger.info(f"Automatically created accounting account {code} for {partner.name}")
+        logger.info(f"Automatically created accounting account {code} for {account.name}")
 
         partner.account = account
         partner.save(update_fields=['account'])
@@ -113,6 +113,23 @@ class _JournalGeneratorBase:
 
     def _chart(self):
         return CompanyChartOfAccounts.objects.filter(company=self.company).first()
+
+    def _before_start(self, day):
+        """Dated before the ledger starts: its balance comes in with the opening entry instead."""
+        start = (
+            CompanyChartOfAccounts.objects.filter(company=self.company)
+            .values_list("ledger_start_date", flat=True).first()
+        )
+        return bool(start and day and day < start)
+
+    def _role_account(self, role):
+        account = CompanyAccount.for_role(self.company.pk, role)
+        if not account:
+            raise MissingAccount(
+                _("No account has the role “%(role)s”: assign it in the company's accounts.")
+                % {"role": AccountRole(role).label}
+            )
+        return account
 
     def _resolve_tax_account(self, tax_type, is_purchase=True):
         """
@@ -156,6 +173,52 @@ class _JournalGeneratorBase:
             entry.post_error = " ".join(e.messages)
             logger.warning("Journal entry %s left as draft: %s", entry.pk, entry.post_error)
 
+    def _create_lines(self, entry, amounts, currency):
+        """``amounts``: [(account, description, amount)], debit positive; zeros are skipped."""
+        JournalEntryLine.objects.bulk_create([
+            JournalEntryLine(
+                company=self.company,
+                entry=entry,
+                account=account,
+                description=description,
+                debit=Money(max(amount, 0), currency),
+                credit=Money(max(-amount, 0), currency),
+            )
+            for account, description, amount in amounts
+            if amount
+        ])
+
+    def _reverse_entry(self, entry, date=None):
+        """
+        A posted entry's reversing entry (debits and credits swapped), linked
+        to the same documents, posted when the ledger allows it.
+        """
+        with transaction.atomic():
+            reversal = JournalEntry.objects.create(
+                company=self.company,
+                journal=entry.journal,
+                date=date or timezone.localdate(),
+                reference=f"Anulación {entry.reference}",
+                status=EntryStatus.DRAFT,
+                purchase_invoice_id=entry.purchase_invoice_id,
+                sales_invoice_id=entry.sales_invoice_id,
+                payment_id=entry.payment_id,
+                reversal_of=entry,
+            )
+            JournalEntryLine.objects.bulk_create([
+                JournalEntryLine(
+                    company=self.company,
+                    entry=reversal,
+                    account_id=line.account_id,
+                    description=line.description,
+                    debit=line.credit,
+                    credit=line.debit,
+                )
+                for line in entry.lines.all()
+            ])
+        self._try_post(reversal)
+        return reversal
+
 
 class JournalGeneratorService(_JournalGeneratorBase):
     """
@@ -174,6 +237,9 @@ class JournalGeneratorService(_JournalGeneratorBase):
             needs_manual_review=False,
             journal_entries__isnull=True
         )
+        chart = self._chart()
+        if chart and chart.ledger_start_date:
+            invoices = invoices.filter(date_issued__gte=chart.ledger_start_date)
         
         processed_count = 0
         unbalanced_count = 0
@@ -209,7 +275,9 @@ class JournalGeneratorService(_JournalGeneratorBase):
         if not invoice.date_issued:
             logger.warning(f"Invoice {invoice.id} has no date_issued, skipping journalization.")
             return None
-        self._check_currency(invoice)
+        if self._before_start(invoice.date_issued):
+            return None
+        self._check_currency(invoice.currency)
 
         # 1. Gather accounts
         journal = self._get_purchase_journal()
@@ -242,7 +310,10 @@ class JournalGeneratorService(_JournalGeneratorBase):
                 # If an item is not classified, we can't fully journalize
                 # Use a default or fall back?
                 continue
-            
+            # Zero lines (free shipping, kg notes) carry nothing and break check_debit_xor_credit
+            if not item.line_total or item.line_total.amount == 0:
+                continue
+
             # Support returns: positive line_total -> Debit, negative line_total -> Credit
             debit_amt = item.line_total if item.line_total.amount > 0 else 0
             credit_amt = abs(item.line_total) if item.line_total.amount < 0 else 0
@@ -350,23 +421,16 @@ class SalesJournalGeneratorService(_JournalGeneratorBase):
         IncomeType.SERVICES: AccountRole.SERVICES_SALES,
     }
 
-    def _role_account(self, role):
-        account = CompanyAccount.for_role(self.company.pk, role)
-        if not account:
-            raise MissingAccount(
-                _("No account has the role “%(role)s”: assign it in the company's accounts.")
-                % {"role": AccountRole(role).label}
-            )
-        return account
-
     def journalize_invoice(self, invoice: SalesInvoice):
         """The invoice's entry, posted when balanced. None if it already has one."""
         if invoice.status != SalesInvoiceStatus.FINAL:
             return None
         if invoice.journal_entries.filter(reversal_of__isnull=True).exists():
             return None
+        if self._before_start(invoice.date_issued):
+            return None
 
-        self._check_currency(invoice)
+        self._check_currency(invoice.currency)
         with transaction.atomic():
             amounts = self._signed_amounts(invoice)
             entry = JournalEntry.objects.create(
@@ -404,29 +468,7 @@ class SalesJournalGeneratorService(_JournalGeneratorBase):
                 continue
             if entry.status != EntryStatus.POSTED:
                 continue
-            with transaction.atomic():
-                reversal = JournalEntry.objects.create(
-                    company=self.company,
-                    journal=entry.journal,
-                    date=date or timezone.localdate(),
-                    reference=f"Anulación {entry.reference}",
-                    status=EntryStatus.DRAFT,
-                    sales_invoice=invoice,
-                    reversal_of=entry,
-                )
-                JournalEntryLine.objects.bulk_create([
-                    JournalEntryLine(
-                        company=self.company,
-                        entry=reversal,
-                        account_id=line.account_id,
-                        description=line.description,
-                        debit=line.credit,
-                        credit=line.debit,
-                    )
-                    for line in entry.lines.all()
-                ])
-            self._try_post(reversal)
-            reversals.append(reversal)
+            reversals.append(self._reverse_entry(entry, date))
         return reversals
 
     def _signed_amounts(self, invoice):
@@ -477,20 +519,6 @@ class SalesJournalGeneratorService(_JournalGeneratorBase):
             amounts.append((rounding, f"Redondeo - {number}", gap))
 
         return amounts
-
-    def _create_lines(self, entry, amounts, currency):
-        JournalEntryLine.objects.bulk_create([
-            JournalEntryLine(
-                company=self.company,
-                entry=entry,
-                account=account,
-                description=description,
-                debit=Money(max(amount, 0), currency),
-                credit=Money(max(-amount, 0), currency),
-            )
-            for account, description, amount in amounts
-            if amount
-        ])
 
     def _get_sales_journal(self):
         return self._get_journal(JournalType.SALES, 'Ventas', 'VEN')

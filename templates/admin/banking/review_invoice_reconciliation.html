@@ -400,18 +400,14 @@
 
         {% if not suggestion.is_confirmed %}
         <div class="category-bar">
-            <label for="categorySelect">{% trans "Category" %} <span style="color:#dc2626;">*</span></label>
+            <label for="categorySelect">{% trans "Category" %}</label>
             {% if categories %}
-            <select name="category" id="categorySelect" required>
-                <option value="" disabled selected>{% trans "— Select a category —" %}</option>
+            <select name="category" id="categorySelect">
+                <option value="" selected>{% trans "— No category —" %}</option>
                 {% for cat in categories %}
                 <option value="{{ cat.pk }}">{{ cat.name }}</option>
                 {% endfor %}
             </select>
-            {% else %}
-            <span style="color:#dc2626; font-size:0.85rem;">
-                {% trans "No categories configured for this company yet. Add one before confirming a match." %}
-            </span>
             {% endif %}
         </div>
         <div class="review-actions">
@@ -419,7 +415,7 @@
                 <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
                 {% trans "Back" %}
             </a>
-            <button type="submit" class="btn btn-approve" {% if not categories %}disabled{% endif %}>
+            <button type="submit" class="btn btn-approve">
                 <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
                 {% trans "Approve" %}
             </button>

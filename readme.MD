@@ -41,6 +41,7 @@ The project uses Celery for background tasks and Redis as the message broker.
    ```bash
    celery -A alumniniooerp beat -l info
    ```
+   Beat reads its schedule from the database (`CELERY_BEAT_SCHEDULER`); periodic tasks are created and edited only in the admin under *Periodic Tasks*.
 
 Locally the broker defaults to `redis://localhost:6379/0`; set `CELERY_BROKER_URL` to point elsewhere.
 

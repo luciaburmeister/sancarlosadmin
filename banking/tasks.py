@@ -208,9 +208,8 @@ def send_bank_accounts_summary():
     per company, unlike company.tasks.send_document_reminders which falls
     back to company.email.
 
-    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
-    django-celery-beat PeriodicTask (admin > Periodic Tasks) pointing at
-    "banking.tasks.send_bank_accounts_summary".
+    Schedule it via a django-celery-beat PeriodicTask (admin > Periodic
+    Tasks) pointing at "banking.tasks.send_bank_accounts_summary".
     """
     from django.template.loader import render_to_string
     from django.utils.formats import date_format, number_format

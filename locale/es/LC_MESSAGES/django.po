@@ -8307,10 +8307,8 @@ msgstr ""
 msgid "Balance"
 msgstr "Fuera de balance"
 
-#, fuzzy
-#| msgid "Off Balance"
 msgid "Balanced"
-msgstr "Fuera de balance"
+msgstr "Cuadrado"
 
 #, fuzzy
 #| msgid "Off Balance"
@@ -20563,3 +20561,50 @@ msgstr "Cuentas contables"
 #: alumniniooerp/settings.py
 msgid "Fiscal Years"
 msgstr "Ejercicios fiscales"
+
+#: accounting/admin/entries.py
+msgid "Entry"
+msgstr "Asiento"
+
+#: accounting/admin/entries.py
+msgid "Journal"
+msgstr "Diario"
+
+#: accounting/admin/entries.py
+msgid "Account name"
+msgstr "Nombre de la cuenta"
+
+#: accounting/admin/entries.py
+#, python-format
+msgid "Sales invoice %(number)s"
+msgstr "Factura de venta %(number)s"
+
+#: accounting/admin/entries.py
+#, python-format
+msgid "Purchase invoice %(number)s"
+msgstr "Factura de compra %(number)s"
+
+#: accounting/admin/entries.py
+#, python-format
+msgid "Payment %(reference)s"
+msgstr "Pago %(reference)s"
+
+#: accounting/admin/entries.py
+msgid "Journal Entry Lines"
+msgstr "Líneas de asiento"
+
+#: accounting/admin/entries.py
+msgid "Journal entry line"
+msgstr "Línea de asiento"
+
+#: accounting/admin/entries.py
+msgid "Journal entry lines"
+msgstr "Líneas de asiento"
+
+#: accounting/admin/entries.py
+msgid "Total debit"
+msgstr "Total débito"
+
+#: accounting/admin/entries.py
+msgid "Total credit"
+msgstr "Total crédito"

@@ -496,7 +496,8 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     def get_queryset(self, request):
         from payments.mixins import annotate_amount_remaining, annotate_effective_date
 
-        qs = super().get_queryset(request)
+        # __str__ shows the provider: autocompletes list it for every result
+        qs = super().get_queryset(request).select_related("provider")
         qs = annotate_effective_date(qs)
         qs = annotate_amount_remaining(qs, Invoice)
         # Independent Subquery annotations — avoids the Django fan-out bug
@@ -1229,7 +1230,8 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     def get_queryset(self, request):
         from payments.mixins import annotate_amount_remaining, annotate_forecast_date
 
-        qs = super().get_queryset(request)
+        # __str__ shows the client: autocompletes list it for every result
+        qs = super().get_queryset(request).select_related("client")
         qs = annotate_forecast_date(qs)
         return annotate_amount_remaining(qs, SalesInvoice)
 

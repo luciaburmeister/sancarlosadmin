@@ -19,7 +19,6 @@ import sys
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
 from datetime import timedelta
-from celery.schedules import crontab
 
 # override=True so .env edits take effect on dev-server autoreload —
 # reloaded children inherit the parent's env, which would otherwise win.
@@ -394,32 +393,9 @@ CACHES = {
     ),
 }
 
-CELERY_BEAT_SCHEDULE = {
-    "process-due-purchase-order-approvals": {
-        "task": "purchasing.tasks.process_due_purchase_order_approvals",
-        "schedule": crontab(minute="*"),
-    },
-    "sync-bank-transactions": {
-        "task": "banking.tasks.sync_bank_transactions",
-        "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
-    },
-    "match-fixed-cost-invoices": {
-        "task": "banking.tasks.match_fixed_cost_invoices_task",
-        "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
-    },
-    "advance-fixed-cost-schedules": {
-        "task": "banking.tasks.advance_fixed_cost_schedules_task",
-        "schedule": crontab(minute=0, hour=3),  # once a day
-    },
-    "process-payment-reminders": {
-        "task": "invoices.tasks.process_payment_reminders",
-        "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task
-    },
-    "process-forecast-reports": {
-        "task": "invoices.tasks.process_forecast_reports",
-        "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task
-    },
-}
+# Periodic tasks live only in the admin (django-celery-beat > Periodic Tasks);
+# nothing is scheduled from settings, so admin edits are never overwritten.
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 
 CELERY_TASK_DEFAULT_QUEUE = "celery"
@@ -927,6 +903,14 @@ UNFOLD = {
                         "link": reverse_lazy("admin:accounting_journalentry_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "accounting.view_journalentry"
+                        ),
+                    },
+                    {
+                        "title": _("Journal Entry Lines"),
+                        "icon": "list_alt",
+                        "link": reverse_lazy("admin:accounting_journalentryline_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_journalentryline"
                         ),
                     },
                     {

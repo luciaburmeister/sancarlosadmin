@@ -510,9 +510,9 @@ def send_pending_invoices_digest():
     Companies with no recipients configured are skipped — opt-in per
     company, like banking.tasks.send_bank_accounts_summary.
 
-    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
-    django-celery-beat PeriodicTask (admin > Periodic Tasks, e.g. daily
-    at 07:00) pointing at "invoices.tasks.send_pending_invoices_digest".
+    Schedule it via a django-celery-beat PeriodicTask (admin > Periodic
+    Tasks, e.g. daily at 07:00) pointing at
+    "invoices.tasks.send_pending_invoices_digest".
     """
     from django.utils import timezone
 
@@ -595,9 +595,9 @@ def send_unmatched_po_digest(grace_hours: int | None = None, start_date=None):
     from the admin without a deploy. The task arguments override both for
     every company, and exist for one-off previews rather than routine use.
 
-    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
-    django-celery-beat PeriodicTask (admin > Periodic Tasks, e.g. daily
-    at 08:00) pointing at "invoices.tasks.send_unmatched_po_digest".
+    Schedule it via a django-celery-beat PeriodicTask (admin > Periodic
+    Tasks, e.g. daily at 08:00) pointing at
+    "invoices.tasks.send_unmatched_po_digest".
     """
     from django.utils import timezone
 

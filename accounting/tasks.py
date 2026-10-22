@@ -31,7 +31,7 @@ def classify_invoice_accounts(invoice_ids: list = None):
 
     Can be triggered:
     - Manually:   classify_invoice_accounts.delay()
-    - On a schedule via Celery Beat (add to CELERY_BEAT_SCHEDULE in settings)
+    - On a schedule via a django-celery-beat PeriodicTask (admin > Periodic Tasks)
     """
     logger.info("Starting account classification task...")
 

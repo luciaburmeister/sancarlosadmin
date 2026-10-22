@@ -963,6 +963,8 @@ class JournalEntryLine(Timestampable, CompanyOwnedModel):
     credit = MoneyField(max_digits=19, decimal_places=4, default_currency="EUR", default=0)
 
     class Meta:
+        verbose_name = _("Journal entry line")
+        verbose_name_plural = _("Journal entry lines")
         indexes = [
             models.Index(fields=["company", "account"]),
             models.Index(fields=["company", "entry"]),

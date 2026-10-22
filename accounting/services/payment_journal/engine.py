@@ -1,17 +1,24 @@
+from __future__ import annotations
+
 import logging
 from collections import defaultdict
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.utils.translation import gettext as _
 
-from accounting.models import AccountRole, CompanyChartOfAccounts, EntryStatus, JournalEntry, JournalType
+from accounting.models import AccountRole, CompanyAccount, CompanyChartOfAccounts, EntryStatus, JournalEntry, JournalType
 from accounting.services.journal_generator import (
     LEDGER_CURRENCY, JournalizeError, MissingAccount, _JournalGeneratorBase,
 )
 from accounting.services.payment_journal.configured import configured_strategy
 from accounting.services.payment_journal.registry import strategy_for
 from payments.models import Payment, PaymentDirection, PaymentMethod, PaymentStatus
+
+if TYPE_CHECKING:
+    from materials.models import Provider
+    from sales.models import Client
 
 logger = logging.getLogger(__name__)
 
@@ -120,15 +127,15 @@ class PaymentJournalService(_JournalGeneratorBase):
         self._try_post(entry)
         return entry
 
-    # -- accounts strategies ask for ------------------------------------------
+    # -- accounts strategies ask for (the registry's Ledger) ------------------
 
-    def client_account(self, client):
+    def client_account(self, client: Client) -> CompanyAccount:
         return self._get_partner_account(client, "client_account_root")
 
-    def provider_account(self, provider):
+    def provider_account(self, provider: Provider) -> CompanyAccount:
         return self._get_partner_account(provider, "provider_account_root")
 
-    def role_account(self, role):
+    def role_account(self, role: AccountRole) -> CompanyAccount:
         return self._role_account(role)
 
     # -- building -------------------------------------------------------------

@@ -136,7 +136,7 @@ class OpeningEntryTests(LedgerStartMixin, TestCase):
         self.issued_on(BEFORE, "100.00")
         self.draft().post()
 
-        with self.assertRaisesMessage(JournalizeError, "already posted"):
+        with translation.override("en"), self.assertRaisesMessage(JournalizeError, "already posted"):
             self.draft()
 
     def test_needs_the_start_date(self):

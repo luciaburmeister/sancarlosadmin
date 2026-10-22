@@ -324,7 +324,7 @@ class StrategyContractTests(PaymentLedgerMixin, TestCase):
         self.addCleanup(registry._strategies.pop, key)
         payment = self.pay("20.00", (self.client_obj, "20.00"))
 
-        with self.assertRaisesMessage(JournalizeError, "don't add up"):
+        with translation.override("en"), self.assertRaisesMessage(JournalizeError, "don't add up"):
             self.sync(payment)
 
 
@@ -398,7 +398,7 @@ class ConfiguredAccountTests(PaymentLedgerMixin, TestCase):
     def test_without_rule_or_account_it_stays_unbooked(self):
         payment = self.pay("40.00", (self.document, "40.00"))
 
-        with self.assertRaisesMessage(NoStrategy, "payment account rule"):
+        with translation.override("en"), self.assertRaisesMessage(NoStrategy, "payment account rule"):
             self.sync(payment)
 
     def test_invoices_refuse_an_account_on_the_allocation(self):

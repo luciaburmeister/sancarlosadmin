@@ -12616,8 +12616,6 @@ msgstr ""
 msgid "Unit"
 msgstr "Precio unitario"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Tax identifier"
 msgstr "Identificador Fiscal"
 

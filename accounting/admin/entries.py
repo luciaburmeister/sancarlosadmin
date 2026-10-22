@@ -1,8 +1,8 @@
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models import CharField, DecimalField, F, OuterRef, Subquery, Sum, Value
+from django.db.models.functions import Coalesce, NullIf
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.html import format_html
@@ -207,6 +207,7 @@ class JournalEntryAdmin(CompanyRestrictedAdmin, ModelAdmin):
 class JournalEntryLineResource(resources.ModelResource):
     """One row per line, with its entry's details: the ledger as a flat table."""
 
+    id = fields.Field(attribute="id", column_name="ID", widget=widgets.IntegerWidget())
     date = fields.Field(attribute="entry__date", column_name=_("Date"), widget=widgets.DateWidget("%d/%m/%Y"))
     entry_number = fields.Field(attribute="entry__number", column_name=_("Entry"))
     journal = fields.Field(attribute="entry__journal__name", column_name=_("Journal"))
@@ -214,6 +215,7 @@ class JournalEntryLineResource(resources.ModelResource):
     reference = fields.Field(attribute="entry__reference", column_name=_("Reference"))
     account_code = fields.Field(attribute="account__code", column_name=_("Account"))
     account_name = fields.Field(attribute="account__name", column_name=_("Account name"))
+    tax_identifier = fields.Field(attribute="tax_identifier", column_name=_("Tax identifier"))
     description = fields.Field(attribute="description", column_name=_("Description"))
     debit = fields.Field(column_name=_("Debit"))
     credit = fields.Field(column_name=_("Credit"))
@@ -225,8 +227,8 @@ class JournalEntryLineResource(resources.ModelResource):
     class Meta:
         model = JournalEntryLine
         fields = (
-            "date", "entry_number", "journal", "status", "reference", "account_code",
-            "account_name", "description", "debit", "credit", "currency", "document",
+            "id", "date", "entry_number", "journal", "status", "reference", "account_code",
+            "account_name", "tax_identifier", "description", "debit", "credit", "currency", "document",
         )
         export_order = fields
 
@@ -244,6 +246,38 @@ class JournalEntryLineResource(resources.ModelResource):
 
     def dehydrate_document(self, line):
         return entry_document_label(line.entry)
+
+
+def tax_identifier_annotation():
+    """
+    The NIF of a line's counterparty, worked out in SQL: the client or
+    provider whose own account the line is on (430xxxx, 400xxxx), else the
+    third party of the document the entry was booked from, so an invoice's
+    expense and VAT lines (and a payment's bank line) carry it too. Blank
+    when the entry has no third party.
+    """
+    from materials.models import Provider
+    from sales.models import Client
+
+    def owner_of_account(model):
+        return Subquery(
+            model.objects.filter(account=OuterRef("account")).exclude(tax_identifier="")
+            .values("tax_identifier")[:1]
+        )
+
+    candidates = [
+        owner_of_account(Client),
+        owner_of_account(Provider),
+        "entry__sales_invoice__client__tax_identifier",
+        "entry__purchase_invoice__provider__tax_identifier",
+        "entry__payment__client__tax_identifier",
+        "entry__payment__provider__tax_identifier",
+    ]
+    return Coalesce(
+        *(NullIf(F(c) if isinstance(c, str) else c, Value("")) for c in candidates),
+        Value(""),
+        output_field=CharField(),
+    )
 
 
 def entry_document_label(entry):
@@ -329,6 +363,12 @@ class JournalEntryLineAdmin(
     @admin.display(description=_("Document"))
     def document_display(self, line):
         return entry_document_label(line.entry)
+
+    def get_export_queryset(self, request):
+        return (
+            super().get_export_queryset(request)
+            .annotate(tax_identifier=tax_identifier_annotation())
+        )
 
     def has_add_permission(self, request):
         return False

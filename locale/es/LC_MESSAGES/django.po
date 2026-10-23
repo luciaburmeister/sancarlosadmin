@@ -20966,3 +20966,15 @@ msgstr ""
 #: templates/admin/banking/review_reconciliation.html
 msgid "payment already registered"
 msgstr "pago ya registrado"
+
+#: apps/expenses/admin.py
+msgid "Tickets pending review"
+msgstr "Tickets pendientes de revisión"
+
+#: apps/expenses/admin.py
+msgid "Some ticket pending review"
+msgstr "Algún ticket pendiente de revisión"
+
+#: apps/expenses/admin.py
+msgid "Every ticket reviewed"
+msgstr "Todos los tickets revisados"

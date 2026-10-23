@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -6,6 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
+from django.utils import timezone, translation
 from djmoney.money import Money
 
 from invoices.models import InvoicePaymentStatus
@@ -343,3 +345,72 @@ class ExpenseClaimTicketsSectionTest(CompanyAdminTestMixin, TestCase):
         with CaptureQueriesContext(connection) as four_claims:
             self._get_changelist()
         self.assertEqual(len(four_claims), len(one_claim))
+
+
+class ExpenseClaimChangelistFilterTest(CompanyAdminTestMixin, TestCase):
+    """Who submitted it, when, what was bought, how much."""
+
+    def setUp(self):
+        super().setUp()
+        from materials.models import Provider
+
+        self.admin = self.login_superuser(username="boss", email="boss@example.com")
+        self.ana = User.objects.create_user(username="ana", email="ana@example.com")
+        self.luis = User.objects.create_user(username="luis", email="luis@example.com")
+        self.repsol = Provider.objects.create(company=self.company, name="Repsol")
+        self.ana_claim = self._claim(self.ana, created=datetime(2026, 9, 30, 18, 0), bought=date(2026, 9, 2),
+                                     amount="40.00", provider=self.repsol, reviewed=False)
+        self.luis_claim = self._claim(self.luis, created=datetime(2026, 10, 15, 9, 0), bought=date(2026, 10, 10),
+                                      amount="300.00", reviewed=True)
+        self.admin_claim = self._claim(self.admin, created=datetime(2026, 11, 2, 9, 0), bought=date(2026, 11, 1),
+                                       amount="12.00", reviewed=True)
+
+    def _claim(self, user, *, created, bought, amount, provider=None, reviewed):
+        claim = ExpenseClaim.objects.create(company=self.company, submitted_by=user)
+        ExpenseClaim.objects.filter(pk=claim.pk).update(created_at=timezone.make_aware(created))
+        ExpenseTicket.objects.create(
+            company=self.company, submitted_by=user, photo="tickets/fake.jpg", claim=claim,
+            date_of_purchase=bought, original_amount=Money(Decimal(amount), "EUR"), provider=provider,
+            needs_manual_review=not reviewed,
+        )
+        claim.recalculate_total()
+        return claim
+
+    def _filtered(self, query):
+        with translation.override("en"):
+            response = self.client.get(reverse("admin:expenses_expenseclaim_changelist") + "?" + query)
+        self.assertEqual(response.status_code, 200)
+        return set(response.context["cl"].result_list)
+
+    def test_by_one_of_several_submitters(self):
+        self.assertEqual(
+            self._filtered(f"submitted_by__id__in={self.ana.pk},{self.luis.pk}"), {self.ana_claim, self.luis_claim},
+        )
+
+    def test_by_several_statuses(self):
+        ExpenseClaim.objects.filter(pk=self.luis_claim.pk).update(status=ExpenseClaimStatus.SUBMITTED)
+
+        self.assertEqual(self._filtered("status=submitted&status=draft"),
+                         {self.ana_claim, self.luis_claim, self.admin_claim})
+        self.assertEqual(self._filtered("status=submitted"), {self.luis_claim})
+
+    def test_creation_range_includes_the_whole_last_day(self):
+        self.assertEqual(
+            self._filtered("created_at_from=01/09/2026&created_at_to=30/09/2026"), {self.ana_claim},
+        )
+
+    def test_by_purchase_date_of_its_tickets(self):
+        self.assertEqual(
+            self._filtered("tickets__date_of_purchase_from=01/10/2026&tickets__date_of_purchase_to=31/10/2026"),
+            {self.luis_claim},
+        )
+
+    def test_by_ticket_provider(self):
+        self.assertEqual(self._filtered(f"tickets__provider__id__in={self.repsol.pk}"), {self.ana_claim})
+
+    def test_by_amount_claimed(self):
+        self.assertEqual(self._filtered("total_claimed_from=20&total_claimed_to=100"), {self.ana_claim})
+
+    def test_with_tickets_pending_review(self):
+        self.assertEqual(self._filtered("tickets_pending_review=yes"), {self.ana_claim})
+        self.assertEqual(self._filtered("tickets_pending_review=no"), {self.luis_claim, self.admin_claim})

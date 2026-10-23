@@ -1,4 +1,9 @@
-from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter, ChoicesDropdownFilter
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter,
+    ChoicesDropdownFilter,
+    MultipleChoicesDropdownFilter,
+    RangeNumericFilter,
+)
 from django.contrib.admin.widgets import AutocompleteSelectMultiple
 import os
 
@@ -6,6 +11,7 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse
 from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect
@@ -31,6 +37,7 @@ from apps.expenses.models import (
     FixedCostSchedule,
 )
 from apps.expenses.tasks import process_expense_ticket
+from general.admin_filters import RangeDayFilter
 from apps.expenses.views.expense_ticket_upload import ExpenseTicketUploadAdminView
 from apps.expenses.views.expense_claim_add_ticket import ExpenseClaimAddTicketAdminView
 from apps.expenses.views.expense_claim_register_payment import ExpenseClaimRegisterPaymentView
@@ -70,6 +77,25 @@ class ExpenseTicketInline(TabularInline):
         return False
 
 
+class TicketsPendingReviewFilter(RadioFilter):
+    title = _("Tickets pending review")
+    parameter_name = "tickets_pending_review"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("yes", _("Some ticket pending review")),
+            ("no", _("Every ticket reviewed")),
+        ]
+
+    def queryset(self, request, queryset):
+        pending = ExpenseTicket.objects.filter(claim=OuterRef("pk"), needs_manual_review=True)
+        if self.value() == "yes":
+            return queryset.filter(Exists(pending))
+        if self.value() == "no":
+            return queryset.exclude(Exists(pending))
+        return queryset
+
+
 @admin.register(ExpenseClaim)
 class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
@@ -83,8 +109,23 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "created_at",
     )
     list_sections = [ClaimTicketsSection]
-    list_filter = ("status", "payment_status", "company")
-    search_fields = ("submitted_by__email", "submitted_by__first_name")
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("submitted_by", AutocompleteSelectMultipleFilter),
+        ("status", MultipleChoicesDropdownFilter),
+        ("payment_status", MultipleChoicesDropdownFilter),
+        ("created_at", RangeDayFilter),
+        # A claim whose tickets were bought in the range / at the provider
+        ("tickets__date_of_purchase", RangeDateFilter),
+        ("tickets__provider", AutocompleteSelectMultipleFilter),
+        ("total_claimed", RangeNumericFilter),
+        TicketsPendingReviewFilter,
+    )
+    list_filter_submit = True
+    search_fields = (
+        "submitted_by__email", "submitted_by__first_name", "submitted_by__last_name",
+        "notes", "tickets__vendor_name", "tickets__ticket_number",
+    )
     autocomplete_fields = ("company", "submitted_by")
     # status/total_reimbursed/rejection_reason only ever change through the
     # Submit/Approve/Reject actions below, never by direct editing.

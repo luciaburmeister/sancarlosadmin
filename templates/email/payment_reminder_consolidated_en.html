@@ -39,7 +39,7 @@
               </tr>
               {% for row in invoices %}
               <tr style="border-top:1px solid #e5e7eb;">
-                <td style="padding:12px 16px; font-size:13px; color:#1f2937; font-weight:600;">{{ row.invoice_number }}</td>
+                <td style="padding:12px 16px; font-size:13px; color:#1f2937; font-weight:600;">{{ row.invoice_number }}{% if row.payment_reference %}<div style="margin-top:2px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; font-weight:600; color:#0f766e; white-space:nowrap;">{{ row.payment_reference }}</div>{% endif %}</td>
                 <td style="padding:12px 16px; font-size:13px; color:{% if row.is_overdue %}#b45309{% else %}#1f2937{% endif %};">
                   {{ row.due_date|date:"F j, Y" }}{% if row.is_overdue %} (overdue){% endif %}
                 </td>
@@ -51,6 +51,12 @@
                 <td style="padding:12px 16px; font-size:15px; font-weight:700; color:#0f766e; text-align:right;">{{ total_amount }}</td>
               </tr>
             </table>
+
+            {% if has_payment_references %}
+            <p style="margin:16px 0 0 0; padding:12px 16px; background-color:#f0fdfa; border:1px solid #99f6e4; border-radius:8px; font-size:13px; color:#1f2937; line-height:1.6;">
+              If you pay by bank transfer, please include the reference of each invoice you pay (shown under its number) in the payment description so we can identify your payment automatically.
+            </p>
+            {% endif %}
 
             {% if has_attachment %}
             <p style="margin:20px 0 12px 0; font-size:13px; color:#6b7280; line-height:1.6;">

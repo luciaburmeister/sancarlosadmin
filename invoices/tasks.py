@@ -959,6 +959,7 @@ def send_payment_reminder_email(self, log_id: int):
     language = resolve_reminder_language(invoice)
 
     from invoices.services.payment_reminder_content import get_reminder_subject, get_reminder_template
+    from invoices.services.sales_invoice_payment import transfer_payment_reference
 
     subject = get_reminder_subject(language, log.reminder_type, invoice.invoice_number)
     template_name = get_reminder_template(language)
@@ -1018,6 +1019,7 @@ def send_payment_reminder_email(self, log_id: int):
                 "due_date": invoice.due_date,
                 "total_amount": invoice.total_amount,
                 "amount_remaining": invoice.amount_remaining,
+                "payment_reference": transfer_payment_reference(invoice),
                 "reminder_type": log.reminder_type,
                 "is_overdue": log.reminder_type == PaymentReminderType.OVERDUE,
                 "has_logo": bool(inline_images),
@@ -1097,6 +1099,9 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
         get_consolidated_reminder_subject,
         get_consolidated_reminder_template,
     )
+    from invoices.services.sales_invoice_payment import (
+        transfer_payment_reference,
+    )
 
     logs = list(
         PaymentReminderLog.objects.select_related("invoice", "invoice__client", "company")
@@ -1162,6 +1167,7 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
             "due_date": invoice.due_date,
             "is_overdue": is_overdue,
             "amount": str(invoice.amount_remaining),
+            "payment_reference": transfer_payment_reference(invoice),
         })
         total_amount = invoice.amount_remaining if total_amount is None else total_amount + invoice.amount_remaining
 
@@ -1195,6 +1201,7 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
                 "company_phone": company.phone,
                 "invoice_count": len(valid_logs),
                 "invoices": invoice_rows,
+                "has_payment_references": any(row["payment_reference"] for row in invoice_rows),
                 "total_amount": str(total_amount),
                 "has_logo": bool(inline_images),
                 "has_attachment": bool(attachments),

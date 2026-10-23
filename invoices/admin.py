@@ -19,7 +19,7 @@ from materials.models import PaymentMethod
 
 logger = logging.getLogger(__name__)
 from django.utils.translation import gettext_lazy as _
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
@@ -263,6 +263,15 @@ def _payment_reference_with_copy(ref):
     )
 
 
+def _short_date(value):
+    """dd/mm/yyyy, so list columns don't spend width on month names and times."""
+    if not value:
+        return "-"
+    if isinstance(value, datetime):
+        value = timezone.localtime(value)
+    return value.strftime("%d/%m/%Y")
+
+
 def _pill(text, color):
     return format_html(
         '<span style="display:inline-block;padding:1px 8px;border-radius:999px;'
@@ -405,9 +414,9 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         "provider",
         "total_amount",
         "pending_amount_display",
-        "date_issued",
-        "due_date",
-        "created_at",
+        "date_issued_short",
+        "due_date_short",
+        "created_at_short",
         "ocr_status",
         "balance_status",
         "get_payment_status_label",
@@ -944,6 +953,18 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     @admin.display(description=_("Payment reference"))
     def payment_reference_display(self, obj):
         return _payment_reference_with_copy(obj.payment_reference)
+
+    @admin.display(description=_("Date issued"), ordering="date_issued")
+    def date_issued_short(self, obj):
+        return _short_date(obj.date_issued)
+
+    @admin.display(description=_("Due date"), ordering="due_date")
+    def due_date_short(self, obj):
+        return _short_date(obj.due_date)
+
+    @admin.display(description=_("Created At"), ordering="created_at")
+    def created_at_short(self, obj):
+        return _short_date(obj.created_at)
 
     @admin.display(description=_("Linked Fixed Cost Installment"))
     def get_linked_fixed_cost_installment(self, obj):

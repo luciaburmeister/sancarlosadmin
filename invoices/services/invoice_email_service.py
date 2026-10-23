@@ -4,6 +4,7 @@ from django.utils.formats import number_format
 from core.services.pdf_service import PDFService
 from core.services.email_service import EmailService
 from configurator.models import ExportTemplateKind
+from invoices.services.sales_invoice_payment import transfer_payment_reference
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ class InvoiceEmailService:
             extra_context={
                 "date_issued": invoice.date_issued,
                 "due_date": invoice.due_date,
+                "payment_reference": transfer_payment_reference(invoice),
             },
         )
 

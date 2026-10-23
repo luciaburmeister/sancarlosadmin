@@ -203,3 +203,50 @@ class PaymentReferenceCopyButtonTests(SimpleTestCase):
         self.assertIn(payment_references.display(REF), html)
         self.assertIn(f"writeText('{REF}')", html)
         self.assertEqual(_payment_reference_with_copy(None), "-")
+
+
+class PaymentReferenceInEmailsTests(TestCase):
+    def setUp(self):
+        self.company = make_company()
+        self.client_obj = make_client(company=self.company)
+
+    def _invoice(self, **fields):
+        return SalesInvoice.objects.create(
+            company=self.company, client=self.client_obj,
+            date_issued=date(2026, 1, 1), total_amount=Money("100.00", "EUR"), **fields,
+        )
+
+    def test_only_transfer_invoices_ask_for_the_reference(self):
+        from invoices.models import PaymentMethod
+        from invoices.services.sales_invoice_payment import transfer_payment_reference
+
+        transfer = self._invoice(payment_method=PaymentMethod.TRANSFER)
+        debit = self._invoice(payment_method=PaymentMethod.SEPA_DIRECT_DEBIT)
+        self.assertEqual(transfer_payment_reference(transfer), payment_references.display(transfer.payment_reference))
+        self.assertEqual(transfer_payment_reference(debit), "")
+
+    def test_templates_show_the_reference_only_when_given(self):
+        from django.template.loader import render_to_string
+
+        shown = payment_references.display(REF)
+        for template in ("email/payment_reminder_es.html", "email/payment_reminder_en.html", "email/document_sent.html"):
+            self.assertIn(shown, render_to_string(template, {"payment_reference": shown}), template)
+            self.assertNotIn("RF", render_to_string(template, {"payment_reference": ""}), template)
+
+        for template in ("email/payment_reminder_consolidated_es.html", "email/payment_reminder_consolidated_en.html"):
+            rows = [{"invoice_number": "INV-1", "payment_reference": shown}, {"invoice_number": "INV-2", "payment_reference": ""}]
+            html = render_to_string(template, {"invoices": rows, "has_payment_references": True})
+            self.assertEqual(html.count(shown), 1, template)
+
+
+class ShortDateTests(SimpleTestCase):
+    def test_dates_and_datetimes_render_as_day_month_year(self):
+        from datetime import datetime as dt
+
+        from django.utils import timezone
+
+        from invoices.admin import _short_date
+
+        self.assertEqual(_short_date(date(2026, 1, 5)), "05/01/2026")
+        self.assertEqual(_short_date(timezone.make_aware(dt(2026, 10, 23, 9, 15))), "23/10/2026")
+        self.assertEqual(_short_date(None), "-")

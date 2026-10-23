@@ -2,7 +2,7 @@ import tablib
 import logging
 from decimal import Decimal
 from django.db.models import Sum
-from invoices.models import Invoice, AppliedTax, A3TaxGroup
+from invoices.models import Invoice, AppliedTax, A3TaxGroup, InvoiceDocumentType
 from accounting.models import JournalEntry, JournalEntryLine, CompanyAccount
 
 logger = logging.getLogger(__name__)
@@ -92,9 +92,12 @@ class A3PurchaseExportService:
             'Código cuenta Compra/Gasto'
         ]
 
+        # A debt to a group company for what it paid for us is no purchase: its invoice is the one paid
         invoices = Invoice.objects.filter(
             company=self.company,
             date_issued__range=(self.start_date, self.end_date)
+        ).exclude(
+            document_type=InvoiceDocumentType.INTERCOMPANY
         ).select_related('provider').prefetch_related('items__account')
 
         for inv in invoices:

@@ -77,7 +77,13 @@
         color: #166534;
     }
 
-    .badge-close {
+    .badge-payment {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .badge-close,
+    .badge-payment_named {
         background: #fef3c7;
         color: #92400e;
     }
@@ -400,7 +406,11 @@
                                id="radio-{{ combo.index }}"
                                {% if combo.is_selected %}checked{% endif %}>
                         <span class="combo-label">
+                            {% if combo.payment %}
+                            {% trans "Combination" %} {{ combo.index|add:1 }} — {% trans "payment already registered" %}
+                            {% else %}
                             {% trans "Combination" %} {{ combo.index|add:1 }} — {{ combo.count }} {% trans "document(s)" %}
+                            {% endif %}
                         </span>
                         <span class="badge badge-{{ combo.confidence }}">
                             {{ combo.confidence }}
@@ -415,6 +425,31 @@
                 </div>
 
                 <div class="combo-body">
+                    {% if combo.payment %}
+                    <table class="invoice-table">
+                        <thead>
+                            <tr>
+                                <th>{% trans "Payment" %}</th>
+                                <th>{% trans "Date" %}</th>
+                                <th>{% trans "Notes" %}</th>
+                                <th style="text-align: right;">{% trans "Amount" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <a href="{{ combo.payment_url }}" class="doc-link" target="_blank"
+                                       onclick="event.stopPropagation();">
+                                        {{ combo.payment.reference|default:combo.payment.pk }}
+                                    </a>
+                                </td>
+                                <td>{{ combo.payment.payment_date }}</td>
+                                <td>{{ combo.payment.notes|default:"—" }}</td>
+                                <td class="amount">{{ combo.total|floatformat:2 }} €</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    {% else %}
                     <table class="invoice-table">
                         <thead>
                             <tr>
@@ -450,6 +485,7 @@
                             </tr>
                         </tfoot>
                     </table>
+                    {% endif %}
                 </div>
             </div>
             {% endfor %}

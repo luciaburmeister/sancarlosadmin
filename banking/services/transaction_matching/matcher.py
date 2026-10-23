@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
+from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from djmoney.money import Money
@@ -61,6 +62,9 @@ class TransactionMatcher:
 
         Invoices whose payment reference is in the concept come first and
         selected; amount matching still runs and fills the alternatives.
+        A payment already registered for this movement (it expects the
+        reference in the concept) goes before them all: the movement is that
+        payment, so confirming links it instead of creating one.
         """
         referenced = reference.find_referenced_documents(self.transaction, self.direction)
         self.counterparty = (
@@ -100,6 +104,17 @@ class TransactionMatcher:
             remaining = sum((_remaining(doc) for doc in referenced), Decimal("0"))
             unmatched_amount = max(Decimal("0"), abs(self.transaction.amount.amount) - remaining)
 
+        payment_combos, selected_payment = self._existing_payment_combos(
+            selectable=not any(combo["is_selected"] for combo in suggested_allocations),
+        )
+        if payment_combos:
+            if payment_combos[0]["confidence"] == "payment":
+                for combo in suggested_allocations:
+                    combo["is_selected"] = False
+            suggested_allocations = payment_combos + suggested_allocations
+        if selected_payment:
+            unmatched_amount = max(Decimal("0"), abs(self.transaction.amount.amount) - selected_payment.amount.amount)
+
         reconciliation = BankReconciliation.objects.create(
             bank_transaction=self.transaction,
             payment=None,
@@ -125,6 +140,14 @@ class TransactionMatcher:
             (combo for combo in reconciliation.suggested_allocations if combo.get("is_selected")),
             None,
         )
+        if selected and selected.get("confidence") == "payment":
+            # The payment registered for this movement, if it is still for its amount
+            payment = Payment.objects.filter(pk=selected["payment_id"]).first()
+            txn = reconciliation.bank_transaction
+            if not payment or payment.amount.amount != abs(txn.amount.amount):
+                return False
+            TransactionMatcher.confirm_existing_payment(txn, payment, user=None, method=ReconciliationMethod.AUTO)
+            return True
         if not selected or selected.get("confidence") != "reference":
             return False
 
@@ -264,6 +287,56 @@ class TransactionMatcher:
 
     @staticmethod
     @db_transaction.atomic
+    def confirm_existing_payment(
+        txn: BankTransaction,
+        payment: Payment,
+        user,
+        method: str = ReconciliationMethod.MANUAL,
+        category: BankTransactionCategory | None = None,
+    ) -> BankReconciliation:
+        """
+        Reconcile ``txn`` with a payment registered before the movement
+        reached the bank, instead of creating one: the movement's
+        suggestion, if any, becomes the confirmed reconciliation. What the
+        payment didn't allocate is left unmatched (PARTIAL).
+        """
+        if payment.company_id != txn.company_id:
+            raise ValueError(_("The payment belongs to another company."))
+        if payment.method == PaymentMethod.INTERCOMPANY:
+            raise ValueError(_("No money moved in this payment: another company paid, from its own bank."))
+        if BankReconciliation.objects.filter(payment=payment).exists():
+            raise ValueError(_("This payment is already linked to a bank transaction."))
+        reconciliation = BankReconciliation.objects.select_for_update().filter(bank_transaction=txn).first()
+        if reconciliation and reconciliation.is_confirmed:
+            raise ValueError(_("This transaction is already reconciled."))
+        if reconciliation is None:
+            reconciliation = BankReconciliation(bank_transaction=txn, suggested_allocations=[])
+
+        allocated = (
+            payment.allocations.exclude(is_mirror=True).aggregate(total=Sum("amount_applied"))["total"]
+            or Decimal("0")
+        )
+        unmatched = max(Decimal("0"), abs(txn.amount.amount) - allocated)
+        reconciliation.payment = payment
+        reconciliation.is_confirmed = True
+        reconciliation.method = method
+        reconciliation.reconciled_by = user
+        reconciliation.confirmed_at = timezone.now()
+        reconciliation.unmatched_amount = Money(unmatched, txn.amount_currency)
+        reconciliation.save()
+
+        txn.reconciliation_status = (
+            ReconciliationStatus.RECONCILED if unmatched <= Decimal("0.01") else ReconciliationStatus.PARTIAL
+        )
+        update_fields = ["reconciliation_status"]
+        if category is not None:
+            txn.category = category
+            update_fields.append("category")
+        txn.save(update_fields=update_fields)
+        return reconciliation
+
+    @staticmethod
+    @db_transaction.atomic
     def confirm_without_documents(
         txn: BankTransaction,
         category: BankTransactionCategory,
@@ -299,6 +372,32 @@ class TransactionMatcher:
     # ------------------------------------------------------------------
     # Private methods
     # ------------------------------------------------------------------
+
+    def _existing_payment_combos(self, selectable: bool) -> tuple[list, Payment | None]:
+        """
+        Suggestions linking the movement to a payment registered for it, and
+        the one selected. One expecting the concept's reference is selected
+        (and auto-confirmed on its exact amount); one only named by its
+        invoice number is selected when nothing else is, and never confirmed
+        on its own.
+        """
+        expected = reference.find_expected_payments(self.transaction, self.direction)
+        if expected:
+            payments, confidence, selected = expected, "payment", expected[0]
+        else:
+            payments = reference.find_payments_named_in_concept(self.transaction, self.direction)
+            confidence = "payment_named"
+            selected = payments[0] if payments and selectable else None
+        combos = [
+            {
+                "payment_id": payment.pk,
+                "allocations": [],
+                "confidence": confidence,
+                "is_selected": payment == selected,
+            }
+            for payment in payments
+        ]
+        return combos, selected
 
     def _get_direction(self) -> str:
         """Infer payment direction from the transaction amount sign."""

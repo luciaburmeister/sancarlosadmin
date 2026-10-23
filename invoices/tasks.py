@@ -279,6 +279,35 @@ def build_invoice_pdf_zip_task(kind: str, invoice_ids: list[int], user_id: int |
         user_id=user_id,
     )
 
+@shared_task(name="invoices.tasks.attach_intercompany_debit_note_pdf", soft_time_limit=120, time_limit=150)
+def attach_intercompany_debit_note_pdf(intercompany_payment_id: int):
+    """
+    Store the payer's debit note PDF as the file of our mirror of it, the
+    document behind the debt in our payables. Skipped when the payer has
+    no invoice template, or the mirror is gone (cancelled meanwhile).
+    """
+    from django.core.files.base import ContentFile
+
+    from invoices.models import IntercompanyPayment
+    from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
+
+    record = (
+        IntercompanyPayment.objects
+        .select_related("mirror_invoice", "debit_note__company", "debit_note__client")
+        .filter(pk=intercompany_payment_id).first()
+    )
+    if not record or not record.mirror_invoice or not record.debit_note:
+        return None
+    pdf = InvoicePdfDownloadService.render_sales_invoice_pdf(record.debit_note)
+    if not pdf:
+        logger.warning("Debit note %s has no PDF to attach: no sales invoice template", record.debit_note_id)
+        return None
+    mirror = record.mirror_invoice
+    mirror.file.save(f"{record.debit_note.invoice_number}.pdf", ContentFile(pdf), save=False)
+    mirror.save(update_fields=["file"])
+    return mirror.file.name
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def suggest_ai_po_matches_task(self, invoice_id: int):
     """

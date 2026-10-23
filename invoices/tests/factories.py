@@ -18,14 +18,17 @@ from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
 
-from company.models import Company
+from djmoney.money import Money
+
+from company.models import BankAccount, Company
 from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from invoices.models import AppliedTax, TaxType
+from invoices.models import AppliedTax, Invoice, TaxType
 from invoices.services.delivery_order_service import DeliveryOrderService
 from invoices.services.invoice.invoice_service import InvoiceService
 from invoices.services.ocr_services import InvoiceData, OcrInterface
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from management.models import ProjectFile
+from materials.models import Provider
 from sales.models import Client, Quote, QuoteStatus
 
 # ── expediente ──────────────────────────────────────────────────────────
@@ -49,6 +52,36 @@ def make_product_template(*, company, name="Door", **fields):
 def make_project_file(*, company, client, name="PF"):
     """An expediente for ``client``."""
     return ProjectFile.objects.create(name=name, company=company, client=client)
+
+
+def make_provider(*, company, name="Perfiles SA", **fields):
+    """A provider of ``company``."""
+    return Provider.objects.create(name=name, company=company, **fields)
+
+
+def make_bank_account(*, company, bank_name="Banco Uno", iban="ES0012345678", **fields):
+    """A bank account of ``company``."""
+    return BankAccount.objects.create(company=company, bank_name=bank_name, iban=iban, **fields)
+
+
+def make_purchase_invoice(*, company, provider, total, number="P-1", date_issued=date(2026, 10, 1), **fields):
+    """
+    A provider's invoice of ``total`` with no lines. Saved once: saving it
+    again recomputes the total from its (absent) lines.
+    """
+    return Invoice.objects.create(
+        company=company, provider=provider, invoice_number=number, date_issued=date_issued,
+        total_amount=Money(total, "EUR"), net_amount=Money(total, "EUR"), **fields,
+    )
+
+
+def make_ledger(*, company, start=date(2000, 1, 1), end=date(2100, 12, 31)):
+    """A chart of accounts for ``company`` and an open fiscal year: its payments get journalized and posted."""
+    from accounting.models import ChartOfAccountsTemplate, CompanyChartOfAccounts, FiscalYear
+
+    template = ChartOfAccountsTemplate.objects.get_or_create(name="PGC", defaults={"country": "ES"})[0]
+    CompanyChartOfAccounts.objects.create(company=company, template=template)
+    FiscalYear.objects.create(company=company, name="FY", start_date=start, end_date=end)
 
 
 def get_iva21():

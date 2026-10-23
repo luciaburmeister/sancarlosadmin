@@ -46,7 +46,9 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
         return {
             "status": "done",
             "reconciliation_id": recon.pk,
-            "has_match": bool(selected),
+            "has_match": bool(selected) or any(
+                combo.get("payment_id") and combo.get("is_selected") for combo in recon.suggested_allocations
+            ),
             "auto_confirmed": auto_confirmed,
         }
     except BankTransaction.DoesNotExist:

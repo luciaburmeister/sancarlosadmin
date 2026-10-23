@@ -8315,10 +8315,8 @@ msgstr "Cuadrado"
 msgid "Unbalanced"
 msgstr "Fuera de balance"
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Confirmation"
-msgstr "Configuración"
+msgstr "Confirmación"
 
 msgid "Unpaid"
 msgstr "Sin pagar"
@@ -20630,3 +20628,341 @@ msgid ""
 msgstr ""
 "Se indica en el concepto de la transferencia para conciliar el pago con esta "
 "factura."
+
+#: banking/services/transaction_matching/matcher.py
+msgid "The payment belongs to another company."
+msgstr "El pago pertenece a otra empresa."
+
+#: banking/services/transaction_matching/matcher.py
+msgid ""
+"No money moved in this payment: another company paid, from its own bank."
+msgstr ""
+"En este pago no se movió dinero: pagó otra empresa, desde su propio banco."
+
+#: banking/views/reconciliation_views.py
+msgid "The payment of this suggestion no longer exists."
+msgstr "El pago de esta sugerencia ya no existe."
+
+#: banking/views/reconciliation_views.py
+msgid "Reconciliation confirmed. Linked to the existing payment."
+msgstr "Conciliación confirmada. Vinculada al pago existente."
+
+#: company/models.py
+msgid "Debit Note Number Format"
+msgstr "Formato de número de nota de cargo"
+
+#: company/models.py
+#, python-brace-format
+msgid ""
+"Format pattern for debit notes charging another group company what this one "
+"paid for it, a sequence separate from invoice numbers. It must differ from "
+"the invoice format. Available placeholders: {year}, {number}. Default: "
+"SUP-{year}-{number}"
+msgstr ""
+"Formato de las notas de cargo con las que esta empresa repercute a otra del "
+"grupo lo que pagó por ella, una serie distinta de la de facturas. Debe ser "
+"distinto del formato de facturas. Marcadores disponibles: {year}, {number}. "
+"Por defecto: SUP-{year}-{number}"
+
+#: company/models.py
+msgid "Debit notes need a number format different from invoices'."
+msgstr ""
+"Las notas de cargo necesitan un formato de número distinto del de las "
+"facturas."
+
+#: invoices/admin.py
+msgid "debt to the payer"
+msgstr "deuda con el pagador"
+
+#: invoices/admin.py
+#, python-format
+msgid ""
+"%(record)s: we paid %(amount)s on %(date)s for %(debtor)s, invoice "
+"%(source)s."
+msgstr ""
+"%(record)s: pagamos %(amount)s el %(date)s por %(debtor)s, factura "
+"%(source)s."
+
+#: invoices/admin.py
+#, python-format
+msgid ""
+"%(record)s: %(payer)s paid %(amount)s on %(date)s for us, invoice %(source)s;"
+" its debit note %(debit_note)s."
+msgstr ""
+"%(record)s: %(payer)s pagó %(amount)s el %(date)s por nosotros, factura "
+"%(source)s; su nota de cargo %(debit_note)s."
+
+#: invoices/admin.py
+#, python-format
+msgid ""
+"%(record)s: paid by %(payer)s, %(amount)s on %(date)s; debit note "
+"%(debit_note)s, %(mirror)s."
+msgstr ""
+"%(record)s: pagada por %(payer)s, %(amount)s el %(date)s; nota de cargo "
+"%(debit_note)s, %(mirror)s."
+
+#: invoices/admin.py
+#: invoices/templates/admin/invoices/invoice/intercompany_payment.html
+#: invoices/views/invoice_intercompany_payment.py
+msgid "Pay from another company"
+msgstr "Pagar desde otra empresa"
+
+#: invoices/admin.py
+msgid "Intercompany"
+msgstr "Intercompañía"
+
+#: invoices/admin.py invoices/models.py
+#: invoices/views/invoice_intercompany_payment.py
+msgid "Paid by"
+msgstr "Pagado por"
+
+#: invoices/admin.py
+msgid "Our side"
+msgstr "Nuestra parte"
+
+#: invoices/admin.py
+msgid "History"
+msgstr "Historial"
+
+#: invoices/admin.py
+msgid "Cancel intercompany payment"
+msgstr "Anular pago intercompañía"
+
+#: invoices/admin.py
+msgid ""
+"The invoice is owed again, both companies' payments are cancelled, the debit "
+"note is cancelled and the debt to the payer deleted. This cannot be undone."
+msgstr ""
+"La factura vuelve a estar pendiente, se anulan los pagos de ambas empresas, "
+"se anula la nota de cargo y se elimina la deuda con el pagador. No se puede "
+"deshacer."
+
+#: invoices/admin.py
+msgid "Intercompany payment cancelled."
+msgstr "Pago intercompañía anulado."
+
+#: invoices/ledger_strategies.py
+#, python-format
+msgid ""
+"Payment %(payment)s is marked as paid by another company but no intercompany "
+"payment backs it."
+msgstr ""
+"El pago %(payment)s figura como pagado por otra empresa, pero no hay ningún "
+"pago intercompañía que lo respalde."
+
+#: invoices/models.py
+msgid "Intercompany Debit"
+msgstr "Deuda intercompañía"
+
+#: invoices/models.py
+msgid "Debit Note"
+msgstr "Nota de cargo"
+
+#: invoices/models.py
+msgid "Paid invoice"
+msgstr "Factura pagada"
+
+#: invoices/models.py
+msgid "Payer's bank account"
+msgstr "Cuenta bancaria del pagador"
+
+#: invoices/models.py
+msgid "Debtor as the payer's client"
+msgstr "Deudor como cliente del pagador"
+
+#: invoices/models.py
+msgid "Payer as our provider"
+msgstr "Pagador como proveedor nuestro"
+
+#: invoices/models.py
+msgid "Payer's payment"
+msgstr "Pago del pagador"
+
+#: invoices/models.py
+msgid "Settlement"
+msgstr "Liquidación"
+
+#: invoices/models.py
+msgid "Debit note"
+msgstr "Nota de cargo"
+
+#: invoices/models.py
+msgid "Debt to the payer"
+msgstr "Deuda con el pagador"
+
+#: invoices/models.py
+msgid "Cancelled by"
+msgstr "Anulado por"
+
+#: invoices/models.py
+msgid "Cancelled at"
+msgstr "Anulado el"
+
+#: invoices/models.py
+msgid "Intercompany Payment"
+msgstr "Pago intercompañía"
+
+#: invoices/models.py
+msgid "Intercompany Payments"
+msgstr "Pagos intercompañía"
+
+#: invoices/models.py
+msgid "Can pay invoices from another company"
+msgstr "Puede pagar facturas desde otra empresa"
+
+#: invoices/models.py
+msgid "Can cancel intercompany payments"
+msgstr "Puede anular pagos intercompañía"
+
+#: invoices/models.py
+#, python-format
+msgid "Intercompany payment %(invoice)s – %(payer)s"
+msgstr "Pago intercompañía %(invoice)s – %(payer)s"
+
+#: invoices/services/intercompany_payment_service.py
+#, python-format
+msgid "Paid for %(company)s: invoice %(number)s of %(provider)s"
+msgstr "Pagado por cuenta de %(company)s: factura %(number)s de %(provider)s"
+
+#: invoices/services/intercompany_payment_service.py
+#, python-format
+msgid "Paid by %(company)s"
+msgstr "Pagado por %(company)s"
+
+#: invoices/services/intercompany_payment_service.py
+#, python-format
+msgid ""
+"Debit note of %(company)s: it paid invoice %(number)s of %(provider)s for us."
+msgstr ""
+"Nota de cargo de %(company)s: pagó por nosotros la factura %(number)s de "
+"%(provider)s."
+
+#: invoices/services/intercompany_payment_service.py
+msgid ""
+"Only invoices can be paid by another company, not credit notes or debts."
+msgstr ""
+"Solo las facturas pueden pagarse desde otra empresa, no los abonos ni las "
+"deudas."
+
+#: invoices/services/intercompany_payment_service.py
+msgid "The invoice has no provider."
+msgstr "La factura no tiene proveedor."
+
+#: invoices/services/intercompany_payment_service.py
+msgid "Only invoices in euros can be paid by another company."
+msgstr "Solo las facturas en euros pueden pagarse desde otra empresa."
+
+#: invoices/services/intercompany_payment_service.py
+msgid "The paying company must be another one."
+msgstr "La empresa pagadora debe ser otra."
+
+#: invoices/services/intercompany_payment_service.py
+msgid ""
+"Both companies need a tax identifier: the debit note is issued under them."
+msgstr "Ambas empresas necesitan NIF: la nota de cargo se emite a su nombre."
+
+#: invoices/services/intercompany_payment_service.py
+#: invoices/views/invoice_intercompany_payment.py
+msgid "The bank account must belong to the paying company."
+msgstr "La cuenta bancaria debe ser de la empresa pagadora."
+
+#: invoices/services/intercompany_payment_service.py
+msgid "The amount must be greater than zero."
+msgstr "El importe debe ser mayor que cero."
+
+#: invoices/services/intercompany_payment_service.py
+#, python-format
+msgid "Cannot pay more than the %(remaining)s still outstanding."
+msgstr "No se puede pagar más de los %(remaining)s pendientes."
+
+#: invoices/services/intercompany_payment_service.py
+msgid "This intercompany payment is already cancelled."
+msgstr "Este pago intercompañía ya está anulado."
+
+#: invoices/services/intercompany_payment_service.py
+msgid ""
+"The payer's bank movement is already reconciled with it: undo that "
+"reconciliation first."
+msgstr ""
+"El movimiento bancario del pagador ya está conciliado con él: deshaz antes "
+"esa conciliación."
+
+#: invoices/services/intercompany_payment_service.py
+#, python-format
+msgid ""
+"%(document)s has payments: the debt is being repaid, it can no longer be "
+"cancelled."
+msgstr ""
+"%(document)s tiene pagos: la deuda se está devolviendo, ya no se puede "
+"anular."
+
+#: invoices/services/sales_invoice_service.py
+msgid "Only a debit note not yet issued can be issued as one."
+msgstr ""
+"Solo puede emitirse como nota de cargo una nota de cargo aún no emitida."
+
+#: invoices/services/sales_invoice_service.py
+#, python-format
+msgid ""
+"The last debit note of %(company)s is dated %(date)s: this one can't be "
+"earlier."
+msgstr ""
+"La última nota de cargo de %(company)s es del %(date)s: esta no puede ser "
+"anterior."
+
+#: invoices/templates/admin/invoices/invoice/intercompany_payment.html
+#, python-format
+msgid ""
+"The invoice is marked paid. The paying company records its payment and issues"
+" %(company)s a debit note without VAT, which stays here as a debt to it until"
+" it is repaid."
+msgstr ""
+"La factura queda pagada. La empresa pagadora registra su pago y emite a "
+"%(company)s una nota de cargo sin IVA, que queda aquí como deuda con ella "
+"hasta que se devuelva."
+
+#: invoices/views/invoice_intercompany_payment.py
+msgid ""
+"The group company whose bank the money left from. It issues us a debit note "
+"for it."
+msgstr ""
+"La empresa del grupo de cuyo banco salió el dinero. Nos emite una nota de "
+"cargo por ello."
+
+#: invoices/views/invoice_intercompany_payment.py
+msgid "From bank account"
+msgstr "Desde la cuenta bancaria"
+
+#: invoices/views/invoice_intercompany_payment.py
+msgid ""
+"Defaults to the invoice's payment reference: put it in the transfer concept."
+msgstr ""
+"Por defecto, la referencia de pago de la factura: indícala en el concepto de "
+"la transferencia."
+
+#: invoices/views/invoice_intercompany_payment.py
+#, python-format
+msgid "Paid by %(company)s: debit note %(number)s registered as a debt to it."
+msgstr ""
+"Pagado por %(company)s: nota de cargo %(number)s registrada como deuda con "
+"ella."
+
+#: payments/models.py
+msgid "Paid by another company"
+msgstr "Pagado por otra empresa"
+
+#: payments/models.py
+msgid "Expected bank reference"
+msgstr "Referencia bancaria esperada"
+
+#: payments/models.py
+msgid ""
+"Payment reference the bank movement of this payment carries in its concept: "
+"the bank matcher links that movement to this payment."
+msgstr ""
+"Referencia de pago que el movimiento bancario de este pago lleva en el "
+"concepto: la conciliación bancaria vincula ese movimiento con este pago."
+
+#: templates/admin/banking/review_reconciliation.html
+msgid "payment already registered"
+msgstr "pago ya registrado"

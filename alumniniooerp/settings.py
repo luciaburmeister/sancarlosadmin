@@ -411,6 +411,7 @@ CELERY_PDF_TASKS = (
     "configurator.tasks.render_export_template_preview",
     "core.tasks.render_document_task",
     "assets.tasks.generate_asset_transaction_document",
+    "invoices.tasks.attach_intercompany_debit_note_pdf",
 )
 CELERY_TASK_ROUTES = {name: {"queue": CELERY_PDF_QUEUE} for name in CELERY_PDF_TASKS}
 

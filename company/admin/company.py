@@ -519,7 +519,7 @@ class CompanyAdmin(ModelAdmin):
                 ("unmatched_po_digest_grace_hours", "unmatched_po_digest_start_date"),
                 ("purchase_order_notification_emails"),
                 ("asset_plan_draft_notification_emails"),
-                ("invoice_number_format", "proforma_number_format"),
+                ("invoice_number_format", "proforma_number_format", "debit_note_number_format"),
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",
                 "asset_reception_product",

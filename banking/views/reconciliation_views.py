@@ -7,10 +7,8 @@ from django.apps import apps
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
-from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import FormView, TemplateView
@@ -109,11 +107,21 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
                     "change_url": change_url,
                 })
 
+            # The movement is a payment registered before it reached the bank
+            payment = None
+            if combo.get("payment_id"):
+                payment = Payment.objects.filter(pk=combo["payment_id"], company_id=txn.company_id).first()
+                if payment is None:
+                    continue
+                total = payment.amount.amount
+
             combinations.append({
                 "index": idx,
                 "is_selected": combo.get("is_selected", False),
                 "confidence": combo.get("confidence", "none"),
                 "docs": docs,
+                "payment": payment,
+                "payment_url": reverse("admin:payments_payment_change", args=[payment.pk]) if payment else None,
                 "total": total,
                 "count": len(docs),
             })
@@ -170,6 +178,22 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
             category = BankTransactionCategory.objects.filter(
                 pk=category_id, company_id=recon.bank_transaction.company_id
             ).first()
+
+        payment_id = combos[selected_idx].get("payment_id")
+        if payment_id:
+            payment = Payment.objects.filter(pk=payment_id, company_id=recon.bank_transaction.company_id).first()
+            try:
+                if payment is None:
+                    raise ValueError(_("The payment of this suggestion no longer exists."))
+                TransactionMatcher.confirm_existing_payment(
+                    recon.bank_transaction, payment, self.request.user,
+                    method=ReconciliationMethod.MANUAL, category=category,
+                )
+                messages.success(self.request, _("Reconciliation confirmed. Linked to the existing payment."))
+            except ValueError as e:
+                messages.error(self.request, str(e))
+                return redirect(self.request.path)
+            return redirect(reverse("admin:banking_banktransaction_changelist"))
 
         if category is None and not confirmed_allocations:
             messages.error(
@@ -549,40 +573,10 @@ class LinkTransactionView(UnfoldModelAdminViewMixin, TemplateView):
             return redirect(back_url)
 
         try:
-            payment.reconciliation  # raises DoesNotExist if not yet linked
-            messages.warning(request, _("This payment is already linked to a bank transaction."))
-            return redirect(back_url)
-        except BankReconciliation.DoesNotExist:
-            pass
-
-        try:
-            with db_transaction.atomic():
-                total_allocated = (
-                    payment.allocations.aggregate(total=Sum("amount_applied"))["total"]
-                    or Decimal("0")
-                )
-                txn_amount = abs(txn.amount.amount)
-                unmatched = max(Decimal("0"), txn_amount - total_allocated)
-
-                BankReconciliation.objects.create(
-                    bank_transaction=txn,
-                    payment=payment,
-                    is_confirmed=True,
-                    confirmed_at=timezone.now(),
-                    reconciled_by=request.user,
-                    method=ReconciliationMethod.MANUAL,
-                    suggested_allocations=[],
-                    unmatched_amount=Money(unmatched, txn.amount_currency),
-                )
-
-                txn.reconciliation_status = (
-                    ReconciliationStatus.RECONCILED
-                    if unmatched <= Decimal("0.01")
-                    else ReconciliationStatus.PARTIAL
-                )
-                txn.save(update_fields=["reconciliation_status"])
-
+            TransactionMatcher.confirm_existing_payment(txn, payment, request.user)
             messages.success(request, _("Payment linked to bank transaction successfully."))
+        except ValueError as e:
+            messages.warning(request, str(e))
         except Exception as e:
             logger.exception("Error linking payment %s to transaction %s", payment_id, txn_pk)
             messages.error(request, _("Error: %(error)s") % {"error": str(e)})

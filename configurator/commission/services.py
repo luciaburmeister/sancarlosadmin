@@ -251,7 +251,8 @@ class CommissionReleaseService:
         rows = {row.agent_id: row for row in InvoiceCommission.objects.filter(sales_invoice=invoice)}
 
         total = Decimal(str(invoice.total_amount.amount))
-        if invoice.status == SalesInvoiceStatus.CANCELLED or not total:
+        # A debit note recovers what we paid for a group company: nobody sold anything
+        if invoice.status == SalesInvoiceStatus.CANCELLED or not total or invoice.is_intercompany:
             InvoiceCommission.objects.filter(sales_invoice=invoice).delete()
             return
 

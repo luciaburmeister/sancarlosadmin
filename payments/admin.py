@@ -2,7 +2,8 @@ import logging
 
 from django.contrib import admin, messages
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Q, Subquery
+from django.db.models.fields import BLANK_CHOICE_DASH
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.html import format_html
@@ -13,7 +14,7 @@ from unfold.decorators import action, display
 from banking.models import BankReconciliation
 from core.admin.company_admin import CompanyRestrictedAdmin
 from payments.mixins import unallocated_payments_q
-from payments.models import Payment, PaymentAllocation, PaymentStatus
+from payments.models import MANUAL_PAYMENT_METHODS, Payment, PaymentAllocation, PaymentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return "posted", _("Journal entry %s posted.") % entry.number
         return "draft", _("Journal entry saved as draft: %s") % entry.post_error
 
-    @action(description=_("Generate Journal Entry"), icon="post_add", permissions=["change"])
+    @action(description=_("Generate Journal Entry"), icon="post_add", permissions=["journalize"])
     def journalize_detail_action(self, request, object_id):
         payment = get_object_or_404(self.get_queryset(request), pk=object_id)
         outcome, message = self._journalize_one(payment)
@@ -178,7 +179,7 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def view_journal_entries_detail_action(self, request, object_id):
         return redirect(reverse("admin:accounting_journalentry_changelist") + f"?payment__id={object_id}")
 
-    @admin.action(description=_("Generate journal entries"), permissions=["change"])
+    @admin.action(description=_("Generate journal entries"), permissions=["journalize"])
     def journalize_selected(self, request, queryset):
         results = {outcome: [] for outcome in self._JOURNALIZE_LEVELS}
         # By date, so the entries' numbers follow the payments' dates
@@ -196,6 +197,42 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
         for outcome in ("draft", "error"):
             for message in results[outcome][:10]:
                 self.message_user(request, message, level=self._JOURNALIZE_LEVELS[outcome])
+
+    @staticmethod
+    def _intercompany_payment_of(obj):
+        """
+        The intercompany payment that created ``obj``, or None. Unfold asks
+        detail actions' permissions with the object id instead of the object.
+        """
+        from invoices.models import IntercompanyPayment
+
+        payment_id = getattr(obj, "pk", obj)
+        if not payment_id:
+            return None
+        return IntercompanyPayment.objects.filter(
+            Q(payer_payment_id=payment_id) | Q(settlement_payment_id=payment_id)
+        ).first()
+
+    def has_journalize_permission(self, request, object_id=None):
+        # Booking it again changes nothing in the payment: allowed on intercompany ones too
+        return super().has_change_permission(request)
+
+    # An intercompany payment's payments change only with it: cancel it instead
+    def has_change_permission(self, request, obj=None):
+        if self._intercompany_payment_of(obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if self._intercompany_payment_of(obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        # Paid by another company is only ever set by its intercompany payment
+        if db_field.name == "method":
+            kwargs["choices"] = BLANK_CHOICE_DASH + MANUAL_PAYMENT_METHODS
+        return super().formfield_for_choice_field(db_field, request, **kwargs)
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)

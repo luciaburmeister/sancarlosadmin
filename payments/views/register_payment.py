@@ -65,9 +65,9 @@ class RegisterPaymentForm(forms.Form):
 
     def __init__(self, *args, max_amount=None, **kwargs):
         super().__init__(*args, **kwargs)
-        from payments.models import PaymentMethod
+        from payments.models import MANUAL_PAYMENT_METHODS
 
-        self.fields["method"].choices = PaymentMethod.choices
+        self.fields["method"].choices = MANUAL_PAYMENT_METHODS
         self.max_amount = max_amount
         self.helper = FormHelper()
         self.helper.form_tag = False

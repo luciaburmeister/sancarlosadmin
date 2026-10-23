@@ -13,7 +13,7 @@ from accounting.services.journal_generator import (
     LEDGER_CURRENCY, JournalizeError, MissingAccount, _JournalGeneratorBase,
 )
 from accounting.services.payment_journal.configured import configured_strategy
-from accounting.services.payment_journal.registry import strategy_for
+from accounting.services.payment_journal.registry import strategy_for, treasury_strategy_for
 from payments.models import Payment, PaymentDirection, PaymentMethod, PaymentStatus
 
 if TYPE_CHECKING:
@@ -36,7 +36,8 @@ class PaymentJournalService(_JournalGeneratorBase):
 
     - the treasury: the payment's bank account (its own account under the
       chart's bank root, 572xxxx, opened on first use), or the CASH role for
-      cash. Debit when money comes in, credit when it goes out
+      cash, or for a method moving no money what its TreasuryStrategy says
+      (registry.py). Debit when money comes in, credit when it goes out
     - per allocation, the counterpart its document's strategy books (see
       registry.py): a sales invoice's client, a purchase invoice's provider...
     - a document type without a strategy in code books to the account set
@@ -206,6 +207,10 @@ class PaymentJournalService(_JournalGeneratorBase):
         return strategy.lines(allocation, document, self)
 
     def _treasury_account(self, payment):
+        # A method moving no money (paid by another company) says where it's booked instead
+        treasury = treasury_strategy_for(payment.method)
+        if treasury:
+            return treasury.account(payment, self)
         if payment.method == PaymentMethod.CASH:
             return self._role_account(AccountRole.CASH)
         if payment.bank_account_id:
@@ -262,6 +267,9 @@ class PaymentJournalService(_JournalGeneratorBase):
         return f"{kind} {payment.reference or payment.pk}"
 
     def _get_treasury_journal(self, payment):
+        treasury = treasury_strategy_for(payment.method)
+        if treasury:
+            return self._get_journal(*treasury.journal)
         if payment.method == PaymentMethod.CASH:
             return self._get_journal(JournalType.CASH, "Caja", "CAJ")
         return self._get_journal(JournalType.BANK, "Bancos", "BAN")

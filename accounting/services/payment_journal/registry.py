@@ -21,10 +21,12 @@ if TYPE_CHECKING:
     from accounting.models import AccountRole, CompanyAccount
     from company.models import Company
     from materials.models import Provider
-    from payments.models import PaymentAllocation
+    from accounting.models import JournalType
+    from payments.models import Payment, PaymentAllocation
     from sales.models import Client
 
 _strategies: dict[str, AllocationStrategy] = {}
+_treasury_strategies: dict[str, TreasuryStrategy] = {}
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,36 @@ def register[S: type[AllocationStrategy]](strategy_class: S) -> S:
 
 def strategy_for(model: type[Model]) -> AllocationStrategy | None:
     return _strategies.get(model._meta.label_lower)
+
+
+class TreasuryStrategy:
+    """
+    The money side of payments whose ``method`` moves no money through a
+    bank account or the till (the engine books those itself): the account
+    the payment's whole amount is booked to, opposite its allocations, and
+    the journal it goes in, ``(JournalType, name, code)``.
+    """
+
+    method: str | None = None
+    journal: tuple[JournalType, str, str] | None = None
+
+    def account(self, payment: Payment, ledger: Ledger) -> CompanyAccount:
+        raise NotImplementedError
+
+
+def register_treasury[S: type[TreasuryStrategy]](strategy_class: S) -> S:
+    """Class decorator: ``strategy_class`` books the treasury of payments of its ``method``."""
+    key = str(strategy_class.method)
+    if key in _treasury_strategies:
+        raise ImproperlyConfigured(
+            f"Payment method {key} already has a treasury strategy: {type(_treasury_strategies[key]).__name__}"
+        )
+    _treasury_strategies[key] = strategy_class()
+    return strategy_class
+
+
+def treasury_strategy_for(method: str) -> TreasuryStrategy | None:
+    return _treasury_strategies.get(str(method))
 
 
 def autodiscover() -> None:

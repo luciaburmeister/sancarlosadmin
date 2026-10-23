@@ -204,6 +204,43 @@ class SalesInvoiceService:
 
         return sales_invoice
 
+    @classmethod
+    def issue_intercompany_debit_note(cls, debit_note, date_issued):
+        """
+        Issue a debit note as of the payment it charges for, numbered in its
+        own series. It is not an invoice: no AEAT submission, no email, no
+        journal entry (the payer's payment already booked the debt). Dates
+        in the series must not go backwards, like invoice numbers.
+        """
+        if not debit_note.is_intercompany or debit_note.status != SalesInvoiceStatus.PROFORMA:
+            raise ValidationError(_("Only a debit note not yet issued can be issued as one."))
+
+        last_date = (
+            SalesInvoice.objects.filter(
+                company=debit_note.company,
+                document_type=SalesInvoiceDocumentType.INTERCOMPANY,
+                incremental_id__isnull=False,
+            )
+            .order_by('-incremental_id').values_list('date_issued', flat=True).first()
+        )
+        if last_date and date_issued < last_date:
+            raise ValidationError(
+                _("The last debit note of %(company)s is dated %(date)s: this one can't be earlier.")
+                % {"company": debit_note.company, "date": last_date}
+            )
+
+        debit_note.recalculate_totals(save=False)
+        next_note = cls._generate_next_invoice_data(debit_note.company, SalesInvoiceDocumentType.INTERCOMPANY)
+        debit_note.status = SalesInvoiceStatus.FINAL
+        debit_note.date_issued = date_issued
+        debit_note.invoice_number = next_note['number']
+        debit_note.incremental_id = next_note['incremental_id']
+        debit_note.save(update_fields=[
+            'status', 'date_issued', 'invoice_number', 'incremental_id',
+            'subtotal_amount', 'tax_amount', 'total_amount',
+        ])
+        return debit_note
+
     @staticmethod
     def journalize(sales_invoice):
         """
@@ -491,22 +528,26 @@ class SalesInvoiceService:
         return 0
 
     @classmethod
-    def _generate_next_invoice_data(cls, company):
+    def _generate_next_invoice_data(cls, company, document_type=SalesInvoiceDocumentType.INVOICE):
         """
         Generates the next sequential invoice number and incremental ID for a company.
         Uses the company's invoice_number_format (default: INV-{year}-{number}).
+        Debit notes are their own series, in debit_note_number_format.
         """
         year = timezone.now().year
 
         # Lock for update - only consider finalized invoices
-        last_invoice = SalesInvoice.objects.filter(
-            company=company,
-            incremental_id__isnull=False
-        ).select_for_update().order_by('-incremental_id').first()
+        issued = SalesInvoice.objects.filter(company=company, incremental_id__isnull=False)
+        if document_type == SalesInvoiceDocumentType.INTERCOMPANY:
+            issued = issued.filter(document_type=SalesInvoiceDocumentType.INTERCOMPANY)
+            fmt = company.debit_note_number_format or "SUP-{year}-{number}"
+        else:
+            issued = issued.exclude(document_type=SalesInvoiceDocumentType.INTERCOMPANY)
+            fmt = company.invoice_number_format or "INV-{year}-{number}"
+        last_invoice = issued.select_for_update().order_by('-incremental_id').first()
 
         next_id = (last_invoice.incremental_id + 1) if last_invoice else 1
 
-        fmt = company.invoice_number_format or "INV-{year}-{number}"
         invoice_number = fmt.format(year=year, number=f"{next_id:05d}")
 
         return {

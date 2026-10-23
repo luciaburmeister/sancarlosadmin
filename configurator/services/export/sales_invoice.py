@@ -161,6 +161,13 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 if self.sales_invoice.advance_percentage is not None
                 else None
             ),
+            # A debit note charges a group company what was paid for it (suplido)
+            "is_intercompany": self.sales_invoice.is_intercompany,
+            "intercompany_legend": (
+                "Suplido: importe pagado en nombre y por cuenta del cliente, no sujeto a IVA "
+                "(art. 78.Tres.3º Ley 37/1992 del IVA)."
+                if self.sales_invoice.is_intercompany else None
+            ),
             "document_type_label": self.sales_invoice.get_document_type_display(),
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),

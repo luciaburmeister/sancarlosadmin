@@ -24,7 +24,8 @@ from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.formats import number_format
-from django.utils.html import format_html, format_html_join
+from django.utils.html import conditional_escape, format_html, format_html_join
+from django.utils.safestring import mark_safe
 from django.db import models, transaction
 from django.db.models import OuterRef, Subquery, Sum
 from django.db.models.functions import Coalesce
@@ -33,7 +34,10 @@ from general.djangoql.admin import DjangoQLSearchAdminMixin
 
 from invoices.models import (
     CollectionsForecastEmailSettings,
+    IntercompanyPayment,
+    IntercompanyPaymentStatus,
     Invoice,
+    InvoiceDocumentType,
     ConfirmationStatus,
     TaxType,
     AppliedTax,
@@ -75,6 +79,8 @@ from invoices.views.invoice.ai_match_view import InvoiceAIMatchView, InvoiceTogg
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView, InvoiceDistributeSurplusView
+from invoices.views.invoice_intercompany_payment import InvoiceIntercompanyPaymentView
+from invoices.services.intercompany_payment_service import IntercompanyPaymentService
 from invoices.views.invoice_apply_credit import InvoiceApplyCreditView
 from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.views.operational_dashboard_view import OperationalDashboardView
@@ -209,6 +215,63 @@ class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         for id in selected_ids:
             process_incoming_invoices.delay(invoice_ids=[id])
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
+
+def _intercompany_summary(record, document):
+    """
+    One line saying who paid what for whom, from ``document``'s side, linking
+    every other document of ``record`` the user can open: only those of
+    the companies active in the switcher.
+    """
+    from company.active_company import ActiveCompany
+
+    active = ActiveCompany.get_current_ids()
+
+    def link(url_name, obj, label, company_id):
+        if obj is None:
+            return "—"
+        if active is not None and company_id not in active:
+            return label
+        return format_html('<a href="{}" class="text-primary-600">{}</a>', reverse(url_name, args=[obj.pk]), label)
+
+    source = record.source_invoice
+    debit_note = record.debit_note
+    parts = {
+        "record": link("admin:invoices_intercompanypayment_change", record, record.get_status_display(),
+                       record.company_id),
+        "payer": record.payer_company,
+        "debtor": record.company,
+        "amount": record.amount,
+        "date": record.payment_date,
+        "source": link("admin:invoices_invoice_change", source, source.invoice_number or source.pk, record.company_id),
+        "debit_note": link("admin:invoices_salesinvoice_change", debit_note,
+                           debit_note.invoice_number if debit_note else "", record.payer_company_id),
+        "mirror": link("admin:invoices_invoice_change", record.mirror_invoice,
+                       _("debt to the payer"), record.company_id),
+    }
+    if document == debit_note:
+        text = _("%(record)s: we paid %(amount)s on %(date)s for %(debtor)s, invoice %(source)s.")
+    elif document == record.mirror_invoice:
+        text = _("%(record)s: %(payer)s paid %(amount)s on %(date)s for us, invoice %(source)s; "
+                 "its debit note %(debit_note)s.")
+    else:
+        text = _("%(record)s: paid by %(payer)s, %(amount)s on %(date)s; debit note %(debit_note)s, %(mirror)s.")
+    return mark_safe(conditional_escape(text) % {key: conditional_escape(value) for key, value in parts.items()})
+
+
+def _journal_entries_url(document_filter, object_id, intercompany_lookup, booked_by):
+    """
+    The journal entry list filtered to a document's entries. A debit note,
+    or our mirror of one, has none: what it stands for was booked by the
+    ``booked_by`` payment of the intercompany payment it belongs to (found
+    by ``intercompany_lookup``), whose entries are shown instead.
+    """
+    payment_id = (
+        IntercompanyPayment.objects.filter(**{intercompany_lookup: object_id})
+        .values_list(booked_by, flat=True).first()
+    )
+    query = f"payment__id={payment_id}" if payment_id else f"{document_filter}={object_id}"
+    return reverse("admin:accounting_journalentry_changelist") + f"?{query}"
+
 
 # Issued and cancelled sales invoices: their lines and taxes cannot change
 # (SalesInvoiceItem.save / AppliedTax.save refuse it too).
@@ -468,6 +531,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         "amount_remaining",
         "get_linked_fixed_cost_installment",
         "payment_reference_display",
+        "intercompany_display",
     )
 
     list_select_related = (
@@ -508,6 +572,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
             "items": [
                 "download_pdf_detail_action",
                 "register_payment_detail_action",
+                "intercompany_payment_detail_action",
                 "apply_credit_detail_action",
                 "run_invoice_matcher_detail_action",
                 "match_po_detail_action",
@@ -578,11 +643,11 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
             return "Partial"
         return "Unmatched"
 
-    @action(description=_("Match Purchase Order"), icon="link")
+    @action(description=_("Match Purchase Order"), icon="link", permissions=["match_po"])
     def match_po_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_match_po", args=[object_id]))
 
-    @action(description=_("AI Suggest Match"), icon="auto_awesome")
+    @action(description=_("AI Suggest Match"), icon="auto_awesome", permissions=["match_po"])
     def ai_match_detail_action(self, request, object_id):
         return self._dispatch_ai_match(request, object_id)
 
@@ -732,6 +797,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                     "amount_paid",
                     "amount_remaining",
                     "get_linked_fixed_cost_installment",
+                    "intercompany_display",
                 ),
             },
         ),
@@ -831,6 +897,13 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                 name="invoices_invoice_distribute_surplus",
             ),
             path(
+                "<int:object_id>/intercompany-payment/",
+                self.admin_site.admin_view(
+                    InvoiceIntercompanyPaymentView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_intercompany_payment",
+            ),
+            path(
                 "<int:object_id>/apply-credit/",
                 self.admin_site.admin_view(
                     InvoiceApplyCreditView.as_view(model_admin=self)
@@ -895,7 +968,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         return bool(obj.file)
 
     @display(
-        description=_("OCR Status"),
+        description=_("OCR"),
         label={
             "Processing":  "warning",
             "OK":          "success",
@@ -913,30 +986,31 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         else:
             return "Not started"
         
-    @display(description=_("Balance"),
+    @display(description=_("Balanced"),
     label={
             True: "success",  # green
             False: "danger",  # red
         },)
     def balance_status(self, obj):
         balanced = bool(obj.is_total_balanced)
-        return balanced, _("Balanced") if balanced else _("Unbalanced")
+        return balanced, _("Yes") if balanced else _("No")
         
     @display(
         description=_("Confirmation"),
         label={
-            "APPROVED":       "success",
-            "PENDING REVIEW": "warning",
-            "DECLINED":       "danger",
+            ConfirmationStatus.APPROVED: "success",
+            ConfirmationStatus.PENDING:  "warning",
+            ConfirmationStatus.DECLINED: "danger",
         },
     )
     def confirmation_badge(self, obj):
         labels = {
-            ConfirmationStatus.APPROVED: "APPROVED",
-            ConfirmationStatus.PENDING:  "PENDING REVIEW",
-            ConfirmationStatus.DECLINED: "DECLINED",
+            ConfirmationStatus.APPROVED: _("Approved"),
+            ConfirmationStatus.PENDING:  _("Pending"),
+            ConfirmationStatus.DECLINED: _("Declined"),
         }
-        return labels.get(obj.confirmation_status, "PENDING REVIEW")
+        status = obj.confirmation_status if obj.confirmation_status in labels else ConfirmationStatus.PENDING
+        return status, labels[status]
 
     @display(
         description=_("Payment"),
@@ -992,6 +1066,70 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     def register_payment_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_register_payment", args=[object_id]))
 
+    def has_register_intercompany_payment_permission(self, request, object_id=None):
+        if not object_id:
+            return request.user.has_perm("invoices.can_register_intercompany_payment")
+        invoice = self.get_queryset(request).filter(pk=object_id).first()
+        return bool(invoice) and IntercompanyPaymentService.can_register(request.user, invoice)
+
+    @action(
+        description=_("Pay from another company"), icon="swap_horiz",
+        permissions=["register_intercompany_payment"],
+    )
+    def intercompany_payment_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_intercompany_payment", args=[object_id]))
+
+    @display(description=_("Intercompany"))
+    def intercompany_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        records = list(
+            IntercompanyPayment.objects.filter(models.Q(source_invoice=obj) | models.Q(mirror_invoice=obj))
+            .select_related("company", "payer_company", "source_invoice", "debit_note", "mirror_invoice")
+        )
+        if not records:
+            return "—"
+        return format_html_join(
+            format_html("<br>"), "{}", ((_intercompany_summary(record, obj),) for record in records),
+        )
+
+    # Our debt to a group company is its debit note's: it changes only with
+    # its intercompany payment (cancel that instead)
+    @staticmethod
+    def _is_intercompany(obj):
+        """Unfold asks detail actions' permissions with the object id instead of the object."""
+        if obj is None:
+            return False
+        if isinstance(obj, Invoice):
+            return obj.is_intercompany
+        return Invoice.objects.filter(pk=obj, document_type=InvoiceDocumentType.INTERCOMPANY).exists()
+
+    def has_change_permission(self, request, obj=None):
+        if self._is_intercompany(obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if self._is_intercompany(obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        # Only an intercompany payment creates one of those
+        if db_field.name == "document_type":
+            kwargs["choices"] = [
+                choice for choice in InvoiceDocumentType.choices if choice[0] != InvoiceDocumentType.INTERCOMPANY
+            ]
+        return super().formfield_for_choice_field(db_field, request, **kwargs)
+
+    def has_match_po_permission(self, request, object_id=None):
+        """Debts to group companies have no purchase order behind them."""
+        if not object_id:
+            return True
+        return not self.get_queryset(request).filter(
+            pk=object_id, document_type=InvoiceDocumentType.INTERCOMPANY,
+        ).exists()
+
     def has_apply_credit_permission(self, request, object_id=None):
         if not object_id:
             return True
@@ -1006,17 +1144,20 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):
-        url = reverse('admin:accounting_journalentry_changelist') + f"?purchase_invoice__id={object_id}"
+        url = _journal_entries_url("purchase_invoice__id", object_id, "mirror_invoice_id", "settlement_payment_id")
         return redirect(url)
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_detail_action(self, request, object_id):
-        url = reverse('admin:accounting_journalentry_changelist') + f"?purchase_invoice__id={object_id}"
+        url = _journal_entries_url("purchase_invoice__id", object_id, "mirror_invoice_id", "settlement_payment_id")
         return redirect(url)
     
     @action(description="Send selected invoices to AI processing")
     def send_to_process(self, request, queryset):
-        selected_ids = list(queryset.values_list('id', flat=True))
+        # A debt to a group company is no scanned invoice
+        selected_ids = list(
+            queryset.exclude(document_type=InvoiceDocumentType.INTERCOMPANY).values_list('id', flat=True)
+        )
         for id in selected_ids:
             process_manual_invoice.delay(invoice_id=id)
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
@@ -1233,10 +1374,10 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         "get_document_type_label",
         "client",
         "total_amount",
-        "date_issued",
+        "date_issued_short",
         "get_payment_status_label",
-        "due_date",
-        "payment_commitment_date",
+        "due_date_short",
+        "payment_commitment_date_short",
         "get_status_label",
         "get_external_label",
         "company",
@@ -1270,7 +1411,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display", "payment_reference_display")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display", "payment_reference_display", "intercompany_display")
 
     def get_queryset(self, request):
         from payments.mixins import annotate_amount_remaining, annotate_forecast_date
@@ -1288,6 +1429,18 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     @display(description=_("Payment reference"))
     def payment_reference_display(self, obj):
         return _payment_reference_with_copy(obj.payment_reference)
+
+    @display(description=_("Date Issued"), ordering="date_issued")
+    def date_issued_short(self, obj):
+        return _short_date(obj.date_issued)
+
+    @display(description=_("Due Date"), ordering="due_date")
+    def due_date_short(self, obj):
+        return _short_date(obj.due_date)
+
+    @display(description=_("Payment Commitment Date"), ordering="payment_commitment_date")
+    def payment_commitment_date_short(self, obj):
+        return _short_date(obj.payment_commitment_date)
 
     @display(description=_("Lines total (before discount)"))
     def lines_total_display(self, obj):
@@ -1457,6 +1610,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                     "payment_status",
                     "amount_paid",
                     "amount_remaining",
+                    "intercompany_display",
                 ),
             },
         ),
@@ -1695,6 +1849,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         label={
             SalesInvoiceDocumentType.INVOICE: "default",
             SalesInvoiceDocumentType.ADVANCE: "info",
+            SalesInvoiceDocumentType.INTERCOMPANY: "warning",
         },
     )
     def get_document_type_label(self, obj):
@@ -1870,12 +2025,12 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):
-        url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
+        url = _journal_entries_url("sales_invoice__id", object_id, "debit_note_id", "payer_payment_id")
         return redirect(url)
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_detail_action(self, request, object_id):
-        url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
+        url = _journal_entries_url("sales_invoice__id", object_id, "debit_note_id", "payer_payment_id")
         return redirect(url)
 
     # Outcomes of journalizing one invoice, and how they're shown
@@ -2037,7 +2192,22 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         external = bool(obj.is_external)
         return external, _("External") if external else _("Internal")
 
-    @action(description=_("Submit to AEAT"), icon="cloud_upload")
+    def has_aeat_permission(self, request, object_id=None):
+        """A debit note is no invoice: the AEAT never hears of it, and it is cancelled with its payment."""
+        if not object_id:
+            return True
+        return not self.get_queryset(request).filter(
+            pk=object_id, document_type=SalesInvoiceDocumentType.INTERCOMPANY,
+        ).exists()
+
+    @display(description=_("Intercompany"))
+    def intercompany_display(self, obj):
+        record = IntercompanyPayment.objects.filter(debit_note=obj).select_related(
+            "company", "payer_company", "source_invoice", "debit_note", "mirror_invoice",
+        ).first() if obj and obj.pk else None
+        return _intercompany_summary(record, obj) if record else "—"
+
+    @action(description=_("Submit to AEAT"), icon="cloud_upload", permissions=["aeat"])
     def submit_aeat_row_action(self, request, object_id):
         invoice = SalesInvoice.objects.get(pk=object_id)
         if invoice.status == SalesInvoiceStatus.CANCELLED:
@@ -2049,7 +2219,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             self.message_user(request, _("AEAT submission queued for invoice %s.") % invoice.invoice_number)
         return redirect(reverse("admin:invoices_salesinvoice_changelist"))
 
-    @action(description=_("Submit to AEAT"), icon="cloud_upload")
+    @action(description=_("Submit to AEAT"), icon="cloud_upload", permissions=["aeat"])
     def submit_aeat_detail_action(self, request, object_id):
         invoice = SalesInvoice.objects.get(pk=object_id)
         if invoice.status == SalesInvoiceStatus.CANCELLED:
@@ -2104,7 +2274,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Cancel at AEAT"), icon="cancel",
-        permissions=["change_salesinvoice"], dialog=_CANCEL_DIALOG,
+        permissions=["change_salesinvoice", "aeat"], dialog=_CANCEL_DIALOG,
     )
     def cancel_aeat_row_action(self, request, form, object_id):
         self._cancel_with_message(request, object_id)
@@ -2112,7 +2282,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Cancel at AEAT"), icon="cancel",
-        permissions=["change_salesinvoice"], dialog=_CANCEL_DIALOG,
+        permissions=["change_salesinvoice", "aeat"], dialog=_CANCEL_DIALOG,
     )
     def cancel_aeat_detail_action(self, request, form, object_id):
         self._cancel_with_message(request, object_id)
@@ -2292,3 +2462,93 @@ class PaymentsForecastEmailSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
             },
         ),
     )
+
+
+@admin.register(IntercompanyPayment)
+class IntercompanyPaymentAdmin(ModelAdmin):
+    """
+    Read-only: an intercompany payment is created from the invoice it pays
+    (Pay from another company) and only ever cancelled, all of it at once.
+    Both companies see it, the debtor's (``company``) and the payer's.
+    """
+
+    list_display = (
+        "source_invoice", "company", "payer_company", "amount", "payment_date", "get_status_label", "debit_note",
+    )
+    list_filter = ("status", "payment_date")
+    search_fields = ("source_invoice__invoice_number", "debit_note__invoice_number", "payer_company__name")
+    list_select_related = ("source_invoice__provider", "company", "payer_company", "debit_note__client")
+    readonly_fields = (
+        "company", "source_invoice", "payer_company", "payer_bank_account", "payer_client", "creditor_provider",
+        "payer_payment", "settlement_payment", "debit_note", "mirror_invoice", "amount", "payment_date", "status",
+        "created_by", "created_at", "cancelled_by", "cancelled_at",
+    )
+    fieldsets = (
+        (_("Payment"), {"fields": (
+            ("source_invoice", "company"), ("amount", "payment_date"), "status",
+        )}),
+        (_("Paid by"), {"fields": (
+            ("payer_company", "payer_bank_account"), "payer_payment", "debit_note",
+        )}),
+        (_("Our side"), {"fields": (
+            "settlement_payment", "mirror_invoice", ("payer_client", "creditor_provider"),
+        )}),
+        (_("History"), {"fields": (("created_by", "created_at"), ("cancelled_by", "cancelled_at"))}),
+    )
+    actions_detail = ["cancel_detail_action"]
+
+    def get_queryset(self, request):
+        from core.admin.company_access import get_user_companies
+
+        visible = get_user_companies(request.user)
+        return super().get_queryset(request).filter(
+            models.Q(company__in=visible) | models.Q(payer_company__in=visible)
+        )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={IntercompanyPaymentStatus.ACTIVE: "success", IntercompanyPaymentStatus.CANCELLED: "danger"},
+    )
+    def get_status_label(self, obj):
+        return obj.status, obj.get_status_display()
+
+    def has_cancel_intercompany_payment_permission(self, request, object_id=None):
+        if not request.user.has_perm("invoices.can_cancel_intercompany_payment"):
+            return False
+        if not object_id:
+            return True
+        record = self.get_queryset(request).filter(pk=object_id).first()
+        return bool(record) and record.is_active and IntercompanyPaymentService.can_see_both(request.user, record)
+
+    @action(
+        description=_("Cancel"), icon="cancel", permissions=["cancel_intercompany_payment"],
+        dialog={
+            "title": _("Cancel intercompany payment"),
+            "description": _(
+                "The invoice is owed again, both companies' payments are cancelled, the debit note is "
+                "cancelled and the debt to the payer deleted. This cannot be undone."
+            ),
+            "form_submit_text": _("Cancel intercompany payment"),
+        },
+    )
+    def cancel_detail_action(self, request, form, object_id):
+        record = get_object_or_404(self.get_queryset(request), pk=object_id)
+        try:
+            IntercompanyPaymentService.cancel(record, request.user)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+        else:
+            self.message_user(request, _("Intercompany payment cancelled."))
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = reverse("admin:invoices_intercompanypayment_change", args=[object_id])
+        return response

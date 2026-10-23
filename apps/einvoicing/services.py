@@ -195,7 +195,12 @@ class EInvoicingService:
     def _resolve_account(
         cls, sales_invoice: "SalesInvoice"
     ) -> EInvoicingAccount | None:
-        """Find the active e-invoicing account for the invoice's company."""
+        """
+        Find the active e-invoicing account for the invoice's company. None
+        for a debit note, which is no invoice and never goes to the AEAT.
+        """
+        if sales_invoice.is_intercompany:
+            return None
         return (
             EInvoicingAccount.objects.filter(
                 company=sales_invoice.company,

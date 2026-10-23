@@ -17,10 +17,11 @@ WORK_ENTRY = "work_entry_"          # management.WorkEntry
 DISCOUNT_QUOTE = "discount_quote_"  # legacy materialized financing line; pk is the quote's
 ADVANCE_LINE = "advance_pf_"        # line of an advance invoice; pk is the project file's
 ADVANCE_DEDUCTION = "advance_ded_"  # line deducting an advance; pk is the advance SalesInvoiceItem's
+INTERCOMPANY = "intercompany_"      # line of a debit note; pk is the invoices.IntercompanyPayment's
 
 PREFIXES = (
     CONFIG, DIRECT, QUOTE_ITEM, INV_ITEM, WORK_ENTRY,
-    DISCOUNT_QUOTE, ADVANCE_LINE, ADVANCE_DEDUCTION,
+    DISCOUNT_QUOTE, ADVANCE_LINE, ADVANCE_DEDUCTION, INTERCOMPANY,
 )
 
 # Sources whose object holds a ``quote`` FK

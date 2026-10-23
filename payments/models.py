@@ -30,6 +30,11 @@ class PaymentMethod(models.TextChoices):
     CHEQUE = "cheque", _("Cheque")
     SEPA_DIRECT_DEBIT = "sepa_direct_debit", _("SEPA - Direct debit")
     CONFIRMING = "confirming", _("Confirming")
+    # No money moves: another group company paid for us (IntercompanyPayment)
+    INTERCOMPANY = "intercompany", _("Paid by another company")
+
+# What a person can pick when registering a payment by hand
+MANUAL_PAYMENT_METHODS = [choice for choice in PaymentMethod.choices if choice[0] != PaymentMethod.INTERCOMPANY]
 
 class PaymentCreatedBy(models.TextChoices):
     MANUAL = "manual", _("Manual")
@@ -123,6 +128,18 @@ class Payment(CompanyOwnedModel):
             "automatically the first time the payment is allocated to one of "
             "their invoices; set it by hand for a payment on account that has "
             "no invoice yet."
+        ),
+    )
+
+    expected_bank_reference = models.CharField(
+        max_length=12,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name=_("Expected bank reference"),
+        help_text=_(
+            "Payment reference the bank movement of this payment carries in its "
+            "concept: the bank matcher links that movement to this payment."
         ),
     )
 

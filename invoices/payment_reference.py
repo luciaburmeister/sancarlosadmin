@@ -72,8 +72,18 @@ def display(ref: str | None) -> str:
 
 def assign_unique(company_id) -> str:
     """A new reference no SalesInvoice or Invoice of the company holds yet."""
+    return assign_unique_for(company_id)
+
+
+def assign_unique_for(*company_ids) -> str:
+    """
+    A new reference free in every one of the companies: one debt two
+    companies keep (a debit note and its mirror) goes by the same reference.
+    """
     models = (apps.get_model("invoices", "SalesInvoice"), apps.get_model("invoices", "Invoice"))
     while True:
         ref = generate()
-        if not any(model.objects.filter(company_id=company_id, payment_reference=ref).exists() for model in models):
+        if not any(
+            model.objects.filter(company_id__in=company_ids, payment_reference=ref).exists() for model in models
+        ):
             return ref

@@ -60,6 +60,9 @@ class InvoicePaymentStatus(models.TextChoices):
 class InvoiceDocumentType(models.TextChoices):
     INVOICE = "invoice", _("Invoice")
     CREDIT_NOTE = "credit_note", _("Credit Note")
+    # What we owe a group company that paid one of our invoices for us
+    # (its debit note, mirrored); never journalized, see IntercompanyPayment
+    INTERCOMPANY = "intercompany", _("Intercompany Debit")
 
 class PaymentReminderLanguage(models.TextChoices):
     ES = "es", _("Español")
@@ -321,6 +324,10 @@ class Invoice(Timestampable, Payable):
     @property
     def is_credit_note(self):
         return self.document_type == InvoiceDocumentType.CREDIT_NOTE
+
+    @property
+    def is_intercompany(self):
+        return self.document_type == InvoiceDocumentType.INTERCOMPANY
 
     def recalculate_totals(self, save=True):
         """
@@ -1073,6 +1080,9 @@ class SalesInvoiceStatus(models.TextChoices):
 class SalesInvoiceDocumentType(models.TextChoices):
     INVOICE = "invoice", _("Invoice")
     ADVANCE = "advance", _("Advance Invoice")
+    # Charges a group company what we paid for it (suplido): no VAT, never
+    # sent to AEAT nor journalized, numbered in its own series
+    INTERCOMPANY = "intercompany", _("Debit Note")
 
 
 class SalesInvoice(CompanyOwnedModel, Payable):
@@ -1252,7 +1262,10 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             # Every advance belongs to a project file: that is what it is
             # later deducted from.
             models.CheckConstraint(
-                condition=Q(document_type=SalesInvoiceDocumentType.INVOICE) | Q(project_file__isnull=False),
+                condition=(
+                    Q(document_type__in=[SalesInvoiceDocumentType.INVOICE, SalesInvoiceDocumentType.INTERCOMPANY])
+                    | Q(project_file__isnull=False)
+                ),
                 name='salesinv_advance_has_project_file',
             ),
             models.CheckConstraint(
@@ -1288,6 +1301,10 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         if self.proforma_number:
             return self.proforma_number
         return f"Pro Forma #{self.id}"
+
+    @property
+    def is_intercompany(self):
+        return self.document_type == SalesInvoiceDocumentType.INTERCOMPANY
 
     def _assign_proforma_number(self):
         # Same sequence rules as the invoice number: per company, never
@@ -1604,7 +1621,8 @@ class SalesInvoice(CompanyOwnedModel, Payable):
 
         self._sync_money_currency()
 
-        if self._state.adding and not self.is_external and not self.proforma_number:
+        # A debit note is issued as it is created: it never was a pro forma
+        if self._state.adding and not self.is_external and not self.proforma_number and not self.is_intercompany:
             self._assign_proforma_number()
 
         if self._state.adding and not self.is_external and not self.payment_reference:
@@ -1890,8 +1908,11 @@ class SalesInvoiceItem(PinnedLineTotalMixin):
 
     def _settle_business_unit(self):
         """A deduction takes the advance off the unit it was booked to; any
-        other line's unit must be the invoice company's."""
-        if self.advance_line_id:
+        other line's unit must be the invoice company's. A debit note's lines
+        have none: they book no income, of goods or of services."""
+        if self.invoice.is_intercompany:
+            self.business_unit_id = None
+        elif self.advance_line_id:
             self.business_unit_id = self.advance_line.business_unit_id
         elif self.business_unit_id and self.business_unit.company_id != self.invoice.company_id:
             raise ValidationError(_("The business unit must belong to the invoice's company."))
@@ -2244,6 +2265,142 @@ class AIMatchSuggestion(Timestampable):
 
     def __str__(self):
         return f"{self.invoice_item} → {self.po_item} ({self.quantity}, {self.confidence})"
+
+
+class IntercompanyPaymentStatus(models.TextChoices):
+    ACTIVE = "active", _("Active")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class IntercompanyPayment(CompanyOwnedModel, Timestampable):
+    """
+    A group company (``payer_company``) paid one of our purchase invoices
+    for us (``company``, the debtor). IntercompanyPaymentService creates and
+    cancels everything it links, together:
+
+    - in the payer: its bank payment to our provider, allocated to this
+      record (Dr 430 us / Cr 572), and the debit note charging us for it
+    - in ours: a settlement with no money behind it that pays the source
+      invoice (Dr 400 provider / Cr 400 payer), and the mirror of the debit
+      note, the debt to the payer still open in our payables
+
+    The debit note and its mirror share one payment reference, so either
+    side's bank movement for the reimbursement finds its document.
+    """
+
+    source_invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name="intercompany_payments",
+        verbose_name=_("Paid invoice"),
+    )
+    payer_company = models.ForeignKey(
+        Company,
+        on_delete=models.PROTECT,
+        related_name="intercompany_payments_made",
+        verbose_name=_("Paid by"),
+    )
+    payer_bank_account = models.ForeignKey(
+        "company.BankAccount",
+        on_delete=models.PROTECT,
+        related_name="intercompany_payments",
+        verbose_name=_("Payer's bank account"),
+    )
+    payer_client = models.ForeignKey(
+        "sales.Client",
+        on_delete=models.PROTECT,
+        related_name="intercompany_payments",
+        verbose_name=_("Debtor as the payer's client"),
+    )
+    creditor_provider = models.ForeignKey(
+        Provider,
+        on_delete=models.PROTECT,
+        related_name="intercompany_payments",
+        verbose_name=_("Payer as our provider"),
+    )
+    payer_payment = models.OneToOneField(
+        "payments.Payment",
+        on_delete=models.PROTECT,
+        null=True,
+        related_name="intercompany_payer_of",
+        verbose_name=_("Payer's payment"),
+    )
+    settlement_payment = models.OneToOneField(
+        "payments.Payment",
+        on_delete=models.PROTECT,
+        null=True,
+        related_name="intercompany_settlement",
+        verbose_name=_("Settlement"),
+    )
+    debit_note = models.OneToOneField(
+        "SalesInvoice",
+        on_delete=models.PROTECT,
+        null=True,
+        related_name="intercompany_payment",
+        verbose_name=_("Debit note"),
+    )
+    mirror_invoice = models.OneToOneField(
+        Invoice,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="intercompany_mirror_of",
+        verbose_name=_("Debt to the payer"),
+    )
+    amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        verbose_name=_("Amount"),
+    )
+    payment_date = models.DateField(verbose_name=_("Payment Date"))
+    status = models.CharField(
+        max_length=10,
+        choices=IntercompanyPaymentStatus.choices,
+        default=IntercompanyPaymentStatus.ACTIVE,
+        verbose_name=_("Status"),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+        verbose_name=_("Created by"),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Cancelled at"))
+
+    class Meta:
+        verbose_name = _("Intercompany Payment")
+        verbose_name_plural = _("Intercompany Payments")
+        ordering = ["-payment_date", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(company=models.F("payer_company")),
+                name="intercompany_payer_is_another_company",
+            ),
+        ]
+        permissions = [
+            ("can_register_intercompany_payment", _("Can pay invoices from another company")),
+            ("can_cancel_intercompany_payment", _("Can cancel intercompany payments")),
+        ]
+
+    def __str__(self):
+        return _("Intercompany payment %(invoice)s – %(payer)s") % {
+            "invoice": self.source_invoice.invoice_number or self.source_invoice_id,
+            "payer": self.payer_company,
+        }
+
+    @property
+    def is_active(self):
+        return self.status == IntercompanyPaymentStatus.ACTIVE
 
 
 class PaymentReminderType(models.TextChoices):

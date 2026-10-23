@@ -225,6 +225,18 @@ class Company(models.Model):
             "Default: PF-{year}-{number}"
         ),
     )
+    debit_note_number_format = models.CharField(
+        max_length=100,
+        default="SUP-{year}-{number}",
+        blank=True,
+        verbose_name=_("Debit Note Number Format"),
+        help_text=_(
+            "Format pattern for debit notes charging another group company what "
+            "this one paid for it, a sequence separate from invoice numbers. It "
+            "must differ from the invoice format. Available placeholders: "
+            "{year}, {number}. Default: SUP-{year}-{number}"
+        ),
+    )
     require_asset_on_project_file = models.BooleanField(
         default=False,
         verbose_name=_("Require asset on project files"),
@@ -265,6 +277,16 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        # Both series are numbered on their own: one shared format would
+        # repeat invoice numbers within the company
+        debit_note_format = self.debit_note_number_format or "SUP-{year}-{number}"
+        if debit_note_format == (self.invoice_number_format or "INV-{year}-{number}"):
+            raise ValidationError({
+                "debit_note_number_format": _("Debit notes need a number format different from invoices'."),
+            })
 
     def set_claude_api_key(self, plaintext: str) -> None:
         """Encrypt and store this company's Claude API key. Blank clears it."""

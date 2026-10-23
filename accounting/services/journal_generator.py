@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from djmoney.money import Money
 
-from invoices.models import AppliedTax, Invoice, SalesInvoice, SalesInvoiceStatus
+from invoices.models import AppliedTax, Invoice, InvoiceDocumentType, SalesInvoice, SalesInvoiceStatus
 from accounting.models import (
     AccountRole, BusinessUnit, CompanyAccount, CompanyChartOfAccounts, EntryStatus, IncomeType, Journal, JournalEntry,
     JournalEntryLine, JournalType,
@@ -236,7 +236,7 @@ class JournalGeneratorService(_JournalGeneratorBase):
             ocr_processed=True,
             needs_manual_review=False,
             journal_entries__isnull=True
-        )
+        ).exclude(document_type=InvoiceDocumentType.INTERCOMPANY)
         chart = self._chart()
         if chart and chart.ledger_start_date:
             invoices = invoices.filter(date_issued__gte=chart.ledger_start_date)
@@ -271,7 +271,12 @@ class JournalGeneratorService(_JournalGeneratorBase):
         - DEBIT: Expense accounts (from InvoiceItem.account)
         - DEBIT: VAT Input account (typically 472*)
         - CREDIT: Provider account (typically 400*)
+
+        A debt to a group company that paid for us has no entry of its own:
+        the settlement of the invoice it paid booked it.
         """
+        if invoice.is_intercompany:
+            return None
         if not invoice.date_issued:
             logger.warning(f"Invoice {invoice.id} has no date_issued, skipping journalization.")
             return None
@@ -422,8 +427,12 @@ class SalesJournalGeneratorService(_JournalGeneratorBase):
     }
 
     def journalize_invoice(self, invoice: SalesInvoice):
-        """The invoice's entry, posted when balanced. None if it already has one."""
-        if invoice.status != SalesInvoiceStatus.FINAL:
+        """
+        The invoice's entry, posted when balanced. None if it already has one,
+        and for a debit note: what it charges is no income, the payment it
+        charges for already booked the debt.
+        """
+        if invoice.status != SalesInvoiceStatus.FINAL or invoice.is_intercompany:
             return None
         if invoice.journal_entries.filter(reversal_of__isnull=True).exists():
             return None

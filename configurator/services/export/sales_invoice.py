@@ -4,6 +4,7 @@ from .base import BaseExportStrategy
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from .context_helpers import get_company_context
+from invoices import payment_reference as payment_references
 from invoices.services.sales_invoice_payment import effective_payment_method_display
 if TYPE_CHECKING:
     from invoices.models import SalesInvoice
@@ -164,6 +165,8 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
             "reference": self.sales_invoice.reference,
+            # Payer writes it in the transfer concept; banking matches on it
+            "payment_reference": payment_references.display(self.sales_invoice.payment_reference) or None,
         }
 
         # Delivery orders billed by this invoice. Templates decide whether to

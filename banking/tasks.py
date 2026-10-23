@@ -14,7 +14,7 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
     Skipped if a confirmed reconciliation already exists.
 
     Returns a result dict consumed by the matcher status page:
-        {"status": "done",    "reconciliation_id": X, "has_match": bool}
+        {"status": "done",    "reconciliation_id": X, "has_match": bool, "auto_confirmed": bool}
         {"status": "skipped"}
         {"status": "no_match"}
     """
@@ -35,16 +35,19 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
         selected = TransactionMatcher.get_selected_allocations(
             recon.suggested_allocations,
         )
+        auto_confirmed = TransactionMatcher.auto_confirm_if_referenced(recon)
         logger.info(
-            "Matcher ran for transaction %s: %d suggestion(s), unmatched=%s",
+            "Matcher ran for transaction %s: %d suggestion(s), unmatched=%s, auto_confirmed=%s",
             bank_transaction_id,
             len(recon.suggested_allocations),
             recon.unmatched_amount,
+            auto_confirmed,
         )
         return {
             "status": "done",
             "reconciliation_id": recon.pk,
             "has_match": bool(selected),
+            "auto_confirmed": auto_confirmed,
         }
     except BankTransaction.DoesNotExist:
         logger.error("BankTransaction %s does not exist, skipping matcher.", bank_transaction_id)

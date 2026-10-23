@@ -30,6 +30,7 @@ import uuid
 from payments.models import PaymentAllocation
 from payments.mixins import Payable
 from invoices import line_sources
+from invoices import payment_reference as payment_references
 import os
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,16 @@ class Invoice(Timestampable, Payable):
         choices=InvoicePaymentStatus.choices,
         default=InvoicePaymentStatus.UNPAID,
         verbose_name=_("Payment Status"),
+    )
+
+    payment_reference = models.CharField(
+        max_length=12,
+        blank=True,
+        null=True,
+        editable=False,
+        db_index=True,
+        verbose_name=_("Payment reference"),
+        help_text=_("Put in the concept of the bank transfer so the movement is matched to this invoice."),
     )
 
     document_type = models.CharField(
@@ -285,6 +296,13 @@ class Invoice(Timestampable, Payable):
     class Meta:
         unique_together = ['company', 'provider', 'invoice_number']
         ordering = ['-date_issued']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'payment_reference'],
+                condition=Q(payment_reference__isnull=False),
+                name='invoice_unique_company_payment_reference',
+            ),
+        ]
         verbose_name = _("Invoice")
         verbose_name_plural = _("Invoices")
         permissions = [
@@ -460,6 +478,8 @@ class Invoice(Timestampable, Payable):
 
         if self._state.adding:
             self.apply_provider_default_cost_center()
+            if self.company_id and not self.payment_reference:
+                self.payment_reference = payment_references.assign_unique(self.company_id)
 
         # ``currency`` is the source of truth for every Money on the invoice.
         # A brand-new invoice created straight from a non-EUR Money without
@@ -1154,6 +1174,16 @@ class SalesInvoice(CompanyOwnedModel, Payable):
 
     reference = models.CharField(max_length=255, blank=True, null=True, verbose_name=_("Reference"))
 
+    payment_reference = models.CharField(
+        max_length=12,
+        blank=True,
+        null=True,
+        editable=False,
+        db_index=True,
+        verbose_name=_("Payment reference"),
+        help_text=_("Put in the concept of the bank transfer so the payment is matched to this invoice."),
+    )
+
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
 
     payment_status = models.CharField(
@@ -1213,6 +1243,11 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             models.UniqueConstraint(
                 fields=['company', 'proforma_number'],
                 name='salesinv_unique_company_proforma_number',
+            ),
+            models.UniqueConstraint(
+                fields=['company', 'payment_reference'],
+                condition=Q(payment_reference__isnull=False),
+                name='salesinv_unique_company_payment_reference',
             ),
             # Every advance belongs to a project file: that is what it is
             # later deducted from.
@@ -1571,6 +1606,9 @@ class SalesInvoice(CompanyOwnedModel, Payable):
 
         if self._state.adding and not self.is_external and not self.proforma_number:
             self._assign_proforma_number()
+
+        if self._state.adding and not self.is_external and not self.payment_reference:
+            self.payment_reference = payment_references.assign_unique(self.company_id)
 
         if kwargs.get('update_fields') is not None:
             uf = set(kwargs['update_fields'])

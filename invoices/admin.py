@@ -54,6 +54,7 @@ from invoices.models import (
 from invoices.views.invoice.aging_export_view import AgingExportView
 from payments.admin_inlines import DocumentPaymentsInline
 from django.utils import timezone
+from invoices import payment_reference as payment_references
 from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
 from invoices.tasks import build_invoice_pdf_zip_task
 from core.documents import enqueue_document, redirect_to_document_status
@@ -245,6 +246,23 @@ def _sales_invoice_link(invoice):
     )
 
 
+def _payment_reference_with_copy(ref):
+    """The grouped reference plus a button copying it compact, ready to paste in a transfer concept."""
+    if not ref:
+        return "-"
+    return format_html(
+        '<span class="inline-flex items-center gap-2">'
+        '<span class="font-mono">{}</span>'
+        '<button type="button" '
+        'onclick="navigator.clipboard.writeText(\'{}\').then(() => {{'
+        'const el = this; const original = el.textContent; el.textContent = \'{}\'; '
+        'setTimeout(() => {{ el.textContent = original; }}, 1500); }})" '
+        'class="px-2 py-1 text-xs font-medium rounded-md border border-gray-300 hover:bg-gray-50 whitespace-nowrap">'
+        '{}</button></span>',
+        payment_references.display(ref), ref, _("Copied!"), _("Copy"),
+    )
+
+
 def _pill(text, color):
     return format_html(
         '<span style="display:inline-block;padding:1px 8px;border-radius:999px;'
@@ -420,6 +438,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     search_fields = (
         "invoice_number",
         "provider__name",
+        "payment_reference",
     )
 
     autocomplete_fields = (
@@ -439,6 +458,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         "amount_paid",
         "amount_remaining",
         "get_linked_fixed_cost_installment",
+        "payment_reference_display",
     )
 
     list_select_related = (
@@ -681,7 +701,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
             _("Payment"),
             {
                 "fields": (
-                    "payment_method",
+                    ("payment_method", "payment_reference_display"),
                 )
             },
         ),
@@ -920,6 +940,10 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     )
     def get_payment_status_label(self, obj):
         return obj.payment_status, obj.get_payment_status_display()
+
+    @admin.display(description=_("Payment reference"))
+    def payment_reference_display(self, obj):
+        return _payment_reference_with_copy(obj.payment_reference)
 
     @admin.display(description=_("Linked Fixed Cost Installment"))
     def get_linked_fixed_cost_installment(self, obj):
@@ -1213,7 +1237,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         ("payment_method", MultipleChoicesDropdownFilter),
         IsReconciledFilter,
     )
-    search_fields = ("invoice_number", "proforma_number", "client__name")
+    search_fields = ("invoice_number", "proforma_number", "client__name", "payment_reference")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline, DocumentPaymentsInline, EmailLogInline, EInvoicingSubmissionInline, PaymentReminderLogInline]
 
@@ -1225,7 +1249,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display", "payment_reference_display")
 
     def get_queryset(self, request):
         from payments.mixins import annotate_amount_remaining, annotate_forecast_date
@@ -1239,6 +1263,10 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         if lookup.split("__")[0] == "forecast_date":
             return True
         return super().lookup_allowed(lookup, value)
+
+    @display(description=_("Payment reference"))
+    def payment_reference_display(self, obj):
+        return _payment_reference_with_copy(obj.payment_reference)
 
     @display(description=_("Lines total (before discount)"))
     def lines_total_display(self, obj):
@@ -1381,7 +1409,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                     ("date_issued", "due_date"),
                     ("payment_commitment_date", "get_late_commitment_warning"),
                     "project_file",
-                    ("reference"),
+                    ("reference", "payment_reference_display"),
                     ("is_external", "exclude_from_payment_reminders"),
                 )
             },

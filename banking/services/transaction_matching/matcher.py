@@ -16,8 +16,8 @@ from banking.models import (
     ReconciliationMethod,
     ReconciliationStatus,
 )
-from banking.services.transaction_matching import candidates
-from banking.services.transaction_matching.amount_matching import match_amount
+from banking.services.transaction_matching import candidates, reference
+from banking.services.transaction_matching.amount_matching import _remaining, match_amount
 from banking.services.transaction_matching.counterparty import (
     find_counterparty,
     find_employee_counterparty,
@@ -56,9 +56,16 @@ class TransactionMatcher:
     def run(self) -> BankReconciliation:
         """
         Run the matching pipeline and create a BankReconciliation suggestion.
-        Never creates a Payment — that only happens on human confirmation.
+        Never creates a Payment — that only happens on confirmation (human,
+        or auto_confirm_if_referenced).
+
+        Invoices whose payment reference is in the concept come first and
+        selected; amount matching still runs and fills the alternatives.
         """
-        self.counterparty = find_counterparty(self.transaction, self.direction)
+        referenced = reference.find_referenced_documents(self.transaction, self.direction)
+        self.counterparty = (
+            referenced and reference.counterparty_of(referenced)
+        ) or find_counterparty(self.transaction, self.direction)
         candidates = self._get_candidate_documents()
         self.result = match_amount(
             self.transaction,
@@ -73,11 +80,25 @@ class TransactionMatcher:
             {
                 "allocations": self._serialize_docs(docs),
                 "confidence": self.result.confidence,
-                "is_selected": idx == 0 and self.result.has_match,
+                "is_selected": idx == 0 and self.result.has_match and not referenced,
             }
             for idx, docs in enumerate(all_combos)
             if docs  # skip empty
         ]
+        unmatched_amount = self.result.unmatched_amount
+
+        if referenced:
+            referenced_allocations = self._serialize_docs(referenced)
+            suggested_allocations = [
+                {
+                    "allocations": referenced_allocations,
+                    "confidence": "reference",
+                    "is_selected": True,
+                },
+                *(combo for combo in suggested_allocations if combo["allocations"] != referenced_allocations),
+            ]
+            remaining = sum((_remaining(doc) for doc in referenced), Decimal("0"))
+            unmatched_amount = max(Decimal("0"), abs(self.transaction.amount.amount) - remaining)
 
         reconciliation = BankReconciliation.objects.create(
             bank_transaction=self.transaction,
@@ -86,12 +107,36 @@ class TransactionMatcher:
             method=ReconciliationMethod.AUTO,
             suggested_allocations=suggested_allocations,
             unmatched_amount=Money(
-                self.result.unmatched_amount,
+                unmatched_amount,
                 self.transaction.amount_currency,
             ),
         )
 
         return reconciliation
+
+    @staticmethod
+    def auto_confirm_if_referenced(reconciliation: BankReconciliation) -> bool:
+        """
+        Confirm a suggestion with no human when the payer named the invoices
+        by payment reference and the amount settles them exactly. Partial and
+        over payments stay as suggestions. Returns whether it confirmed.
+        """
+        selected = next(
+            (combo for combo in reconciliation.suggested_allocations if combo.get("is_selected")),
+            None,
+        )
+        if not selected or selected.get("confidence") != "reference":
+            return False
+
+        remaining = Decimal("0")
+        for allocation in selected["allocations"]:
+            ct = ContentType.objects.get(model=allocation["content_type"])
+            remaining += ct.get_object_for_this_type(pk=allocation["object_id"]).amount_remaining_decimal
+        if remaining != abs(reconciliation.bank_transaction.amount.amount):
+            return False
+
+        TransactionMatcher.confirm(reconciliation, selected["allocations"], user=None)
+        return True
 
     @staticmethod
     def _serialize_docs(docs: list) -> list:

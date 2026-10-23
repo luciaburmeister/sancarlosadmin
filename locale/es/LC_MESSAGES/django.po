@@ -14886,7 +14886,7 @@ msgid "Only APPROVED Purchase Orders can receive items."
 msgstr "Solo las Órdenes de Compra APROBADAS pueden recibir artículos."
 
 msgid "Copied!"
-msgstr ""
+msgstr "¡Copiado!"
 
 #, fuzzy
 #| msgid "Concept Line"
@@ -20606,3 +20606,27 @@ msgstr "Total débito"
 #: accounting/admin/entries.py
 msgid "Total credit"
 msgstr "Total crédito"
+
+#: invoices/admin.py
+msgid "Copy"
+msgstr "Copiar"
+
+#: invoices/admin.py invoices/models.py
+msgid "Payment reference"
+msgstr "Referencia de pago"
+
+#: invoices/models.py
+msgid ""
+"Put in the concept of the bank transfer so the movement is matched to this "
+"invoice."
+msgstr ""
+"Se indica en el concepto de la transferencia para conciliar el movimiento "
+"con esta factura."
+
+#: invoices/models.py
+msgid ""
+"Put in the concept of the bank transfer so the payment is matched to this "
+"invoice."
+msgstr ""
+"Se indica en el concepto de la transferencia para conciliar el pago con esta "
+"factura."

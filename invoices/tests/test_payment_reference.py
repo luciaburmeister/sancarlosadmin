@@ -193,3 +193,13 @@ class PaymentReferenceBackfillTests(TestCase):
         self.assertEqual(len(set(refs)), len(refs))
         external.refresh_from_db()
         self.assertIsNone(external.payment_reference)
+
+
+class PaymentReferenceCopyButtonTests(SimpleTestCase):
+    def test_shows_grouped_and_copies_compact(self):
+        from invoices.admin import _payment_reference_with_copy
+
+        html = _payment_reference_with_copy(REF)
+        self.assertIn(payment_references.display(REF), html)
+        self.assertIn(f"writeText('{REF}')", html)
+        self.assertEqual(_payment_reference_with_copy(None), "-")

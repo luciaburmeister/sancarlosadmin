@@ -8,13 +8,17 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from import_export.admin import ExportActionModelAdmin
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from unfold.decorators import action, display
 
 from banking.models import BankReconciliation
 from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.xlsx_export import FormattedXlsxExportMixin
 from payments.mixins import unallocated_payments_q
 from payments.models import MANUAL_PAYMENT_METHODS, Payment, PaymentAllocation, PaymentStatus
+from payments.resources import PaymentResource
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +89,9 @@ class PaymentBankReconciliationInline(StackedInline):
 
 
 @admin.register(Payment)
-class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class PaymentAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ModelAdmin, ExportActionModelAdmin):
+    resource_classes = [PaymentResource]
+    export_form_class = SelectableFieldsExportForm
     list_display = (
         "id",
         "payment_date",
@@ -132,6 +138,13 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return super().get_queryset(request).annotate(
             live_entry_id=Subquery(live.values("pk")[:1]),
             live_entry_number=Subquery(live.values("number")[:1]),
+        )
+
+    def get_export_queryset(self, request):
+        return (
+            super().get_export_queryset(request)
+            .select_related("bank_account", "provider")
+            .prefetch_related("allocations__related_object")
         )
 
     @display(description=_("Journal entry"))

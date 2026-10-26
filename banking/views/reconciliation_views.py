@@ -458,7 +458,6 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
         ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
-        TaxInstallment = apps.get_model("finance", "TaxInstallment")
 
         cutoff_date = txn.transaction_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
         direction = PaymentDirection.INBOUND if txn.amount.amount > 0 else PaymentDirection.OUTBOUND
@@ -495,21 +494,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": installment.amount_remaining_decimal,
                 })
 
-            tax_installment_qs = candidates.tax_installment_candidates(
-                txn.company, cutoff_date
-            ).select_related("planned_tax_payment__tax_type").order_by("due_date")
-
-            tict = ContentType.objects.get_for_model(TaxInstallment)
-            for installment in tax_installment_qs:
-                results.append({
-                    "content_type": tict.model,
-                    "object_id": installment.pk,
-                    "form_value": f"{tict.model}:{installment.pk}",
-                    "number": str(installment),
-                    "date": installment.due_date,
-                    "counterparty": str(installment.planned_tax_payment.tax_type),
-                    "remaining": installment.amount_remaining_decimal,
-                })
+            results += self._tax_installment_rows(txn.company, cutoff_date, refund=False)
 
             claim_qs = candidates.expense_claim_candidates(
                 txn.company, cutoff_date
@@ -543,7 +528,30 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": doc.amount_remaining_decimal,
                 })
 
+            results += self._tax_installment_rows(txn.company, cutoff_date, refund=True)
+
         return results
+
+    @staticmethod
+    def _tax_installment_rows(company, cutoff_date, refund):
+        TaxInstallment = apps.get_model("finance", "TaxInstallment")
+        tax_installment_qs = candidates.tax_installment_candidates(
+            company, cutoff_date, refund=refund
+        ).select_related("planned_tax_payment__tax_type").order_by("due_date")
+
+        tict = ContentType.objects.get_for_model(TaxInstallment)
+        return [
+            {
+                "content_type": tict.model,
+                "object_id": installment.pk,
+                "form_value": f"{tict.model}:{installment.pk}",
+                "number": str(installment),
+                "date": installment.due_date,
+                "counterparty": str(installment.planned_tax_payment.tax_type),
+                "remaining": installment.amount_remaining_decimal,
+            }
+            for installment in tax_installment_qs
+        ]
 
 
 class LinkTransactionView(UnfoldModelAdminViewMixin, TemplateView):

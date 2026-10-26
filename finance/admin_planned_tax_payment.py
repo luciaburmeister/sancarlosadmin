@@ -157,10 +157,11 @@ class TaxInstallmentReadOnlyInline(TabularInline):
 @admin.register(PlannedTaxPayment)
 class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
     form = PlannedTaxPaymentForm
-    list_display = ["description", "tax_type", "get_installments_count", "get_installments_total", "get_payment_status", "company"]
+    list_display = ["description", "tax_type", "direction", "get_installments_count", "get_installments_total", "get_payment_status", "company"]
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("tax_type", AutocompleteSelectMultipleFilter),
+        "direction",
     )
     search_fields = ["description", "tax_type__tax_name"]
     list_filter_submit = True
@@ -175,6 +176,7 @@ class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "tax_schedule_rule",
                 ("company", "tax_type"),
                 "description",
+                "direction",
                 "tax_periods",
             ),
         }),
@@ -300,7 +302,7 @@ class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 payment_date=installment.due_date,
                 amount=remaining.amount,
                 amount_currency=str(remaining.currency),
-                direction=PaymentDirection.OUTBOUND,
+                direction=PaymentDirection.INBOUND if planned.is_refund else PaymentDirection.OUTBOUND,
                 method=PaymentMethod.CASH,
                 status=PaymentStatus.CONFIRMED,
                 created_by=PaymentCreatedBy.MANUAL,

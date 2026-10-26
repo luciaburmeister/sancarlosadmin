@@ -18,6 +18,11 @@ class TaxInstallmentPaymentStatus(models.TextChoices):
     PAID = "paid", _("Paid")
 
 
+class PlannedTaxPaymentDirection(models.TextChoices):
+    PAYMENT = "payment", _("Payment to the tax authority")
+    REFUND = "refund", _("Refund from the tax authority")
+
+
 class PlannedTaxPaymentQuerySet(models.QuerySet):
     def delete(self):
         from .models import TaxPeriod
@@ -64,6 +69,17 @@ class PlannedTaxPayment(Timestampable, CompanyOwnedModel):
         max_length=200,
         verbose_name=_("Description"),
     )
+    direction = models.CharField(
+        max_length=10,
+        choices=PlannedTaxPaymentDirection.choices,
+        default=PlannedTaxPaymentDirection.PAYMENT,
+        verbose_name=_("Direction"),
+        help_text=_(
+            "Payment: we pay the tax authority (e.g. a 303 to pay). "
+            "Refund: the tax authority pays us (e.g. a 303 to be refunded). "
+            "Installment amounts are positive either way."
+        ),
+    )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     drag_forward_if_unpaid = models.BooleanField(
         default=True,
@@ -108,6 +124,10 @@ class PlannedTaxPayment(Timestampable, CompanyOwnedModel):
             return TaxInstallmentPaymentStatus.PAID
         return TaxInstallmentPaymentStatus.PARTIAL
 
+    @property
+    def is_refund(self) -> bool:
+        return self.direction == PlannedTaxPaymentDirection.REFUND
+
     def save(self, *args, **kwargs):
         if self.tax_schedule_rule_id:
             self.company_id = self.tax_schedule_rule.company_id
@@ -142,7 +162,7 @@ class TaxInstallment(Payable, models.Model):
         help_text=_(
             "Always positive - the amount owed, like Invoice or LoanInstallment. "
             "Not a bank movement: the matching BankTransaction is negative "
-            "(money leaving the account) when this installment gets paid."
+            "(money leaving the account) for a payment, positive for a refund."
         ),
     )
     amount_paid = MoneyField(

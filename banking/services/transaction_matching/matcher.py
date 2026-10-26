@@ -66,7 +66,10 @@ class TransactionMatcher:
         reference in the concept) goes before them all: the movement is that
         payment, so confirming links it instead of creating one.
         """
-        self.counterparty = find_counterparty(self.transaction, self.direction)
+        referenced = reference.find_referenced_documents(self.transaction, self.direction)
+        self.counterparty = (
+            referenced and reference.counterparty_of(referenced)
+        ) or find_counterparty(self.transaction, self.direction)
         candidate_documents = self._get_candidate_documents()
         self.result = match_amount(
             self.transaction,
@@ -471,7 +474,11 @@ class TransactionMatcher:
 
         qs = candidates.sales_invoice_candidates(self.transaction.company, cutoff_date, self.counterparty)
 
-        return list(annotate_amount_remaining(qs, SalesInvoice))
+        tax_refund_qs = candidates.tax_installment_candidates(
+            self.transaction.company, cutoff_date, refund=True
+        ).select_related("planned_tax_payment")
+
+        return list(annotate_amount_remaining(qs, SalesInvoice)) + list(tax_refund_qs)
 
     def _tax_installment_oldest_first_match(self, candidate_documents: list) -> list | None:
         """

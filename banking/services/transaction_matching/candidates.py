@@ -87,10 +87,12 @@ def employee_payroll_candidates(company, cutoff_date):
     )
 
 
-def tax_installment_candidates(company, cutoff_date):
+def tax_installment_candidates(company, cutoff_date, refund=False):
+    """Installments we owe the tax authority, or (refund=True) that it owes us."""
     TaxInstallment = apps.get_model("finance", "TaxInstallment")
     return TaxInstallment.objects.filter(
         planned_tax_payment__company=company,
+        planned_tax_payment__direction="refund" if refund else "payment",
         payment_status__in=["unpaid", "partial"],
         due_date__lte=cutoff_date,
     )

@@ -39,6 +39,7 @@ INCOME_CATEGORIES = [
     "Invoice collections",
     "Proforma",
     "Work pending invoicing",
+    "Tax refunds",
 ]
 
 
@@ -237,8 +238,8 @@ def _tax_installment_entries(company: Company, date_from: datetime.date, date_to
             CalendarEntry(
                 date=effective_date,
                 amount=installment.amount_remaining.amount,
-                direction=CalendarDirection.EXPENSE,
-                category="Taxes",
+                direction=CalendarDirection.INCOME if plan.is_refund else CalendarDirection.EXPENSE,
+                category="Tax refunds" if plan.is_refund else "Taxes",
                 description=description,
                 source_model="finance.PlannedTaxPayment",
                 source_id=plan.pk,

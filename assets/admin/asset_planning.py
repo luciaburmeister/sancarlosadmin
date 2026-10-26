@@ -142,6 +142,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     )
     list_filter = (TraceabilityFilter, "status", "abandoned_stage", "urgency", "service_type", "company", "origin", "destination")
     search_fields = (
+        "=pk",
         "asset__name",
         "reserved_asset__name",
         "machine__name",

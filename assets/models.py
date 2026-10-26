@@ -1818,8 +1818,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         return AbandonedStageChoices.PICKED_UP_PENDING_DELIVERY
 
     def __str__(self):
-        asset_label = self.asset.name if self.asset_id else _("Planning")
-        return f"{asset_label} → {self.destination} ({self.scheduled_date})"
+        identifier = self.pk if self.pk else _("Planning")
+        if self.asset_id:
+            return f"{identifier} · {self.asset.name} → {self.destination} ({self.scheduled_date})"
+        return f"{identifier} → {self.destination} ({self.scheduled_date})"
 
 
 class AssetPlanningRequestStatus(models.TextChoices):

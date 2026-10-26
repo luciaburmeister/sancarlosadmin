@@ -6,6 +6,8 @@ from decimal import Decimal
 from dataclasses import dataclass, field
 from typing import Any
 
+from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Avg, Count, DecimalField, F, Max, Min, Q, Sum
 from django.db.models.functions import Coalesce
 from django.urls import NoReverseMatch, reverse
@@ -241,10 +243,23 @@ class ReportCompiler:
         companies = get_user_companies(user)
 
         if relation.kind == "to_many":
+            if relation.generic_document:
+                content_type = ContentType.objects.get_for_model(
+                    apps.get_model(relation.generic_document)
+                )
+                matched = Q(**{
+                    f"{relation.orm_accessor}__content_type": content_type,
+                    f"{relation.orm_accessor}__object_id": pk,
+                })
+            else:
+                matched = Q(**{relation.orm_accessor: pk})
+                for lookup in relation.also_match:
+                    matched |= Q(**{lookup: pk})
             target_qs = target.base_queryset().filter(
                 **{f"{target.company_field}__in": companies},
-                **{relation.orm_accessor: pk},
-            )
+            ).filter(matched)
+            if relation.also_match or relation.generic_document:
+                target_qs = target_qs.distinct()
         elif relation.kind == "to_one":
             source_qs = dataset.base_queryset().filter(
                 **{f"{dataset.company_field}__in": companies}, pk=pk

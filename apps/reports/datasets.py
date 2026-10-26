@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.postgres.aggregates import StringAgg
 from django.db import connection
 from django.db.models import (
     BooleanField,
@@ -27,6 +28,7 @@ from django.db.models import (
 )
 from django.db.models.expressions import RawSQL, RowRange
 from django.db.models.functions import (
+    Cast,
     Coalesce,
     Concat,
     Extract,
@@ -68,8 +70,10 @@ from invoices.models import (
     InvoiceDocumentType,
     InvoicePaymentStatus,
     SalesInvoice,
+    SalesInvoiceItem,
     SalesInvoiceStatus,
 )
+from payments.models import PaymentAllocation
 from management.models import (
     CostEntry,
     ProjectFile,
@@ -124,20 +128,19 @@ class CatalogMeasure:
 class DatasetRelation:
     """A navigable link from this dataset to another one.
 
-    ``orm_accessor`` is always the FK *field name* on whichever model
-    actually holds the foreign key — never a reverse related_name. Which
-    side holds it is given by ``kind``:
-
     * ``to_one``: THIS dataset's model holds the FK (``orm_accessor`` is a
       field on it). Traversal reads that FK's id off the source row, then
       looks the target up by pk.
-    * ``to_many``: the TARGET dataset's model holds the FK (named
-      ``orm_accessor`` on it, pointing back at this dataset). Traversal
-      filters the target dataset's queryset by ``{orm_accessor: source_pk}``.
+    * ``to_many``: traversal filters the target dataset's queryset by
+      ``{orm_accessor: source_pk}``. ``also_match`` ORs extra lookups on
+      that same queryset, for a link that is not only that one FK (a bulk
+      invoice's expedientes live on the M2M and on each line).
+      ``generic_document`` ("app_label.Model") is the document a generic
+      allocation points at, so an invoice can reach the payments the admin
+      Payments tab lists.
 
     This keeps traversal a single uniform rule in both directions, using
-    only each dataset's own ``base_queryset()`` — never a hardcoded Django
-    relation outside the catalog.
+    only each dataset's own ``base_queryset()``.
     """
 
     key: str
@@ -145,6 +148,8 @@ class DatasetRelation:
     orm_accessor: str
     kind: str  # "to_one" | "to_many"
     label: str
+    also_match: tuple[str, ...] = ()
+    generic_document: str = ""
 
 
 class BaseDataset(ABC):
@@ -395,6 +400,83 @@ class ClientsDataset(BaseDataset):
         return Client.objects.all()
 
 
+def _sales_invoice_project_file_references(alias: str):
+    """Expediente references a sales invoice bills, comma-separated.
+
+    A single-expediente invoice stores the link on the header. A bulk
+    invoice leaves the header empty and stores it on the M2M and on each
+    line. UNION keeps a reference that is stored in more than one of those.
+    """
+    qn = connection.ops.quote_name
+    project_file = qn(ProjectFile._meta.db_table)
+    reference = qn(ProjectFile._meta.get_field("reference").column)
+    through = SalesInvoice.project_files.through._meta
+    link = qn(through.db_table)
+    link_invoice = qn(through.get_field("salesinvoice").column)
+    link_project_file = qn(through.get_field("projectfile").column)
+    item_meta = SalesInvoiceItem._meta
+    item = qn(item_meta.db_table)
+    item_invoice = qn(item_meta.get_field("invoice").column)
+    item_project_file = qn(item_meta.get_field("project_file").column)
+    header_fk = qn(SalesInvoice._meta.get_field("project_file").column)
+    invoice = qn(alias)
+    return RawSQL(
+        f"""
+        (
+            SELECT string_agg(ref, ', ' ORDER BY ref)
+            FROM (
+                SELECT pf.{reference} AS ref
+                FROM {project_file} pf
+                WHERE pf.id = {invoice}.{header_fk}
+                UNION
+                SELECT pf.{reference}
+                FROM {link} link
+                INNER JOIN {project_file} pf
+                    ON pf.id = link.{link_project_file}
+                WHERE link.{link_invoice} = {invoice}.id
+                UNION
+                SELECT pf.{reference}
+                FROM {item} item
+                INNER JOIN {project_file} pf
+                    ON pf.id = item.{item_project_file}
+                WHERE item.{item_invoice} = {invoice}.id
+            ) refs
+            WHERE ref <> ''
+        )
+        """,
+        [],
+        output_field=CharField(),
+    )
+
+
+def _sales_invoice_payment_dates():
+    """Dates collected against a sales invoice, comma-separated.
+
+    The admin Payments tab lists PaymentAllocation rows whose generic
+    document is this invoice. Same rows, as dates the agent can read
+    without opening each payment.
+    """
+    content_type = ContentType.objects.get_for_model(SalesInvoice)
+    paid_on = Cast("payment__payment_date", CharField())
+    dates = (
+        PaymentAllocation.objects.filter(
+            content_type=content_type,
+            object_id=OuterRef("pk"),
+        )
+        .values("object_id")
+        .annotate(
+            _dates=StringAgg(
+                paid_on,
+                delimiter=", ",
+                distinct=True,
+                ordering=paid_on,
+            )
+        )
+        .values("_dates")[:1]
+    )
+    return Subquery(dates, output_field=CharField())
+
+
 class SalesInvoicesDataset(BaseDataset):
     key = ReportDomain.SALES_INVOICES
     label = "Sales invoices"
@@ -431,6 +513,21 @@ class SalesInvoicesDataset(BaseDataset):
             "date_issued_month",
             "Issue month (first day of month). Use this, not date_issued, "
             "when grouping a trend by month.",
+        ),
+        CatalogField(
+            "project_files",
+            "linked_project_file_references",
+            "Project file references (expedientes) this invoice bills, "
+            "comma-separated. Set for bulk invoices too, where the header "
+            "link is empty.",
+            text_match=True,
+        ),
+        CatalogField("due_date", "due_date", "Date the invoice is due"),
+        CatalogField(
+            "payment_dates",
+            "payment_dates",
+            "Dates this invoice was collected, comma-separated. Empty when "
+            "no payment is allocated to it.",
         ),
     )
     measures = (
@@ -482,6 +579,14 @@ class SalesInvoicesDataset(BaseDataset):
         CatalogField(
             "company", "company__name", "Active company name", text_match=True
         ),
+        CatalogField(
+            "project_files",
+            "linked_project_file_references",
+            "Project file reference (expediente), e.g. EXP-00001. Matches "
+            "bulk invoices too. Use icontains.",
+            text_match=True,
+        ),
+        CatalogField("due_date", "due_date", "Date the invoice is due"),
     )
 
     relations = (
@@ -493,13 +598,41 @@ class SalesInvoicesDataset(BaseDataset):
             ReportDomain.PROJECT_FILES,
             "project_file",
             "to_one",
-            "Project file (expediente)",
+            "Project file on the invoice header. Empty for a bulk invoice; "
+            "use project_files.",
+        ),
+        DatasetRelation(
+            "project_files",
+            ReportDomain.PROJECT_FILES,
+            "sales_invoices",
+            "to_many",
+            "Every project file this invoice bills (header, bulk selection, "
+            "or line)",
+            also_match=(
+                "bulk_sales_invoices",
+                "sales_invoice_items__invoice",
+            ),
+        ),
+        DatasetRelation(
+            "payments",
+            ReportDomain.PAYMENTS,
+            "allocations",
+            "to_many",
+            "Payments allocated to this invoice (admin Payments tab)",
+            generic_document="invoices.SalesInvoice",
         ),
     )
 
     def base_queryset(self) -> QuerySet:
         qs = SalesInvoice.objects.annotate(
             date_issued_month=TruncMonth("date_issued")
+        )
+        alias = qs.query.base_table or qs.model._meta.db_table
+        qs = qs.annotate(
+            linked_project_file_references=_sales_invoice_project_file_references(
+                alias
+            ),
+            payment_dates=_sales_invoice_payment_dates(),
         )
         return annotate_amount_remaining(qs, SalesInvoice)
 
@@ -1052,7 +1185,8 @@ class ProjectFilesDataset(BaseDataset):
             ReportDomain.SALES_INVOICES,
             "project_file",
             "to_many",
-            "Sales invoices",
+            "Sales invoices billing this project file, including bulk invoices",
+            also_match=("project_files", "items__project_file"),
         ),
     )
 

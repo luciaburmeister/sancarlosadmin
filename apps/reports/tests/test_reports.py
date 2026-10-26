@@ -85,6 +85,7 @@ from invoices.models import (
     Invoice,
     InvoicePaymentStatus,
     SalesInvoice,
+    SalesInvoiceItem,
     SalesInvoiceStatus,
     TaxType,
 )
@@ -769,6 +770,7 @@ class RelationTraversalTests(TestCase):
             "management.view_projectfile",
             "sales.view_quote",
             "invoices.view_salesinvoice",
+            "payments.view_payment",
             username="traverser",
         )
 
@@ -793,12 +795,79 @@ class RelationTraversalTests(TestCase):
             date_issued=date(2026, 1, 15),
             status=SalesInvoiceStatus.FINAL,
         )
+        cls.other_project_file = ProjectFile.objects.create(
+            company=cls.company, name="EXP Traverse 2", client=cls.client_obj
+        )
+        # Bulk invoice: header FK stays empty. One link is only the M2M,
+        # the other only a line, so each path is required to find it.
+        cls.m2m_invoice = SalesInvoice.objects.create(
+            company=cls.company,
+            client=cls.client_obj,
+            invoice_number="TR-M2M",
+            total_amount=Money("900.00", "EUR"),
+            date_issued=date(2026, 2, 1),
+            status=SalesInvoiceStatus.PROFORMA,
+        )
+        cls.m2m_invoice.project_files.set(
+            [cls.project_file, cls.other_project_file]
+        )
+        cls.line_invoice = SalesInvoice.objects.create(
+            company=cls.company,
+            client=cls.client_obj,
+            invoice_number="TR-LINE",
+            total_amount=Money("80.00", "EUR"),
+            date_issued=date(2026, 2, 2),
+            status=SalesInvoiceStatus.PROFORMA,
+        )
+        SalesInvoiceItem.objects.create(
+            invoice=cls.line_invoice,
+            description="Line",
+            quantity=Decimal("1.00"),
+            unit_price=Money("80.00", "EUR"),
+            project_file=cls.other_project_file,
+        )
+        SalesInvoice.objects.filter(pk=cls.invoice.pk).update(
+            due_date=date(2026, 11, 15)
+        )
+        cls.payment = Payment.objects.create(
+            company=cls.company,
+            client=cls.client_obj,
+            amount=Money("500.00", "EUR"),
+            payment_date=date(2026, 10, 20),
+            direction=PaymentDirection.INBOUND,
+            method=PaymentMethod.CASH,
+            status=PaymentStatus.CONFIRMED,
+        )
+        PaymentAllocation.objects.create(
+            payment=cls.payment,
+            amount_applied=Money("500.00", "EUR"),
+            related_object=cls.invoice,
+        )
+        # Same object id, different document type: not this invoice's payment.
+        decoy = Payment.objects.create(
+            company=cls.company,
+            client=cls.client_obj,
+            amount=Money("1.00", "EUR"),
+            payment_date=date(2026, 1, 1),
+            direction=PaymentDirection.INBOUND,
+            method=PaymentMethod.CASH,
+            status=PaymentStatus.CONFIRMED,
+        )
+        PaymentAllocation.objects.create(
+            payment=decoy,
+            amount_applied=Money("1.00", "EUR"),
+            content_type=ContentType.objects.get_for_model(ProjectFile),
+            object_id=cls.invoice.pk,
+        )
 
     def test_to_many_from_client_to_project_files(self):
         rows = ReportCompiler().traverse_relation(
             ReportDomain.CLIENTS, self.client_obj.pk, "project_files", self.user
         )
-        self.assertEqual([r["id"] for r in rows], [self.project_file.pk])
+        self.assertEqual(
+            {r["id"] for r in rows},
+            {self.project_file.pk, self.other_project_file.pk},
+        )
 
     def test_to_many_from_project_file_to_quotes(self):
         rows = ReportCompiler().traverse_relation(
@@ -813,7 +882,108 @@ class RelationTraversalTests(TestCase):
             "sales_invoices",
             self.user,
         )
-        self.assertEqual([r["id"] for r in rows], [self.invoice.pk])
+        self.assertEqual(
+            {r["id"] for r in rows},
+            {self.invoice.pk, self.m2m_invoice.pk},
+        )
+
+    def test_bulk_invoice_lines_link_a_project_file_without_the_header(self):
+        rows = ReportCompiler().traverse_relation(
+            ReportDomain.PROJECT_FILES,
+            self.other_project_file.pk,
+            "sales_invoices",
+            self.user,
+        )
+        self.assertEqual(
+            {r["id"] for r in rows},
+            {self.m2m_invoice.pk, self.line_invoice.pk},
+        )
+
+    def test_invoice_project_files_includes_header_bulk_and_lines(self):
+        header = ReportCompiler().traverse_relation(
+            ReportDomain.SALES_INVOICES,
+            self.invoice.pk,
+            "project_files",
+            self.user,
+        )
+        bulk = ReportCompiler().traverse_relation(
+            ReportDomain.SALES_INVOICES,
+            self.m2m_invoice.pk,
+            "project_files",
+            self.user,
+        )
+        line = ReportCompiler().traverse_relation(
+            ReportDomain.SALES_INVOICES,
+            self.line_invoice.pk,
+            "project_files",
+            self.user,
+        )
+        self.assertEqual({r["id"] for r in header}, {self.project_file.pk})
+        self.assertEqual(
+            {r["id"] for r in bulk},
+            {self.project_file.pk, self.other_project_file.pk},
+        )
+        self.assertEqual({r["id"] for r in line}, {self.other_project_file.pk})
+
+    def test_bulk_invoice_header_relation_is_empty(self):
+        rows = ReportCompiler().traverse_relation(
+            ReportDomain.SALES_INVOICES,
+            self.m2m_invoice.pk,
+            "project_file",
+            self.user,
+        )
+        self.assertEqual(rows, [])
+
+    def test_get_by_id_lists_linked_project_file_references(self):
+        header = ReportCompiler().get_by_id(
+            ReportDomain.SALES_INVOICES, self.invoice.pk, self.user
+        )
+        bulk = ReportCompiler().get_by_id(
+            ReportDomain.SALES_INVOICES, self.m2m_invoice.pk, self.user
+        )
+        line = ReportCompiler().get_by_id(
+            ReportDomain.SALES_INVOICES, self.line_invoice.pk, self.user
+        )
+        both = ", ".join(
+            sorted(
+                [self.project_file.reference, self.other_project_file.reference]
+            )
+        )
+        self.assertEqual(header["project_files"], self.project_file.reference)
+        self.assertEqual(bulk["project_files"], both)
+        self.assertEqual(line["project_files"], self.other_project_file.reference)
+        self.assertEqual(header["due_date"], "2026-11-15")
+        self.assertEqual(header["payment_dates"], "2026-10-20")
+        self.assertIsNone(bulk["payment_dates"])
+
+    def test_invoice_payments_follow_the_admin_tab(self):
+        rows = ReportCompiler().traverse_relation(
+            ReportDomain.SALES_INVOICES,
+            self.invoice.pk,
+            "payments",
+            self.user,
+        )
+        self.assertEqual([r["id"] for r in rows], [self.payment.pk])
+        self.assertEqual(rows[0]["payment_date"], "2026-10-20")
+
+    def test_filter_invoices_by_project_file_reference(self):
+        spec = _spec(
+            ReportDomain.SALES_INVOICES,
+            dimensions=["invoice_number"],
+            aggregations=[_agg("*", "count", "invoice_count")],
+            filters=[
+                {
+                    "field": "project_files",
+                    "op": "icontains",
+                    "value": self.other_project_file.reference,
+                }
+            ],
+        )
+        result = ReportCompiler().compile(spec, self.user)
+        self.assertEqual(
+            {row["invoice_number"] for row in result.rows},
+            {"TR-M2M", "TR-LINE"},
+        )
 
     def test_to_one_from_invoice_to_client(self):
         rows = ReportCompiler().traverse_relation(

@@ -1,7 +1,7 @@
 """Conflict detection for planned production sessions.
 
-Conflicts are warnings the planner can override; only a locked session or an
-integrity violation (inverted interval, cross-company resource) blocks outright.
+Most conflicts are warnings the planner can override. Integrity violations,
+locked sessions, and full unattended machines block outright.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from datetime import datetime, time, timedelta
 
 from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django.db import models
-from django.db.models import Count
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -174,6 +173,23 @@ class ConflictChecker:
 
     # --- individual checks ------------------------------------------------
 
+    def resource_ids_by_capacity(self, candidate: SessionCandidate) -> list[int]:
+        """Prefer free resources, then overridable warnings, then hard conflicts."""
+        resources = self.resources(candidate.resource_ids)
+        excluded = {candidate.session_id} if candidate.session_id else set()
+        conflicts = self._check_overlap(candidate, resources, excluded)
+        conflicts += self._check_daily_capacity(candidate, resources, excluded)
+        priority = {}
+        for conflict in conflicts:
+            priority[conflict.resource_id] = max(
+                priority.get(conflict.resource_id, 0), 2 if conflict.is_blocking else 1,
+            )
+        eligible = [
+            resource_id for resource_id in candidate.resource_ids
+            if resource_id in resources
+        ]
+        return sorted(eligible, key=lambda resource_id: priority.get(resource_id, 0))
+
     def _check_interval(self, candidate) -> list[Conflict]:
         if candidate.end <= candidate.start:
             return [
@@ -314,32 +330,40 @@ class ConflictChecker:
                 planned_session__planned_end__gt=candidate.start,
             )
             .exclude(planned_session_id__in=exclude_session_ids)
-            .values("resource_id")
-            .annotate(busy=Count("id"))
+            .values_list(
+                "resource_id", "planned_session__planned_start", "planned_session__planned_end"
+            )
         )
-        busy_by_resource = {row["resource_id"]: row["busy"] for row in overlapping}
+        events_by_resource = {resource_id: [] for resource_id in resources}
+        for resource_id, start, end in overlapping:
+            events_by_resource[resource_id].extend(
+                ((max(start, candidate.start), 1), (min(end, candidate.end), -1))
+            )
 
         conflicts = []
         for resource_id, resource in resources.items():
-            busy = busy_by_resource.get(resource_id, 0)
+            busy = peak = 0
+            for _event_time, change in sorted(events_by_resource[resource_id]):
+                busy += change
+                peak = max(peak, busy)
             capacity = resource.parallel_capacity or 1
-            if busy + 1 > capacity:
+            if peak + 1 > capacity:
                 conflicts.append(
                     Conflict(
                         code=ConflictCode.RESOURCE_OVERLAP,
-                        severity=WARN,
+                        severity=BLOCK if resource.counts_running_time_once else WARN,
                         message=_(
                             "%(resource)s already has %(busy)s task(s) here and "
                             "handles %(capacity)s at a time."
                         )
                         % {
                             "resource": self.label(resource),
-                            "busy": busy,
+                            "busy": peak,
                             "capacity": capacity,
                         },
                         resource_id=resource_id,
                         session_id=candidate.session_id,
-                        detail={"busy": busy, "parallel_capacity": capacity},
+                        detail={"busy": peak, "parallel_capacity": capacity},
                     )
                 )
         return conflicts
@@ -406,11 +430,20 @@ class ConflictChecker:
             )
 
             used = {resource_id: 0 for resource_id in resources}
+            unattended_intervals = {
+                resource_id: []
+                for resource_id, resource in resources.items()
+                if resource.counts_running_time_once
+            }
             for row in existing:
-                used[row.resource_id] += self.calendar.working_minutes_between(
+                interval = (
                     max(row.planned_session.planned_start, day_start),
                     min(row.planned_session.planned_end, day_end),
                 )
+                if row.resource_id in unattended_intervals:
+                    unattended_intervals[row.resource_id].append(interval)
+                else:
+                    used[row.resource_id] += self.calendar.working_minutes_between(*interval)
 
             candidate_minutes = self.calendar.working_minutes_between(
                 max(candidate.start, day_start), min(candidate.end, day_end)
@@ -418,7 +451,16 @@ class ConflictChecker:
 
             for resource_id, resource in resources.items():
                 capacity = resource.daily_capacity_minutes or 0
-                total = used[resource_id] + candidate_minutes
+                if resource_id in unattended_intervals:
+                    intervals = unattended_intervals[resource_id]
+                    used[resource_id] = self.calendar.working_minutes_covered(intervals)
+                    total = self.calendar.working_minutes_covered(
+                        [*intervals, (max(candidate.start, day_start), min(candidate.end, day_end))]
+                    )
+                    added_minutes = total - used[resource_id]
+                else:
+                    total = used[resource_id] + candidate_minutes
+                    added_minutes = candidate_minutes
                 if capacity and total > capacity:
                     conflicts.append(
                         Conflict(
@@ -439,7 +481,7 @@ class ConflictChecker:
                             detail={
                                 "day": day.isoformat(),
                                 "used": used[resource_id],
-                                "candidate": candidate_minutes,
+                                "candidate": added_minutes,
                                 "capacity": capacity,
                             },
                         )

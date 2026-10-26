@@ -101,6 +101,14 @@ class WorkingCalendarTest(TestCase):
         minutes = self.cal().working_minutes_between(self.at(SATURDAY, 0), self.at(MONDAY, 0))
         self.assertEqual(minutes, 0)
 
+    def test_covered_minutes_count_overlaps_once_and_exclude_closed_time(self):
+        minutes = self.cal().working_minutes_covered([
+            (self.at(FRIDAY, 13), self.at(FRIDAY, 16)),
+            (self.at(FRIDAY, 13, 30), self.at(FRIDAY, 15, 30)),
+        ])
+
+        self.assertEqual(minutes, 120)
+
     # --- is_working / next_open ------------------------------------------
 
     def test_is_working(self):

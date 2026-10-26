@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
+from company.models import Employee, Machine
 from production.models import (
     PlannedProductionSession,
     PlannedProductionSessionSource,
@@ -21,7 +22,10 @@ from production.services.planning_conflicts import (
     blocking,
 )
 from production.services.planning_status_sync import sync_configuration_planning_status
-from production.services.session_resources import sync_session_resources
+from production.services.session_resources import (
+    machine_content_type_id,
+    sync_session_resources,
+)
 from production.services.working_calendar import WorkingCalendar
 
 
@@ -75,6 +79,16 @@ class ProductionPlanningService:
             ).values_list("pk", flat=True)
         )
         return set(resource_ids) != known
+
+    @staticmethod
+    def lock_resources(resource_ids):
+        """Serialize capacity checks and writes for shared planning resources."""
+        return list(
+            ProductionResource.objects.select_for_update()
+            .filter(pk__in=resource_ids)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
 
     # --- single-session mutations ----------------------------------------
 
@@ -244,14 +258,19 @@ class ProductionPlanningService:
                 ticket_id=ticket.pk,
                 sequence=sequence,
             )
+            planned.append((candidate, stage))
+            cursor = end
+
+        cls.lock_resources({
+            resource_id for candidate, _ in planned for resource_id in candidate.resource_ids
+        })
+        for candidate, stage in planned:
             conflicts += checker.check(candidate)
             conflicts += checker.check_requirements(
                 candidate,
                 machine_qty=stage["machine_qty"],
                 employee_qty=stage["employee_qty"],
             )
-            planned.append((candidate, stage))
-            cursor = end
 
         may_apply, needs_confirm = cls._decide(conflicts, override)
         if not may_apply:
@@ -379,6 +398,8 @@ class ProductionPlanningService:
                 _("A selected resource is unavailable or belongs to another company."),
             )
 
+        cls.lock_resources(all_resource_ids)
+
         calendar = WorkingCalendar.for_company(ticket.company)
         checker = cls._checker(ticket.company, calendar)
         cursor = calendar.next_open(start_at) or start_at
@@ -435,12 +456,14 @@ class ProductionPlanningService:
         *,
         start_at: datetime,
         stage: dict,
+        assign_machines: bool = False,
         override: bool = False,
     ) -> MutationResult:
         """Plan one previously-unplanned product stage at a chosen time.
 
         Stages can be placed on different days in any order; sequence stays
         the product's fixed order and dropping one never moves existing work.
+        An operator-only drop can request automatic machine assignment.
         """
         from production.services.planning_stages import resolve_ticket_stages
 
@@ -515,6 +538,33 @@ class ProductionPlanningService:
             )
 
         calendar = WorkingCalendar.for_company(ticket.company)
+        checker = cls._checker(ticket.company, calendar)
+        machine_ids = []
+        operator_drop = (
+            assign_machines
+            and len(resource_ids) == 1
+            and isinstance(checker.resources(resource_ids)[resource_ids[0]].target, Employee)
+        )
+        machine_qty = definition["machine_qty"]
+        if operator_drop:
+            machines = Machine.objects.filter(
+                company=ticket.company,
+                production_stages__contains=[stage_name],
+            )
+            if not definition["resource_requirements_configured"] and machines.exists():
+                machine_qty = 1
+            if machine_qty:
+                machine_ids = list(
+                    ProductionResource.objects.filter(
+                        company=ticket.company,
+                        is_active=True,
+                        content_type_id=machine_content_type_id(),
+                        object_id__in=machines.filter(is_active=True).values("pk"),
+                    ).order_by("pk").values_list("pk", flat=True)
+                )
+
+        # Lock the entire candidate pool so concurrent drops choose from fresh capacity.
+        cls.lock_resources([*resource_ids, *machine_ids])
         start, end = cls._fit(calendar, calendar.next_open(start_at) or start_at, duration)
         candidate = SessionCandidate(
             company_id=ticket.company_id,
@@ -525,20 +575,24 @@ class ProductionPlanningService:
             ticket_id=ticket.pk,
             sequence=allowed_names.index(stage_name),
         )
-        checker = cls._checker(ticket.company, calendar)
+        if operator_drop and machine_qty:
+            ranked_machine_ids = checker.resource_ids_by_capacity(
+                replace(candidate, resource_ids=machine_ids)
+            )
+            candidate.resource_ids.extend(ranked_machine_ids[:machine_qty])
         conflicts = checker.check(candidate, require_explicit_stage=True)
         conflicts += checker.check_requirements(
             candidate,
-            machine_qty=definition["machine_qty"],
+            machine_qty=machine_qty,
             employee_qty=definition["employee_qty"],
         )
-        # An incompatible/incomplete resource pick is invalid, not overridable.
+        # Operator drops may confirm missing machines; skills and operator counts stay strict.
         conflicts = [
             replace(conflict, severity="block")
-            if conflict.code in {
-                ConflictCode.RESOURCE_NOT_SKILLED,
-                ConflictCode.REQUIREMENT_UNMET,
-            }
+            if conflict.code == ConflictCode.RESOURCE_NOT_SKILLED or (
+                conflict.code == ConflictCode.REQUIREMENT_UNMET
+                and (not operator_drop or conflict.detail.get("kind") != "machine")
+            )
             else conflict
             for conflict in conflicts
         ]
@@ -653,6 +707,9 @@ class ProductionPlanningService:
 
         # Check only other tickets; this ticket's own old positions are transient.
         session_ids = set(by_id)
+        cls.lock_resources({
+            resource_id for _, candidate in candidates for resource_id in candidate.resource_ids
+        })
         for session, candidate in candidates:
             if not session.locked:
                 conflicts += checker.check(
@@ -734,6 +791,7 @@ class ProductionPlanningService:
 
     @classmethod
     def _apply(cls, session, candidate, *, override: bool) -> MutationResult:
+        cls.lock_resources(candidate.resource_ids)
         checker = cls._checker(session.company)
         conflicts = checker.check(candidate)
 

@@ -828,6 +828,11 @@ class ProductionResource(Timestampable,CompanyOwnedModel):
 
     def __str__(self):
         return str(self.target)
+
+    @property
+    def counts_running_time_once(self):
+        """Unattended machines share running time across simultaneous jobs."""
+        return isinstance(self.target, Machine) and not self.target.needs_human
     
 class OperationRequirement(models.Model):
     production_item = models.ForeignKey(

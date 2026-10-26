@@ -16,6 +16,7 @@ class ResourcePool:
     company_id: int = 0
     parallel_capacity: int = 0
     daily_capacity_minutes: int = 0
+    counts_running_time_once: bool = False
 
     @property
     def company(self):
@@ -49,11 +50,15 @@ def pool_interchangeable_resources(
 
     groups = defaultdict(list)
     for resource, rts in memberships.items():
+        counts_running_time_once = getattr(resource, "counts_running_time_once", False)
+        # Unattended machines keep individual running-time budgets.
         key = (
             frozenset(rts),
             resource.company_id,
             resource_parallel_capacity[resource],
             resource_daily_capacity_minutes[resource],
+            counts_running_time_once,
+            resource.pk if counts_running_time_once else None,
         )
         groups[key].append(resource)
 
@@ -65,7 +70,8 @@ def pool_interchangeable_resources(
     ordered_groups = sorted(
         groups.items(), key=lambda kv: min(m.pk for m in kv[1])
     )
-    for index, ((rts, _company_id, parallel, daily), members) in enumerate(ordered_groups):
+    for index, (key, members) in enumerate(ordered_groups):
+        rts, _company_id, parallel, daily, running_once, _member_id = key
         members = sorted(members, key=lambda m: m.pk)
         pool = ResourcePool(
             pk=f"pool{index}",
@@ -73,6 +79,7 @@ def pool_interchangeable_resources(
             company_id=members[0].company_id,
             parallel_capacity=parallel * len(members),
             daily_capacity_minutes=daily * len(members),
+            counts_running_time_once=running_once,
         )
         for rt in rts:
             pooled_rt_resources[rt].append(pool)

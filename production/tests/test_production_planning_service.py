@@ -12,6 +12,7 @@ from production.models import (
     PlannedProductionSession,
     PlannedSessionResource,
     ProductionItem,
+    ProductionItemSession,
     ProductionResource,
 )
 from production.services.planning_conflicts import ConflictCode
@@ -69,6 +70,73 @@ class PlanTicketTest(TestCase):
                 set(session.resources.values_list("resource_id", flat=True)),
                 {self.cnc.pk, self.operator.pk},
             )
+
+    def test_unattended_machine_stage_plans_without_employee_time(self):
+        oven = make_machine(
+            self.company, name="Oven", stages=[STAGE_CUT], needs_human=False,
+            parallel_capacity=2,
+        )
+        oven_resource = resource_for(oven)
+        ticket = make_ticket(
+            self.company, stages=[STAGE_CUT],
+            stage_minutes={STAGE_CUT: 120}, machine_qty=1, employee_qty=0,
+        )
+
+        result = ProductionPlanningService.plan_ticket_stage_custom(
+            ticket.pk,
+            start_at=self.start,
+            stage={
+                "stage": STAGE_CUT,
+                "duration_minutes": 120,
+                "resource_ids": [oven_resource.pk],
+            },
+        )
+
+        self.assertTrue(result.ok, result.conflicts)
+        session = PlannedProductionSession.objects.get(production_ticket=ticket)
+        self.assertEqual(list(session.resources.values_list("resource_id", flat=True)), [oven_resource.pk])
+        self.assertEqual(ProductionItemSession.objects.count(), 0)
+
+    def test_unattended_machine_accepts_jobs_up_to_parallel_capacity(self):
+        oven = resource_for(make_machine(
+            self.company, name="Oven", stages=[STAGE_CUT],
+            needs_human=False, parallel_capacity=2,
+        ))
+        tickets = [
+            make_ticket(
+                self.company, stages=[STAGE_CUT],
+                stage_minutes={STAGE_CUT: 120}, machine_qty=1, employee_qty=0,
+            )
+            for _ in range(3)
+        ]
+        stage = {
+            "stage": STAGE_CUT,
+            "duration_minutes": 120,
+            "resource_ids": [oven.pk],
+        }
+
+        first = ProductionPlanningService.plan_ticket_stage_custom(
+            tickets[0].pk, start_at=self.start, stage=stage,
+        )
+        second = ProductionPlanningService.plan_ticket_stage_custom(
+            tickets[1].pk, start_at=self.start, stage=stage,
+        )
+        third = ProductionPlanningService.plan_ticket_stage_custom(
+            tickets[2].pk, start_at=self.start, stage=stage,
+        )
+
+        self.assertTrue(first.ok, first.conflicts)
+        self.assertTrue(second.ok, second.conflicts)
+        self.assertFalse(third.ok)
+        self.assertTrue(third.blocked)
+        self.assertFalse(third.requires_confirmation)
+        self.assertIn(ConflictCode.RESOURCE_OVERLAP, {c.code for c in third.conflicts})
+        forced = ProductionPlanningService.plan_ticket_stage_custom(
+            tickets[2].pk, start_at=self.start, stage=stage, override=True,
+        )
+        self.assertTrue(forced.blocked)
+        self.assertEqual(PlannedProductionSession.objects.count(), 2)
+        self.assertEqual(ProductionItemSession.objects.count(), 0)
 
     def test_anchor_is_the_machine(self):
         ProductionPlanningService.plan_ticket(self.ticket.pk, start_at=self.start)
@@ -357,6 +425,68 @@ class CustomPlanTicketTest(TestCase):
         self.assertFalse(result.ok)
         self.assertTrue(result.blocked)
         self.assertFalse(result.requires_confirmation)
+        self.assertIn(ConflictCode.REQUIREMENT_UNMET, {c.code for c in result.conflicts})
+
+    def test_individual_stage_requires_full_resource_quantities(self):
+        for machine_qty, employee_qty in ((2, 1), (1, 2)):
+            with self.subTest(machine_qty=machine_qty, employee_qty=employee_qty):
+                ticket = make_ticket(
+                    self.company, stages=[STAGE_CUT], stage_minutes={STAGE_CUT: 30},
+                    machine_qty=machine_qty, employee_qty=employee_qty,
+                )
+                result = ProductionPlanningService.plan_ticket_stage_custom(
+                    ticket.pk, start_at=self.start,
+                    stage={
+                        "stage": STAGE_CUT, "duration_minutes": 30,
+                        "resource_ids": [self.cnc.pk, self.operator.pk],
+                    },
+                )
+
+                self.assertFalse(result.ok)
+                self.assertTrue(result.blocked)
+                self.assertIn(ConflictCode.REQUIREMENT_UNMET, {c.code for c in result.conflicts})
+                self.assertFalse(PlannedProductionSession.objects.filter(production_ticket=ticket).exists())
+
+    def test_individual_stage_accepts_all_configured_machines(self):
+        second_machine = resource_for(make_machine(self.company, name="Second cutter"))
+        ticket = make_ticket(
+            self.company, stages=[STAGE_CUT], stage_minutes={STAGE_CUT: 30},
+            machine_qty=2, employee_qty=1,
+        )
+        resource_ids = [self.cnc.pk, second_machine.pk, self.operator.pk]
+
+        result = ProductionPlanningService.plan_ticket_stage_custom(
+            ticket.pk, start_at=self.start,
+            stage={"stage": STAGE_CUT, "duration_minutes": 30, "resource_ids": resource_ids},
+        )
+
+        self.assertTrue(result.ok, result.conflicts)
+        self.assertEqual(
+            set(result.sessions[0].resources.values_list("resource_id", flat=True)),
+            set(resource_ids),
+        )
+
+    def test_individual_stage_still_requires_a_machine_when_more_are_configured(self):
+        ticket = make_ticket(
+            self.company,
+            stages=[STAGE_CUT],
+            stage_minutes={STAGE_CUT: 30},
+            machine_qty=2,
+            employee_qty=1,
+        )
+
+        result = ProductionPlanningService.plan_ticket_stage_custom(
+            ticket.pk,
+            start_at=self.start,
+            stage={
+                "stage": STAGE_CUT,
+                "duration_minutes": 30,
+                "resource_ids": [self.operator.pk],
+            },
+        )
+
+        self.assertFalse(result.ok)
+        self.assertTrue(result.blocked)
         self.assertIn(ConflictCode.REQUIREMENT_UNMET, {c.code for c in result.conflicts})
 
     def test_an_individual_stage_cannot_be_added_twice(self):

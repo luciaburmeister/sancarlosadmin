@@ -135,6 +135,19 @@ class WorkingCalendar:
         """Open minutes in ``[start, end)`` - closed time excluded."""
         return sum(w.minutes for w in self.windows_between(start, end))
 
+    def working_minutes_covered(self, intervals: list[tuple[datetime, datetime]]) -> int:
+        """Open minutes covered by at least one interval."""
+        merged: list[tuple[datetime, datetime]] = []
+        for start, end in sorted(intervals):
+            if start >= end:
+                continue
+            if merged and start <= merged[-1][1]:
+                previous_start, previous_end = merged[-1]
+                merged[-1] = (previous_start, max(previous_end, end))
+            else:
+                merged.append((start, end))
+        return sum(self.working_minutes_between(start, end) for start, end in merged)
+
     def is_working(self, moment: datetime) -> bool:
         day = timezone.localtime(moment, self._tz).date()
         return any(w.contains(moment) for w in self.windows_for_date(day))

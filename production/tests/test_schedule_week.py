@@ -86,6 +86,31 @@ class WeeklyScheduleContextTest(TestCase):
         self.assertEqual(len(self.build()["rows"]), 1)
         self.assertEqual(len(self.build("ticket")["rows"]), 1)
 
+    def test_operator_rows_require_production_work_permission_and_preserve_bookings(self):
+        office = resource_for(make_employee(
+            self.company, first_name="Office", can_work_on_production=False,
+        ))
+        session = make_session(
+            self.ticket, start=self.at(14, 9), end=self.at(14, 10),
+            resources=[self.machine, self.operator, office],
+        )
+
+        self.assertEqual(
+            [row["label"] for row in self.build("employee")["rows"]], ["Ana Ruiz"],
+        )
+        self.assertEqual(len(self.build("machine")["rows"]), 1)
+        self.assertEqual(len(self.build("ticket")["rows"]), 1)
+        self.assertTrue(session.resources.filter(resource=office).exists())
+
+        employee = office.target
+        employee.can_work_on_production = True
+        employee.save(update_fields=["can_work_on_production"])
+
+        self.assertEqual(
+            [row["label"] for row in self.build("employee")["rows"]],
+            ["Ana Ruiz", "Office Ruiz"],
+        )
+
     def test_overnight_session_appears_on_both_days_without_extra_hours(self):
         make_session(
             self.ticket, start=self.at(14, 23), end=self.at(15, 1),

@@ -3,6 +3,8 @@ import unicodedata
 from datetime import datetime
 
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from unfold.views import ChangeList
@@ -878,8 +880,14 @@ class SchedulingRunAdmin(ModelAdmin):
         }
         return render(request, "admin/production/schedulingrun/preview.html", context)
 
+    @transaction.atomic
     def apply_view(self, request, run_id: int):
-        run = get_object_or_404(SchedulingRun, pk=run_id)
+        if not self.has_change_permission(request) or not request.user.has_perms([
+            "production.add_plannedproductionsession",
+            "production.delete_plannedproductionsession",
+        ]):
+            raise PermissionDenied
+        run = get_object_or_404(self.get_queryset(request).select_for_update(), pk=run_id)
 
         if request.method != "POST":
             return redirect("admin:production_schedulingrun_preview", run_id=run.pk)
@@ -889,9 +897,19 @@ class SchedulingRunAdmin(ModelAdmin):
             return redirect("admin:production_schedulingrun_preview", run_id=run.pk)
 
         proposal = proposal_from_dict(run.result_payload)
+        configuration_ids = set(proposal.selected_configuration_ids)
+        allowed_ids = set(Configuration.objects.filter(
+            pk__in=configuration_ids, company__in=get_user_companies(request.user),
+        ).values_list("pk", flat=True))
+        if configuration_ids != allowed_ids:
+            raise PermissionDenied
 
         applier = ScheduleProposalApplier()
-        created = applier.apply(proposal)
+        try:
+            created = applier.apply(proposal)
+        except ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+            return redirect("admin:production_schedulingrun_preview", run_id=run.pk)
 
         run.status = "applied"
         run.applied_at = timezone.now()

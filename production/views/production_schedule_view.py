@@ -420,6 +420,7 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             int(payload["ticket_id"]),
             start_at=self._parse_datetime(payload["start"]),
             stage=payload["stage"],
+            assign_machines=True,
             override=bool(payload.get("override")),
         )
         return self._respond(result)

@@ -185,7 +185,7 @@ class UiRow:
     key: str
     label: str
     sublabel: str
-    kind: str  # "machine" | "employee" | "ticket"
+    kind: str  # "machine" | "employee" | "ticket" | "unattended"
     resource_id: int | None = None
     ticket_id: int | None = None
     blocks: list[UiBlock] = field(default_factory=list)
@@ -198,6 +198,7 @@ class UiMachineGroup:
     machine: UiRow
     operator_rows: list[UiRow]
     unassigned_row: UiRow | None = None
+    unattended_rows: list[UiRow] = field(default_factory=list)
 
     @property
     def blocks(self) -> list[UiBlock]:
@@ -296,6 +297,11 @@ class ProductionScheduleContext:
             for resource in resources
             if isinstance(resource.target, Employee)
             and resource.target.can_work_on_production
+        }
+        self._unattended_machine_ids = {
+            resource.pk
+            for resource in resources
+            if resource.counts_running_time_once
         }
 
         sessions = self._load_sessions()
@@ -467,13 +473,20 @@ class ProductionScheduleContext:
             if resource.daily_capacity_minutes:
                 day_start = self.start
                 day_end = self.end
-                used = sum(
-                    self.calendar.working_minutes_between(
+                intervals = [
+                    (
                         max(session.planned_start, day_start),
                         min(session.planned_end, day_end),
                     )
                     for session in assigned_sessions
-                )
+                ]
+                if resource.counts_running_time_once:
+                    used = self.calendar.working_minutes_covered(intervals)
+                else:
+                    used = sum(
+                        self.calendar.working_minutes_between(*interval)
+                        for interval in intervals
+                    )
                 if used > resource.daily_capacity_minutes:
                     for session in assigned_sessions:
                         add(
@@ -583,6 +596,8 @@ class ProductionScheduleContext:
         rows_by_resource: dict[int, UiRow] = {}
         for resource in sorted(resources, key=lambda r: self._resource_label(r).lower()):
             is_machine = resource.content_type_id == machine_ct
+            if not is_machine and resource.pk not in self._production_employee_ids:
+                continue
             row = UiRow(
                 key=f"resource-{resource.pk}",
                 label=self._resource_label(resource),
@@ -689,6 +704,23 @@ class ProductionScheduleContext:
             for employee_id in employee_ids:
                 blocks_by_employee[employee_id].append(block)
 
+        is_unattended = machine.resource_id in self._unattended_machine_ids
+        unattended_rows = []
+        if is_unattended:
+            for number, block in enumerate(
+                sorted(unassigned, key=lambda block: (block.start, block.session_id)),
+                start=1,
+            ):
+                unattended_rows.append(
+                    UiRow(
+                        key=f"stage-{stage}-machine-{machine.resource_id}-unattended-{block.session_id}",
+                        label=_("Without operator %(number)s") % {"number": number},
+                        sublabel="",
+                        kind="unattended",
+                        blocks=[block],
+                    )
+                )
+
         return UiMachineGroup(
             machine=UiRow(
                 key=f"stage-{stage}-machine-{machine.resource_id}",
@@ -704,6 +736,7 @@ class ProductionScheduleContext:
                 blocks_by_employee,
                 key_prefix=f"stage-{stage}-machine-{machine.resource_id}",
             ),
+            unattended_rows=unattended_rows,
             unassigned_row=(
                 UiRow(
                     key=f"stage-{stage}-machine-{machine.resource_id}-unassigned",
@@ -712,7 +745,7 @@ class ProductionScheduleContext:
                     kind="unassigned",
                     blocks=sorted(unassigned, key=lambda block: block.start),
                 )
-                if unassigned
+                if unassigned and not is_unattended
                 else None
             ),
         )
@@ -799,5 +832,6 @@ def _rows_to_lay_out(data: ScheduleData):
         for machine_group in group.machine_groups:
             yield machine_group.machine
             yield from machine_group.operator_rows
+            yield from machine_group.unattended_rows
             if machine_group.unassigned_row is not None:
                 yield machine_group.unassigned_row

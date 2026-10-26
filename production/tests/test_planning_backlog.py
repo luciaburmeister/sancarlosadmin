@@ -24,6 +24,7 @@ from production.services.planning_backlog import (
     unplanned_tickets,
 )
 from production.services.planning_stages import resolve_ticket_stages
+from production.services.stages_to_sessions import StagesToSessionsService
 from production.tests.factories import (
     STAGE_CUT,
     STAGE_PAINT,
@@ -31,6 +32,7 @@ from production.tests.factories import (
     add_schedule,
     make_company,
     make_employee,
+    make_item,
     make_machine,
     make_session,
     make_ticket,
@@ -70,7 +72,7 @@ class PlanningBacklogTest(TestCase):
 
         self.assertEqual(self.ids(unplanned_tickets(self.company)), [ticket.pk])
 
-    def test_unplanning_returns_the_ticket_to_the_panel(self):
+    def test_unplanning_makes_a_scheduled_stage_available_again(self):
         ticket = make_ticket(self.company)
         sessions = [
             make_session(
@@ -83,11 +85,86 @@ class PlanningBacklogTest(TestCase):
             )
             for sequence, stage in enumerate((STAGE_CUT, STAGE_WELD, STAGE_PAINT))
         ]
-        self.assertEqual(unplanned_tickets(self.company), [])
+        planned = unplanned_tickets(self.company)[0]
+        self.assertEqual(planned.ticket_id, ticket.pk)
+        self.assertTrue(planned.is_fully_planned)
+        self.assertTrue(all(stage["is_planned"] for stage in planned.stages))
 
         sessions[0].delete()
 
         self.assertEqual(self.ids(unplanned_tickets(self.company)), [ticket.pk])
+        remaining = unplanned_tickets(self.company)[0]
+        self.assertFalse(remaining.is_fully_planned)
+        self.assertEqual(
+            [stage["is_planned"] for stage in remaining.stages], [False, True, True],
+        )
+
+    def test_planned_product_stages_do_not_hide_unfinished_item_stages(self):
+        ticket = make_ticket(self.company)
+        product = ticket.source_object.product
+        product.production_stages = [STAGE_CUT]
+        product.save(update_fields=["production_stages"])
+        make_session(
+            ticket, stage=STAGE_CUT,
+            start=datetime(2026, 9, 14, 9, tzinfo=self.tz),
+            end=datetime(2026, 9, 14, 10, tzinfo=self.tz),
+            resources=[self.operator],
+        )
+
+        item = unplanned_tickets(self.company)[0]
+
+        self.assertEqual(item.ticket_id, ticket.pk)
+        self.assertEqual(
+            [(stage["stage"], stage["is_planned"]) for stage in item.stages],
+            [(STAGE_CUT, True), (STAGE_PAINT, False), (STAGE_WELD, False)],
+        )
+
+    def test_worker_completion_hides_a_stage_and_reopening_restores_it(self):
+        ticket = make_ticket(self.company, stages=[STAGE_CUT])
+        item = make_item(ticket, stages=[STAGE_CUT])
+        booking = make_session(
+            ticket, stage=STAGE_CUT,
+            start=datetime(2026, 9, 14, 9, tzinfo=self.tz),
+            end=datetime(2026, 9, 14, 10, tzinfo=self.tz),
+            resources=[self.operator],
+        )
+        employee = self.operator.target
+        self.assertTrue(unplanned_tickets(self.company)[0].is_fully_planned)
+
+        StagesToSessionsService.start_activity(stage_name=STAGE_CUT, items=[item], employee=employee)
+        StagesToSessionsService.finish_activity(stage_name=STAGE_CUT, items=[item], employee=employee)
+
+        self.assertEqual(unplanned_tickets(self.company), [])
+
+        StagesToSessionsService.revert_activity(
+            stage_name=STAGE_CUT, items=[item],
+            target_status=ProductionItemStatus.PENDING, employee=employee,
+        )
+
+        reopened = unplanned_tickets(self.company)[0]
+        self.assertEqual(reopened.ticket_id, ticket.pk)
+        self.assertEqual([stage["stage"] for stage in reopened.stages], [STAGE_CUT])
+        self.assertTrue(reopened.stages[0]["is_planned"])
+        self.assertTrue(ticket.planned_sessions.filter(pk=booking.pk).exists())
+
+        booking.delete()
+
+        self.assertFalse(unplanned_tickets(self.company)[0].stages[0]["is_planned"])
+
+    def test_worker_undoing_completion_restores_an_unplanned_stage(self):
+        ticket = make_ticket(self.company, stages=[STAGE_CUT])
+        item = make_item(ticket, stages=[STAGE_CUT])
+        employee = self.operator.target
+        StagesToSessionsService.start_activity(stage_name=STAGE_CUT, items=[item], employee=employee)
+        StagesToSessionsService.finish_activity(stage_name=STAGE_CUT, items=[item], employee=employee)
+        self.assertEqual(unplanned_tickets(self.company), [])
+
+        StagesToSessionsService.undo_finish(stage_name=STAGE_CUT, items=[item], employee=employee)
+
+        restored = unplanned_tickets(self.company)[0]
+        self.assertEqual(restored.ticket_id, ticket.pk)
+        self.assertTrue(restored.stages[0]["is_in_progress"])
+        self.assertFalse(restored.stages[0]["is_planned"])
 
     def test_a_partly_planned_ticket_keeps_its_remaining_stages(self):
         ticket = make_ticket(self.company)
@@ -167,6 +244,29 @@ class PlanningBacklogTest(TestCase):
         self.assertTrue(item.stages[0]["is_planned"])
         self.assertEqual(item.as_dict()["planned_stage_count"], 1)
 
+    def test_ticket_remains_when_only_scheduled_finishing_stages_are_left(self):
+        ticket = make_ticket(self.company)
+        make_item(ticket, planning={
+            STAGE_CUT: {"status": ProductionItemStatus.DONE},
+            STAGE_WELD: {"status": ProductionItemStatus.PENDING},
+            STAGE_PAINT: {"status": ProductionItemStatus.PENDING},
+        })
+        for position, stage in enumerate((STAGE_WELD, STAGE_PAINT)):
+            make_session(
+                ticket, stage=stage,
+                start=datetime(2026, 11, 2, 9 + position, tzinfo=self.tz),
+                end=datetime(2026, 11, 2, 10 + position, tzinfo=self.tz),
+                resources=[self.operator],
+            )
+
+        item = unplanned_tickets(self.company)[0]
+
+        self.assertEqual(item.ticket_id, ticket.pk)
+        self.assertEqual([stage["stage"] for stage in item.stages], [STAGE_WELD, STAGE_PAINT])
+        self.assertTrue(item.is_fully_planned)
+        self.assertEqual(item.completed_stage_count, 1)
+        self.assertEqual(item.as_dict()["planned_stage_count"], 2)
+
     def test_other_companies_are_not_visible(self):
         other = make_company(name="Otra SL")
         make_ticket(other)
@@ -212,16 +312,10 @@ class PlanningBacklogTest(TestCase):
 
     def test_batching_skips_ineligible_tickets_before_applying_limit(self):
         self.ticket_with_delivery(self.today, stages=[])
-        planned = self.ticket_with_delivery(
+        finished = self.ticket_with_delivery(
             self.today + timedelta(days=1), stages=[STAGE_CUT]
         )
-        make_session(
-            planned,
-            stage=STAGE_CUT,
-            start=datetime(2026, 9, 14, 9, tzinfo=self.tz),
-            end=datetime(2026, 9, 14, 10, tzinfo=self.tz),
-            resources=[self.operator],
-        )
+        make_item(finished, stages=[STAGE_CUT], status=ProductionItemStatus.DONE)
         first = self.ticket_with_delivery(self.today + timedelta(days=2))
         second = self.ticket_with_delivery(self.today + timedelta(days=3))
         self.ticket_with_delivery(self.today + timedelta(days=4))

@@ -51,7 +51,7 @@ class Command(BaseCommand):
                 stage_resource_types, stage_resource_type_quantity,
                 stage_duration, resource_type_active_resources,
                 resource_parallel_capacity, _daily_capacity,
-                _slot_load, _day_load,
+                _slot_load, _day_load, _slot_covered_minutes,
             ) = optimization_dict_creation(start_date, end_date, configurations, ts)
         except ValidationError as exc:
             raise CommandError(

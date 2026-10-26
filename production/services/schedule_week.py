@@ -192,6 +192,7 @@ class WeeklyScheduleContext:
             return [
                 (f"operator-{resource.pk}", str(resource.target), machine_names)
                 for resource in operators
+                if resource.target.can_work_on_production
             ]
         if self.group_by == GROUP_TICKET:
             if session.production_ticket_id is None:

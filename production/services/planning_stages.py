@@ -53,6 +53,7 @@ def resolve_ticket_stages(ticket, *, include_unconfigured: bool = False) -> list
     durations: dict[str, int] = {}
     machine_qty: dict[str, int] = {}
     employee_qty: dict[str, int] = {}
+    resource_requirements_configured: set[str] = set()
 
     # An item's stage_resources is a snapshot taken when its BOM was built, so
     # it is empty for anything configured on the template afterwards. Reading
@@ -74,6 +75,11 @@ def resolve_ticket_stages(ticket, *, include_unconfigured: bool = False) -> list
             if not raw:
                 continue
 
+            if any(key in raw for key in (
+                "machine_qty", "employee_qty", "machine_types", "employee_types",
+            )):
+                resource_requirements_configured.add(stage)
+
             if context is None:
                 context = configuration.get_pricing_context()
             resolved = _resolve_stage_info(
@@ -89,6 +95,7 @@ def resolve_ticket_stages(ticket, *, include_unconfigured: bool = False) -> list
             "total_time_min": durations.get(stage, 0),
             "machine_qty": machine_qty.get(stage, 0),
             "employee_qty": employee_qty.get(stage, 0),
+            "resource_requirements_configured": stage in resource_requirements_configured,
         }
         for stage in stage_order
         if include_unconfigured or durations.get(stage, 0) > 0

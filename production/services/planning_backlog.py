@@ -1,4 +1,4 @@
-"""Tickets with unfinished stages still waiting for the calendar."""
+"""Active tickets with stages that workers have not finished."""
 
 from __future__ import annotations
 
@@ -50,6 +50,10 @@ class BacklogItem:
     completed_stage_count: int
     current_stage: str
     stages: list[dict]
+
+    @property
+    def is_fully_planned(self) -> bool:
+        return bool(self.stages) and all(stage["is_planned"] for stage in self.stages)
 
     @property
     def hours_label(self) -> str:
@@ -166,14 +170,6 @@ def unplanned_tickets(company, *, limit: int = DEFAULT_LIMIT) -> list[BacklogIte
             planned_stage_names = {
                 session.production_stage for session in ticket.planned_sessions.all()
             }
-            product_stages = list(
-                getattr(getattr(configuration, "product", None), "production_stages", [])
-                or []
-            )
-            # Skip duration resolution for a ticket that is already fully planned.
-            if product_stages and all(stage in planned_stage_names for stage in product_stages):
-                continue
-
             stages = resolve_ticket_stages(ticket, include_unconfigured=True)
             # A ticket with no resolvable stages can't be scheduled; skip its card.
             if not stages:
@@ -201,7 +197,7 @@ def unplanned_tickets(company, *, limit: int = DEFAULT_LIMIT) -> list[BacklogIte
                     for status in statuses
                 )
                 remaining.append(stage)
-            if not remaining or all(stage["is_planned"] for stage in remaining):
+            if not remaining:
                 continue
 
             items.append(

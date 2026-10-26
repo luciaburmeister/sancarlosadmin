@@ -4370,8 +4370,8 @@ msgstr "Etapas en las que esta máquina está autorizado para trabajar"
 msgid "Is active"
 msgstr "Está activo"
 
-msgid "Needs human"
-msgstr "Necesita humano"
+msgid "Requires an operator"
+msgstr "Requiere operario"
 
 msgid "Total usable minutes per day"
 msgstr "Total de minutos utilizables por día"
@@ -4382,8 +4382,8 @@ msgstr "Capacidad diaria en minutos"
 msgid "How many items can be processed in parallel"
 msgstr "¿Cuántos elementos se pueden procesar en paralelo?"
 
-msgid "Parallel capacity in minutes"
-msgstr "Capacidad paralela en minutos"
+msgid "Simultaneous jobs"
+msgstr "Trabajos simultáneos"
 
 msgid "Email Address"
 msgstr "Corréo electronico"
@@ -18897,6 +18897,9 @@ msgstr "Fuera del horario laboral"
 #: production/services/schedule_context.py:726
 msgid "Unassigned operator"
 msgstr "Operario sin asignar"
+
+msgid "Without operator %(number)s"
+msgstr "Sin operario %(number)s"
 
 #: production/services/schedule_context.py
 msgid "Unassigned machine"

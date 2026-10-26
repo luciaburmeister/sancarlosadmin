@@ -39,6 +39,7 @@
                   </div>
                 </div>
               {% endfor %}
+              {% include "admin/production/plannedproductionsession/_unattended_rows.html" %}
               {% if machine_group.unassigned_row %}
                 <div class="ps-row ps-row--child border-b border-base-200" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="unassigned" data-stage-name="{{ stage_group.stage }}">
                   <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium ps-text-warn">{{ machine_group.unassigned_row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ machine_group.unassigned_row.sublabel }}</span></div>
@@ -98,6 +99,7 @@
                       <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" %}{% endfor %}</div>
                     </div>
                   {% endfor %}
+                  {% include "admin/production/plannedproductionsession/_unattended_rows.html" with nested=True %}
                   {% if machine_group.unassigned_row %}
                     <div class="ps-row ps-row--child ps-row--stage-operator border-b border-base-200" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="unassigned" data-stage-name="{{ stage_group.stage }}">
                       <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium ps-text-warn">{{ machine_group.unassigned_row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ machine_group.unassigned_row.sublabel }}</span></div>

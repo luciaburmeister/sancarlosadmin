@@ -16,9 +16,9 @@
   <div class="ps-backlog-scroll flex gap-3 overflow-x-auto pb-2">
     {% for item in backlog %}
       <div
-        class="ps-backlog-card shrink-0 rounded-lg border p-3 transition-colors {% if can_plan %}cursor-grab{% endif %}"
+        class="ps-backlog-card shrink-0 rounded-lg border p-3 transition-colors {% if can_plan and not item.is_fully_planned %}cursor-grab{% endif %}"
         :class="expandedBacklogTicketId === {{ item.ticket_id }} ? 'border-primary-400 bg-primary-50' : 'border-base-200 bg-white'"
-        draggable="{% if can_plan %}true{% else %}false{% endif %}"
+        draggable="{% if can_plan and not item.is_fully_planned %}true{% else %}false{% endif %}"
         data-ticket-id="{{ item.ticket_id }}"
         data-needs-time-configuration="{{ item.needs_time_configuration|yesno:'1,0' }}"
       >
@@ -42,7 +42,7 @@
               {% trans "Times required" %}
             </span>
           {% else %}
-            <span>{% blocktranslate count count=item.stage_count %}{{ count }} stage remaining{% plural %}{{ count }} stages remaining{% endblocktranslate %} · {{ item.hours_label }}</span>
+            <span>{% blocktranslate count count=item.stage_count %}{{ count }} stage remaining{% plural %}{{ count }} stages remaining{% endblocktranslate %} · {% if item.is_fully_planned %}{% trans "On calendar" %}{% else %}{{ item.hours_label }}{% endif %}</span>
           {% endif %}
         </div>
         {% if can_plan %}
@@ -74,7 +74,7 @@
             >
               <div class="flex items-center justify-between gap-1">
                 <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-base-100 text-[10px] font-bold text-base-600" x-text="stage.position"></span>
-                <span class="material-symbols-outlined text-sm" :class="stage.isPlanned ? 'ps-text-success' : 'text-base-400'" x-text="stage.isPlanned ? 'check_circle' : 'drag_indicator'"></span>
+                <span class="material-symbols-outlined text-sm text-base-400" x-text="stage.isPlanned ? 'event' : 'drag_indicator'"></span>
               </div>
               <strong class="mt-1 block truncate text-xs" x-text="stage.stage"></strong>
               <label class="mt-1 flex min-w-0 items-center justify-between gap-1 text-[10px] font-semibold text-base-500" @mousedown.stop @click.stop>

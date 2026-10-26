@@ -229,6 +229,67 @@ class ConflictCheckerTest(TestCase):
 
         self.assertNotIn(ConflictCode.RESOURCE_OVERLAP, self.codes(conflicts))
 
+    def test_parallel_capacity_uses_peak_load_not_total_overlapping_jobs(self):
+        self.cnc.parallel_capacity = 2
+        self.cnc.save(update_fields=["parallel_capacity"])
+        make_session(
+            self.ticket, start=self.at(MONDAY, 9), end=self.at(MONDAY, 10),
+            resources=[self.cnc],
+        )
+        make_session(
+            self.ticket, start=self.at(MONDAY, 10), end=self.at(MONDAY, 11),
+            resources=[self.cnc],
+        )
+
+        conflicts = self.checker().check(self.candidate(
+            start=self.at(MONDAY, 9), end=self.at(MONDAY, 11),
+            resources=[self.cnc], ticket_id=None,
+        ))
+
+        self.assertNotIn(ConflictCode.RESOURCE_OVERLAP, self.codes(conflicts))
+
+    def test_parallel_capacity_does_not_change_daily_total(self):
+        self.machine.parallel_capacity = 2
+        self.machine.daily_capacity_minutes = 240
+        self.machine.save(update_fields=["parallel_capacity", "daily_capacity_minutes"])
+        make_session(
+            self.ticket, start=self.at(MONDAY, 9), end=self.at(MONDAY, 13),
+            resources=[self.cnc],
+        )
+
+        conflicts = self.checker().check(self.candidate(
+            start=self.at(MONDAY, 9), end=self.at(MONDAY, 13),
+            resources=[self.cnc], ticket_id=None,
+        ))
+
+        self.assertNotIn(ConflictCode.RESOURCE_OVERLAP, self.codes(conflicts))
+        self.assertIn(ConflictCode.DAILY_CAPACITY_EXCEEDED, self.codes(conflicts))
+
+    def test_unattended_machine_counts_overlapping_running_minutes_once(self):
+        self.machine.needs_human = False
+        self.machine.parallel_capacity = 2
+        self.machine.daily_capacity_minutes = 60
+        self.machine.save(update_fields=["needs_human", "parallel_capacity", "daily_capacity_minutes"])
+        make_session(
+            self.ticket, start=self.at(MONDAY, 9), end=self.at(MONDAY, 10),
+            resources=[self.cnc],
+        )
+
+        same_hour = self.checker().check(self.candidate(
+            start=self.at(MONDAY, 9), end=self.at(MONDAY, 10),
+            resources=[self.cnc], ticket_id=None,
+        ))
+        later_hour = self.checker().check(self.candidate(
+            start=self.at(MONDAY, 9, 30), end=self.at(MONDAY, 10, 30),
+            resources=[self.cnc], ticket_id=None,
+        ))
+
+        self.assertNotIn(ConflictCode.DAILY_CAPACITY_EXCEEDED, self.codes(same_hour))
+        self.assertNotIn(ConflictCode.RESOURCE_OVERLAP, self.codes(same_hour))
+        conflict = self.only(later_hour, ConflictCode.DAILY_CAPACITY_EXCEEDED)
+        self.assertEqual(conflict.detail["used"], 60)
+        self.assertEqual(conflict.detail["candidate"], 30)
+
     def test_a_session_does_not_overlap_itself(self):
         session = make_session(
             self.ticket,

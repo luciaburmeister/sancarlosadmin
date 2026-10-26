@@ -74,7 +74,91 @@ class ScheduleViewTest(StaffUserMixin, TestCase):
         self.assertContains(response, 'name="day"')
         self.assertContains(response, "calendar_month")
         self.assertTrue(response.context["is_machine_people"])
-        # The confirmation dialog uses the dedicated calendar overlay.
+
+    def test_operator_view_hides_employees_without_production_work_permission(self):
+        self.login_with_view_permission()
+        office = resource_for(make_employee(
+            self.company, first_name="Office", can_work_on_production=False,
+        ))
+        make_session(
+            self.ticket, start=self.at(9), end=self.at(10),
+            resources=[self.operator, office],
+        )
+
+        for period in ("day", "week"):
+            with self.subTest(period=period):
+                response = self.client.get(reverse(SCHEDULE_URL), {
+                    "day": MONDAY.date().isoformat(),
+                    "group_by": "employee", "period": period,
+                })
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Ana Ruiz")
+                if period == "day":
+                    self.assertEqual(
+                        [row.resource_id for row in response.context["rows"]],
+                        [self.operator.pk],
+                    )
+                    self.assertNotContains(response, f'data-row-resource-id="{office.pk}"')
+                else:
+                    self.assertNotContains(response, "Office Ruiz")
+
+    def test_fully_scheduled_unfinished_ticket_stays_in_pending(self):
+        self.login_with_view_permission()
+        for position, stage in enumerate((STAGE_CUT, STAGE_WELD, STAGE_PAINT)):
+            make_session(
+                self.ticket, stage=stage,
+                start=self.at(9 + position), end=self.at(10 + position),
+                resources=[self.operator],
+            )
+
+        response = self.client.get(reverse(SCHEDULE_URL), {"day": "2026-10-21"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item.ticket_id for item in response.context["backlog"]], [self.ticket.pk])
+        item = response.context["backlog_json"][0]
+        self.assertEqual(item["planned_stage_count"], 3)
+        self.assertTrue(all(stage["is_planned"] for stage in item["stages"]))
+
+    def test_unattended_job_rows_render_in_single_and_multiple_machine_groups(self):
+        self.enterContext(translation.override("en"))
+        oven = self.cnc.target
+        oven.needs_human = False
+        oven.parallel_capacity = 2
+        oven.save(update_fields=["needs_human", "parallel_capacity"])
+        self.login_with_view_permission()
+        url = reverse(SCHEDULE_URL)
+        params = {"day": MONDAY.date().isoformat(), "group_by": "machine_people"}
+
+        response = self.client.get(url, params)
+        self.assertNotContains(response, "Without operator 1")
+
+        make_session(
+            self.ticket, start=self.at(9), end=self.at(11), resources=[self.cnc],
+        )
+        make_session(
+            make_ticket(self.company), start=self.at(9), end=self.at(11),
+            resources=[self.cnc],
+        )
+
+        for multiple_machines in (False, True):
+            if multiple_machines:
+                make_machine(self.company, name="CNC-02")
+            with self.subTest(multiple_machines=multiple_machines):
+                response = self.client.get(url, params)
+                self.assertContains(response, "Without operator 1", count=1)
+                self.assertContains(response, "Without operator 2", count=1)
+                self.assertContains(response, 'data-row-kind="unattended"', count=2)
+
+        with translation.override("es"):
+            response = self.client.get(reverse(SCHEDULE_URL), params)
+            self.assertContains(response, "Sin operario 1", count=1)
+
+    def test_confirmation_dialog_uses_the_dedicated_calendar_overlay(self):
+        self.login_with_view_permission()
+
+        response = self.client.get(reverse(SCHEDULE_URL))
+
         self.assertContains(response, 'class="ps-confirm-overlay"')
         self.assertContains(response, 'aria-modal="true"')
 
@@ -624,6 +708,121 @@ class ScheduleActionViewTest(StaffUserMixin, TestCase):
             ),
             [STAGE_CUT],
         )
+
+    def test_operator_stage_drop_assigns_machines_through_the_action_endpoint(self):
+        user = self.staff_user(perms=[
+            "view_plannedproductionsession", "add_plannedproductionsession",
+        ])
+        self.client.force_login(user)
+        ticket = make_ticket(
+            self.company, stages=[STAGE_CUT], stage_minutes={STAGE_CUT: 30},
+            machine_qty=1, employee_qty=1,
+        )
+
+        response = self.post({
+            "action": "plan_ticket_stage_custom",
+            "ticket_id": ticket.pk,
+            "start": self.at(9).isoformat(),
+            "stage": {
+                "stage": STAGE_CUT, "duration_minutes": 30,
+                "resource_ids": [self.operator.pk],
+            },
+            **self.window_bounds(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(
+            set(PlannedProductionSession.objects.get(production_ticket=ticket)
+                .resources.values_list("resource_id", flat=True)),
+            {self.operator.pk, self.cnc.pk},
+        )
+
+    def test_two_unconfigured_stage_drops_assign_each_operator_and_machine(self):
+        user = self.staff_user(perms=[
+            "view_plannedproductionsession", "add_plannedproductionsession",
+        ])
+        self.client.force_login(user)
+        ticket = make_ticket(self.company, stages=[STAGE_CUT, STAGE_PAINT])
+        cutter = self.cnc.target
+        cutter.production_stages = [STAGE_CUT]
+        cutter.save(update_fields=["production_stages"])
+        painter = resource_for(make_machine(self.company, name="Paint booth", stages=[STAGE_PAINT]))
+        mate = resource_for(make_employee(self.company, first_name="Luis"))
+
+        for stage, operator, machine, hour in (
+            (STAGE_CUT, self.operator, self.cnc, 9),
+            (STAGE_PAINT, mate, painter, 11),
+        ):
+            with self.subTest(stage=stage):
+                response = self.post({
+                    "action": "plan_ticket_stage_custom",
+                    "ticket_id": ticket.pk,
+                    "start": self.at(hour).isoformat(),
+                    # Older pages sent false when quantities were unconfigured.
+                    "assign_machines": False,
+                    "stage": {
+                        "stage": stage, "duration_minutes": 60,
+                        "resource_ids": [operator.pk],
+                    },
+                    **self.window_bounds(),
+                })
+
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertTrue(response.json()["ok"])
+                self.assertEqual(
+                    set(PlannedProductionSession.objects.get(
+                        production_ticket=ticket, production_stage=stage,
+                    ).resources.values_list("resource_id", flat=True)),
+                    {operator.pk, machine.pk},
+                )
+
+    def test_operator_drop_capacity_and_missing_machine_warnings_can_be_confirmed(self):
+        user = self.staff_user(perms=[
+            "view_plannedproductionsession", "add_plannedproductionsession",
+        ])
+        self.client.force_login(user)
+        make_session(
+            self.ticket, start=self.at(9), end=self.at(10), resources=[self.cnc],
+        )
+
+        for missing_machine, hour in ((False, 9), (True, 11)):
+            with self.subTest(missing_machine=missing_machine):
+                if missing_machine:
+                    machine = self.cnc.target
+                    machine.is_active = False
+                    machine.save(update_fields=["is_active"])
+                ticket = make_ticket(
+                    self.company, stages=[STAGE_CUT], stage_minutes={STAGE_CUT: 30},
+                    machine_qty=1, employee_qty=1,
+                )
+                payload = {
+                    "action": "plan_ticket_stage_custom",
+                    "ticket_id": ticket.pk,
+                    "start": self.at(hour).isoformat(),
+                    "stage": {
+                        "stage": STAGE_CUT, "duration_minutes": 30,
+                        "resource_ids": [self.operator.pk],
+                    },
+                    **self.window_bounds(),
+                }
+
+                response = self.post(payload)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(response.json()["ok"])
+                self.assertTrue(response.json()["requires_confirmation"])
+                self.assertFalse(PlannedProductionSession.objects.filter(production_ticket=ticket).exists())
+
+                confirmed = self.post({**payload, "override": True})
+
+                self.assertEqual(confirmed.status_code, 200)
+                self.assertTrue(confirmed.json()["ok"])
+                self.assertEqual(
+                    set(PlannedProductionSession.objects.get(production_ticket=ticket)
+                        .resources.values_list("resource_id", flat=True)),
+                    {self.operator.pk} if missing_machine else {self.operator.pk, self.cnc.pk},
+                )
 
     # --- permissions -----------------------------------------------------
 

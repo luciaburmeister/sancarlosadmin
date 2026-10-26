@@ -712,7 +712,7 @@ class Machine(CompanyOwnedModel):
 
     is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
 
-    needs_human = models.BooleanField(default=True, verbose_name=_("Needs human"))
+    needs_human = models.BooleanField(default=True, verbose_name=_("Requires an operator"))
     
     daily_capacity_minutes = models.PositiveIntegerField(
         help_text=_("Total usable minutes per day"),
@@ -722,7 +722,7 @@ class Machine(CompanyOwnedModel):
     parallel_capacity = models.PositiveSmallIntegerField(
         default=1,
         help_text=_("How many items can be processed in parallel"),
-        verbose_name=_("Parallel capacity in minutes")
+        verbose_name=_("Simultaneous jobs")
     )
 
     notes = models.TextField(blank=True, verbose_name=_("Notes"))

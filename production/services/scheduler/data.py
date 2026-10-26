@@ -1,14 +1,25 @@
 from configurator.models import Configuration
 from datetime import datetime, date, time, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import NamedTuple
 from django.core.exceptions import ValidationError
 from configurator.utils.evaluator import safe_eval
 
 from production.models import PlannedSessionResource, ProductionResource
+from production.services.working_calendar import WorkingCalendar
+from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from collections import defaultdict
 from company.models import Company, Machine, Employee
+
+
+class ResourceType(NamedTuple):
+    """A stage's resource kind within one company."""
+
+    content_type: ContentType
+    stage: str
+    company_id: int
 
 
 def times_every_n_minutes(start_time: time, end_time: time, ts: int) -> list[time]:
@@ -119,14 +130,15 @@ def optimization_dict_creation(
     dict[Configuration, Company],
     dict[Configuration, float],
     dict[Configuration, list[str]],
-    dict[tuple[Configuration, str], list[tuple[ContentType, int]]],
-    dict[tuple[Configuration, str, tuple[ContentType, int]], int],
+    dict[tuple[Configuration, str], list[ResourceType]],
+    dict[tuple[Configuration, str, ResourceType], int],
     dict[tuple[Configuration, str], int],
-    dict[tuple[ContentType, int], list[ProductionResource]],
+    dict[ResourceType, list[ProductionResource]],
     dict[ProductionResource, int],
     dict[ProductionResource, int],
     dict[tuple[ProductionResource, int], int],
     dict[tuple[ProductionResource, date], int],
+    dict[tuple[ProductionResource, int], int],
 ]:
     """Creates dictionaries for the optimization problem, aggregated at config×stage level.
 
@@ -151,13 +163,13 @@ def optimization_dict_creation(
         Margin per configuration
     configuration_stages : dict[Configuration, list[str]]
         Ordered list of unique schedulable stages per configuration
-    stage_resource_types : dict[tuple[Configuration, str], list[tuple[ContentType, int]]]
+    stage_resource_types : dict[tuple[Configuration, str], list[ResourceType]]
         Resource types required per (config, stage)
-    stage_resource_type_quantity : dict[tuple[Configuration, str, tuple[ContentType, int]], int]
+    stage_resource_type_quantity : dict[tuple[Configuration, str, ResourceType], int]
         Quantity of each resource type needed per (config, stage)
     stage_duration : dict[tuple[Configuration, str], int]
         Aggregated duration in minutes per (config, stage)
-    resource_type_active_resources : dict[tuple[ContentType, int], list[ProductionResource]]
+    resource_type_active_resources : dict[ResourceType, list[ProductionResource]]
         Active production resources per resource type
     resource_parallel_capacity : dict[ProductionResource, int]
         Parallel capacity per resource
@@ -167,6 +179,8 @@ def optimization_dict_creation(
         How many sessions are using a resource in a given slot, capped to its maximum capacity
     resource_day_load : dict[tuple[ProductionResource, date], int]
         How many minutes a resource has been used in a day, capped to its maximum capacity
+    resource_slot_covered_minutes : dict[tuple[ProductionResource, int], int]
+        Existing occupied minutes in each unattended machine slot
     """
     # Assignable times
     possible_days_weekday = days_with_weekday(start_date, end_date)
@@ -192,6 +206,8 @@ def optimization_dict_creation(
     # Existing sessions
     resource_slot_load = defaultdict(int)
     resource_day_load = defaultdict(int)
+    unattended_slot_intervals = defaultdict(list)
+    unattended_day_intervals = defaultdict(list)
 
     machine_ct = ContentType.objects.get_for_model(Machine)
     employee_ct = ContentType.objects.get_for_model(Employee)
@@ -250,13 +266,13 @@ def optimization_dict_creation(
 
                 machine_qty = stage_info["machine_qty"]
                 if machine_qty > 0:
-                    rt = (machine_ct, stage)
+                    rt = ResourceType(machine_ct, stage, company.pk)
                     existing_qty = config_stage_rt[stage].get(rt, 0)
                     config_stage_rt[stage][rt] = max(existing_qty, machine_qty)
 
                 employee_qty = stage_info["employee_qty"]
                 if employee_qty > 0:
-                    rt = (employee_ct, stage)
+                    rt = ResourceType(employee_ct, stage, company.pk)
                     existing_qty = config_stage_rt[stage].get(rt, 0)
                     config_stage_rt[stage][rt] = max(existing_qty, employee_qty)
 
@@ -274,34 +290,43 @@ def optimization_dict_creation(
             resource_types.update(stage_resource_types[(configuration, stage)])
 
     # Dictionary of active resources per resource type
-    for content_type, resource_type in resource_types:
+    for resource_type in resource_types:
+        content_type, stage, company_id = resource_type
         if content_type == machine_ct:
             eligible_machine_ids = Machine.objects.filter(
+                company_id=company_id,
                 is_active=True,
-                production_stages__contains=[resource_type],
+                production_stages__contains=[stage],
             ).values_list("id", flat=True)
 
             resources = ProductionResource.objects.filter(
                 content_type=machine_ct,
+                company_id=company_id,
                 object_id__in=eligible_machine_ids,
                 is_active=True,
+            ).select_related("company").prefetch_related(
+                GenericPrefetch("target", [Machine.objects.all()])
             )
         elif content_type == employee_ct:
             eligible_employee_ids = Employee.objects.filter(
+                company_id=company_id,
                 is_active=True,
                 can_work_on_production=True,
-                production_stages__contains=[resource_type],
+                production_stages__contains=[stage],
             ).values_list("id", flat=True)
 
             resources = ProductionResource.objects.filter(
                 content_type=employee_ct,
+                company_id=company_id,
                 object_id__in=eligible_employee_ids,
                 is_active=True,
+            ).select_related("company").prefetch_related(
+                GenericPrefetch("target", [Employee.objects.all()])
             )
         else:
             resources = []
 
-        resource_type_active_resources[(content_type, resource_type)] = list(resources)
+        resource_type_active_resources[resource_type] = list(resources)
         active_resources.update(resources)
 
     for resource in active_resources:
@@ -345,8 +370,29 @@ def optimization_dict_creation(
                 overlap_start = max(session.planned_start, slot_start)
                 overlap_end = min(session.planned_end, slot_end)
                 overlap_minutes = max(0, int((overlap_end - overlap_start).total_seconds() // 60))
-                current_day_load = resource_day_load[(resource, day)]
-                resource_day_load[(resource, day)] = min(day_cap, current_day_load + overlap_minutes)
+                if resource.counts_running_time_once:
+                    interval = (overlap_start, overlap_end)
+                    unattended_slot_intervals[(resource, pos)].append(interval)
+                    unattended_day_intervals[(resource, day)].append(interval)
+                else:
+                    current_day_load = resource_day_load[(resource, day)]
+                    resource_day_load[(resource, day)] = min(day_cap, current_day_load + overlap_minutes)
+
+    calendars = {}
+    resource_slot_covered_minutes = {}
+    for (resource, pos), intervals in unattended_slot_intervals.items():
+        company = resource.company
+        if company.pk not in calendars:
+            calendars[company.pk] = WorkingCalendar.for_company(company)
+        calendar = calendars[company.pk]
+        resource_slot_covered_minutes[(resource, pos)] = calendar.working_minutes_covered(intervals)
+    for (resource, day), intervals in unattended_day_intervals.items():
+        company = resource.company
+        calendar = calendars[company.pk]
+        resource_day_load[(resource, day)] = min(
+            resource_daily_capacity_minutes[resource],
+            calendar.working_minutes_covered(intervals),
+        )
 
     return (
         company_ordered_slots,
@@ -360,5 +406,6 @@ def optimization_dict_creation(
         resource_parallel_capacity,
         resource_daily_capacity_minutes,
         resource_slot_load,
-        resource_day_load
+        resource_day_load,
+        resource_slot_covered_minutes,
     )

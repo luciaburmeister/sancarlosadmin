@@ -59,6 +59,8 @@ function productionSchedule() {
     _dropPreviewTrack: null,
     _groupExpandKey: null, // collapsed group waiting to open under a drag
     _groupExpandTimer: null,
+    _dragScrollSpeed: 0,
+    _dragScrollFrame: null,
 
     init() {
       const root = document.getElementById("ps-root");
@@ -374,6 +376,7 @@ function productionSchedule() {
     },
 
     _onDragEnd(event) {
+      this._stopDragAutoScroll();
       document
         .querySelectorAll(".ps-block--dragging, .ps-backlog-card--dragging")
         .forEach((el) => el.classList.remove("ps-block--dragging", "ps-backlog-card--dragging"));
@@ -411,6 +414,7 @@ function productionSchedule() {
     },
 
     _onDragOver(event) {
+      this._updateDragAutoScroll(event);
       // The backlog panel is where a planned block goes to be unplanned. It
       // holds no track, so this has to be answered before the track lookup.
       if (this._unplanZoneFor(event)) {
@@ -455,7 +459,61 @@ function productionSchedule() {
       }
     },
 
+    _updateDragAutoScroll(event) {
+      if (!this._dragged && !this._draggedTicketId && !this._draggedStage) return;
+      const board = document.querySelector(".ps-scroll");
+      if (!board || board.scrollHeight <= board.clientHeight) return;
+
+      const rect = board.getBoundingClientRect();
+      const top = Math.max(rect.top, 0);
+      const bottom = Math.min(rect.bottom, window.innerHeight);
+      if (
+        event.clientX < rect.left || event.clientX > rect.right ||
+        event.clientY < top || event.clientY > bottom
+      ) {
+        this._stopDragAutoScroll();
+        return;
+      }
+
+      const edge = Math.min(60, (bottom - top) / 3);
+      const distance = event.clientY < top + edge
+        ? event.clientY - top - edge
+        : event.clientY > bottom - edge
+          ? event.clientY - bottom + edge
+          : 0;
+      this._dragScrollSpeed = distance
+        ? Math.sign(distance) * Math.max(2, Math.ceil(Math.abs(distance) / edge * 14))
+        : 0;
+      if (!this._dragScrollSpeed) {
+        this._stopDragAutoScroll();
+      } else if (this._dragScrollFrame === null) {
+        this._dragScrollFrame = requestAnimationFrame(() => this._scrollBoardDuringDrag());
+      }
+    },
+
+    _scrollBoardDuringDrag() {
+      const board = document.querySelector(".ps-scroll");
+      if (!board || !this._dragScrollSpeed) {
+        this._stopDragAutoScroll();
+        return;
+      }
+      const previous = board.scrollTop;
+      board.scrollTop += this._dragScrollSpeed;
+      if (board.scrollTop === previous) {
+        this._stopDragAutoScroll();
+      } else {
+        this._dragScrollFrame = requestAnimationFrame(() => this._scrollBoardDuringDrag());
+      }
+    },
+
+    _stopDragAutoScroll() {
+      if (this._dragScrollFrame !== null) cancelAnimationFrame(this._dragScrollFrame);
+      this._dragScrollFrame = null;
+      this._dragScrollSpeed = 0;
+    },
+
     _onDrop(event) {
+      this._stopDragAutoScroll();
       if (this._unplanZoneFor(event)) {
         event.preventDefault();
         this.unplanHover = false;
@@ -798,7 +856,12 @@ function productionSchedule() {
       const hasResource = compatible.has(resourceId);
       const hasParentMachine = Boolean(parentMachineId) && compatible.has(parentMachineId);
 
-      if (stage.machineQty > 1 || stage.employeeQty > 1) return false;
+      if (stage.employeeQty > 1) return false;
+      // Flat operator rows let the server choose the required available machines.
+      if (isEmployeeRow && !parentMachineId && stage.employeeQty === 1) {
+        return hasResource;
+      }
+      if (stage.machineQty > 1) return false;
       if (stage.machineQty && stage.employeeQty) {
         return isEmployeeRow && hasResource && hasParentMachine;
       }

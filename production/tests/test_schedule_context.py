@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from django.test import TestCase
-from django.utils import timezone
+from django.utils import timezone, translation
 from django.utils.translation import gettext as _
 
 from management.models import ProjectFile
 from production.models import ProductionItem, ProductionItemStatus
+from production.services.planning_conflicts import ConflictCode
 from production.services.schedule_context import (
     STATE_DONE,
     STATE_PLANNED,
@@ -92,6 +93,47 @@ class ScheduleContextTest(TestCase):
         data = self.context().build()
 
         self.assertNotIn("CNC-01", self.rows_by_label(data))
+
+    def test_operator_rows_require_production_work_permission(self):
+        make_employee(
+            self.company, first_name="Office", can_work_on_production=False,
+        )
+        make_employee(self.company, first_name="Available", stages=[])
+        other = make_company(name="Other company")
+        make_employee(other, first_name="Other")
+
+        data = self.context().build()
+
+        self.assertEqual(
+            [row.label for row in data.employee_rows], ["Ana Ruiz", "Available Ruiz"],
+        )
+        self.assertEqual([row.label for row in data.machine_rows], ["CNC-01"])
+
+    def test_disabling_production_work_hides_assigned_operator_and_preserves_booking(self):
+        session = make_session(
+            self.ticket, start=self.at(9), end=self.at(11),
+            resources=[self.machine, self.operator],
+        )
+        self.ana.can_work_on_production = False
+        self.ana.save(update_fields=["can_work_on_production"])
+
+        data = self.context().build()
+
+        self.assertEqual(data.employee_rows, [])
+        self.assertEqual([block.session_id for block in data.machine_rows[0].blocks], [session.pk])
+        self.assertEqual([block.session_id for block in data.ticket_rows[0].blocks], [session.pk])
+        for group in data.stage_groups:
+            self.assertEqual(group.operator_rows, [])
+            for machine in group.machine_groups:
+                self.assertEqual(machine.operator_rows, [])
+        self.assertTrue(session.resources.filter(resource=self.operator).exists())
+
+        self.ana.can_work_on_production = True
+        self.ana.save(update_fields=["can_work_on_production"])
+
+        restored = self.context().build()
+        self.assertEqual([row.label for row in restored.employee_rows], ["Ana Ruiz"])
+        self.assertEqual([block.session_id for block in restored.employee_rows[0].blocks], [session.pk])
 
     def test_a_multi_resource_session_renders_in_every_resource_row(self):
         """One session, two rows, one shared identity -- the whole point."""
@@ -210,6 +252,99 @@ class ScheduleContextTest(TestCase):
 
         self.assertIsNotNone(group.unassigned_row)
         self.assertEqual(len(group.unassigned_row.blocks), 1)
+        self.assertEqual(group.unattended_rows, [])
+
+    def test_unattended_machine_keeps_operator_rows_without_unassigned_warning(self):
+        self.enterContext(translation.override("en"))
+        self.cnc.needs_human = False
+        self.cnc.save(update_fields=["needs_human"])
+        make_session(
+            self.ticket, start=self.at(9), end=self.at(11), resources=[self.machine],
+        )
+
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+
+        self.assertIsNone(group.unassigned_row)
+        self.assertEqual([row.label for row in group.operator_rows], ["Ana Ruiz"])
+        self.assertEqual(group.operator_rows[0].blocks, [])
+        self.assertEqual([row.label for row in group.unattended_rows], ["Without operator 1"])
+        self.assertEqual(len(group.machine.blocks), 1)
+
+    def test_unattended_job_rows_appear_only_for_planned_jobs(self):
+        self.enterContext(translation.override("en"))
+        self.cnc.needs_human = False
+        self.cnc.parallel_capacity = 2
+        self.cnc.save(update_fields=["needs_human", "parallel_capacity"])
+
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+        self.assertEqual(group.unattended_rows, [])
+
+        first = make_session(
+            self.ticket, start=self.at(9), end=self.at(11), resources=[self.machine],
+        )
+        second = make_session(
+            make_ticket(self.company), start=self.at(9), end=self.at(11),
+            resources=[self.machine],
+        )
+
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+        self.assertEqual(
+            [row.label for row in group.unattended_rows],
+            ["Without operator 1", "Without operator 2"],
+        )
+        self.assertEqual(
+            [row.blocks[0].session_id for row in group.unattended_rows],
+            [first.pk, second.pk],
+        )
+
+        first.delete()
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+        self.assertEqual([row.label for row in group.unattended_rows], ["Without operator 1"])
+
+        second.delete()
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+        self.assertEqual(group.unattended_rows, [])
+
+    def test_daily_warning_counts_unattended_machine_running_time_once(self):
+        self.cnc.needs_human = False
+        self.cnc.parallel_capacity = 2
+        self.cnc.daily_capacity_minutes = 60
+        self.cnc.save(update_fields=["needs_human", "parallel_capacity", "daily_capacity_minutes"])
+        for ticket in (self.ticket, make_ticket(self.company)):
+            make_session(
+                ticket, start=self.at(9), end=self.at(10), resources=[self.machine],
+            )
+
+        row = self.rows_by_label(self.context().build())["CNC-01"]
+        self.assertEqual(len(row.blocks), 2)
+        self.assertTrue(all(
+            ConflictCode.DAILY_CAPACITY_EXCEEDED not in {c.code for c in block.conflicts}
+            for block in row.blocks
+        ))
+
+        self.cnc.needs_human = True
+        self.cnc.save(update_fields=["needs_human"])
+        row = self.rows_by_label(self.context().build())["CNC-01"]
+        self.assertTrue(all(
+            ConflictCode.DAILY_CAPACITY_EXCEEDED in {c.code for c in block.conflicts}
+            for block in row.blocks
+        ))
+
+    def test_assigned_operator_stays_on_their_row_for_unattended_machine(self):
+        self.cnc.needs_human = False
+        self.cnc.save(update_fields=["needs_human"])
+        session = make_session(
+            self.ticket, start=self.at(9), end=self.at(11),
+            resources=[self.machine, self.operator],
+        )
+
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+
+        self.assertEqual(group.unattended_rows, [])
+        self.assertEqual(
+            [block.session_id for block in group.operator_rows[0].blocks],
+            [session.pk],
+        )
 
     def test_operator_only_work_is_explicitly_unassigned_from_a_machine(self):
         session = make_session(

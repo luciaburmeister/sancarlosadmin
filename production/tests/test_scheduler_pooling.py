@@ -1,17 +1,26 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
 from django.test import TestCase
+from django.utils import timezone
 
+from company.models import Machine
+from materials.models import Component
 from production.services.scheduler.pooling import (
     ResourcePool,
     pool_interchangeable_resources,
 )
 from production.services.scheduler.strategies.margin import MarginScheduler
 from production.tests.factories import (
+    add_schedule,
     machine_stage_resources,
+    make_company,
     make_machine,
     make_priced_configuration,
+    make_product,
     make_scheduling_world,
+    make_session,
+    make_ticket,
+    resource_for,
 )
 
 # 2026-08-10 is a Monday
@@ -153,19 +162,31 @@ class PooledSchedulingEndToEndTest(TestCase):
 
     STAGE = "corte"
 
-    def setUp(self):
-        self.company, self.product, self.component = make_scheduling_world(
-            stage=self.STAGE, slot_end=time(9, 0),
+    @classmethod
+    def setUpTestData(cls):
+        cls.company, cls.product, cls.component = make_scheduling_world(
+            stage=cls.STAGE, slot_end=time(9, 0),
         )
         for i in (1, 2):
             make_machine(
-                self.company, name=f"Sierra {i}", code=f"SIE-{i}",
-                stages=[self.STAGE], daily_capacity_minutes=480, is_active=True,
+                company=cls.company, name=f"Sierra {i}", code=f"SIE-{i}",
+                stages=[cls.STAGE], daily_capacity_minutes=480,
+                is_active=True,
             )
 
-    def _create_configuration(self, name, price):
+    def _create_configuration(self, name, price, *, company=None):
+        company = company or self.company
+        product = self.product
+        component = self.component
+        if company != self.company:
+            product = make_product(
+                company, name="Window", stages=[self.STAGE],
+            )
+            component = Component.objects.create(
+                company=company, name="Profile", unit_price_expression="0",
+            )
         return make_priced_configuration(
-            product=self.product, component=self.component, name=name, price=price, cost=100,
+            product=product, component=component, name=name, price=price, cost=100,
             stages=[self.STAGE], stage_resources=machine_stage_resources([self.STAGE]),
         )
 
@@ -187,3 +208,113 @@ class PooledSchedulingEndToEndTest(TestCase):
         self.assertEqual(len(resource_ids), 2)
         for a in proposal.assignments:
             self.assertIsInstance(a.resource_id, int)
+
+    def test_other_company_machine_is_not_available_to_this_company(self):
+        other = make_company(name="Other company", stages=[self.STAGE])
+        Machine.objects.filter(company=self.company).update(is_active=False)
+        make_machine(
+            company=other, name="Other oven", code="OTHER-OVEN", needs_human=False,
+            stages=[self.STAGE], daily_capacity_minutes=60, parallel_capacity=2,
+        )
+        configuration = self._create_configuration("A", 1000)
+
+        proposal = MarginScheduler(optimization_params={"ts": 60}).schedule(
+            MONDAY, MONDAY, [configuration],
+        )
+
+        self.assertEqual(proposal.selected_configuration_ids, [])
+        self.assertEqual(proposal.assignments, [])
+
+    def test_multi_company_run_keeps_resource_pools_separate(self):
+        other = make_company(name="Other company", stages=[self.STAGE])
+        add_schedule(other, weekdays=[0], ranges=((time(8), time(9)),))
+        Machine.objects.filter(company=self.company).update(is_active=False)
+        oven = make_machine(
+            company=other, name="Other oven", code="OTHER-OVEN", needs_human=False,
+            stages=[self.STAGE], daily_capacity_minutes=60, parallel_capacity=2,
+        )
+        own_configuration = self._create_configuration("A", 1000)
+        other_configuration = self._create_configuration("B", 900, company=other)
+
+        proposal = MarginScheduler(optimization_params={"ts": 60}).schedule(
+            MONDAY, MONDAY, [own_configuration, other_configuration],
+        )
+
+        self.assertEqual(proposal.selected_configuration_ids, [other_configuration.pk])
+        self.assertEqual(proposal.assignments[0].resource_id, resource_for(oven).pk)
+
+    def test_unattended_machine_shares_running_time_across_parallel_jobs(self):
+        machine, unused_machine = Machine.objects.filter(company=self.company).order_by("pk")
+        machine.needs_human = False
+        machine.parallel_capacity = 2
+        machine.daily_capacity_minutes = 60
+        machine.save(update_fields=["needs_human", "parallel_capacity", "daily_capacity_minutes"])
+        unused_machine.is_active = False
+        unused_machine.save(update_fields=["is_active"])
+        first = self._create_configuration("A", 1000)
+        second = self._create_configuration("B", 900)
+        scheduler = MarginScheduler(optimization_params={"ts": 60})
+
+        proposal = scheduler.schedule(MONDAY, MONDAY, [first, second])
+
+        self.assertEqual(set(proposal.selected_configuration_ids), {first.pk, second.pk})
+        self.assertEqual(len({assignment.resource_id for assignment in proposal.assignments}), 1)
+
+        machine.needs_human = True
+        machine.save(update_fields=["needs_human"])
+        proposal = scheduler.schedule(MONDAY, MONDAY, [first, second])
+        self.assertEqual(len(proposal.selected_configuration_ids), 1)
+
+    def test_existing_unattended_job_uses_one_parallel_place_and_one_hour(self):
+        machine, unused_machine = Machine.objects.filter(company=self.company).order_by("pk")
+        machine.needs_human = False
+        machine.parallel_capacity = 2
+        machine.daily_capacity_minutes = 60
+        machine.save(update_fields=["needs_human", "parallel_capacity", "daily_capacity_minutes"])
+        unused_machine.is_active = False
+        unused_machine.save(update_fields=["is_active"])
+        ticket = make_ticket(self.company, stages=[self.STAGE], machine_qty=1, employee_qty=0)
+        make_session(
+            ticket, stage=self.STAGE,
+            start=timezone.make_aware(datetime.combine(MONDAY, time(8, 0))),
+            end=timezone.make_aware(datetime.combine(MONDAY, time(9, 0))),
+            resources=[resource_for(machine)],
+        )
+        first = self._create_configuration("A", 1000)
+        second = self._create_configuration("B", 900)
+
+        proposal = MarginScheduler(optimization_params={"ts": 60}).schedule(
+            MONDAY, MONDAY, [first, second],
+        )
+
+        self.assertEqual(len(proposal.selected_configuration_ids), 1)
+        self.assertEqual(proposal.assignments[0].resource_id, resource_for(machine).pk)
+
+    def test_partial_existing_job_adds_only_uncovered_running_minutes(self):
+        machine, unused_machine = Machine.objects.filter(company=self.company).order_by("pk")
+        machine.needs_human = False
+        machine.parallel_capacity = 2
+        machine.daily_capacity_minutes = 45
+        machine.save(update_fields=["needs_human", "parallel_capacity", "daily_capacity_minutes"])
+        unused_machine.is_active = False
+        unused_machine.save(update_fields=["is_active"])
+        ticket = make_ticket(self.company, stages=[self.STAGE], machine_qty=1, employee_qty=0)
+        make_session(
+            ticket, stage=self.STAGE,
+            start=timezone.make_aware(datetime.combine(MONDAY, time(8, 0))),
+            end=timezone.make_aware(datetime.combine(MONDAY, time(8, 30))),
+            resources=[resource_for(machine)],
+        )
+        configuration = self._create_configuration("A", 1000)
+        scheduler = MarginScheduler(optimization_params={"ts": 60})
+
+        self.assertEqual(
+            scheduler.schedule(MONDAY, MONDAY, [configuration]).selected_configuration_ids,
+            [],
+        )
+        machine.daily_capacity_minutes = 60
+        machine.save(update_fields=["daily_capacity_minutes"])
+        self.assertEqual(
+            scheduler.schedule(MONDAY, MONDAY, [configuration]).selected_configuration_ids,
+            [configuration.pk],
+        )

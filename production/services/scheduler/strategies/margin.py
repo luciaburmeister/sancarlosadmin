@@ -241,6 +241,7 @@ class MarginScheduler(ScheduleStrategy):
         for var in variable_set["start"].values(): var.setInitialValue(0)
         for var in variable_set["z"].values(): var.setInitialValue(0)
         for var in variable_set["x"].values(): var.setInitialValue(0)
+        for var in variable_set["running"].values(): var.setInitialValue(0)
 
         for c in sorted(configurations, key=lambda c: (-configuration_margin[c], c.pk)):
             company = configuration_company[c]
@@ -305,6 +306,8 @@ class MarginScheduler(ScheduleStrategy):
                         variable_set["z"][(c, s, rt, resource, q)].setInitialValue(1)
                         for slot_pos in range(pos, pos + needed_slots):
                             variable_set["x"][(c, s, slot_pos, resource, q)].setInitialValue(1)
+                            if (resource, slot_pos) in variable_set["running"]:
+                                variable_set["running"][(resource, slot_pos)].setInitialValue(1)
 
     def _variable_definition(
         self, configurations, configuration_company, company_ordered_slots,
@@ -340,7 +343,17 @@ class MarginScheduler(ScheduleStrategy):
             for q in range(stage_resource_type_quantity[(c, s, rt)])
             for r in resource_type_active_resources[rt]
         }
-        return {"x": x, "y": y, "start": start, "z": z}
+        running = {
+            (r, pos): pulp.LpVariable(f"running_{r.pk}_{pos}", cat="Binary")
+            for r in {
+                resource
+                for resources in resource_type_active_resources.values()
+                for resource in resources
+            }
+            if r.counts_running_time_once
+            for pos in range(len(company_ordered_slots[r.company]))
+        }
+        return {"x": x, "y": y, "start": start, "z": z, "running": running}
 
     def _objective_definition(
         self, variable_set, configuration_margin, configurations,
@@ -365,9 +378,10 @@ class MarginScheduler(ScheduleStrategy):
         valid_start_positions, covering_start_positions,
         resource_type_active_resources, resource_parallel_capacity,
         resource_daily_capacity_minutes, ts, resource_slot_load,
-        resource_day_load, stage_position_windows,
+        resource_day_load, stage_position_windows, resource_slot_covered_minutes=None,
     ):
         constraints = {}
+        resource_slot_covered_minutes = resource_slot_covered_minutes or {}
 
         # Each stage starts exactly once if selected
         constraints.update({
@@ -469,24 +483,55 @@ class MarginScheduler(ScheduleStrategy):
             for pos in range(len(company_ordered_slots[r.company]))
         })
 
-        # Daily capacity
-        constraints.update({
-            f"Daily_capacity_{r.pk}_{d}": (
-                pulp.lpSum(
-                    variable_set["x"].get((c, s, pos, r, q), 0)
-                    for c in configurations
-                    for s in configuration_stages[c]
-                    for rt in stage_resource_types[(c, s)]
-                    if r in resource_type_active_resources[rt]
-                    for q in range(stage_resource_type_quantity[(c, s, rt)])
-                    for pos, (slot_day, _) in enumerate(company_ordered_slots[r.company])
-                    if slot_day == d
-                ) * ts <= daily_cap - resource_day_load.get((r, d), 0),
-                f"Daily_capacity_{r.pk}_{d}",
+        # One unattended machine uses daily running time once per occupied slot,
+        # regardless of how many jobs share that slot.
+        for (resource, pos), running in variable_set["running"].items():
+            slot_jobs = pulp.lpSum(
+                variable_set["x"].get((c, s, pos, resource, q), 0)
+                for c in configurations
+                for s in configuration_stages[c]
+                for rt in stage_resource_types[(c, s)]
+                if resource in resource_type_active_resources[rt]
+                for q in range(stage_resource_type_quantity[(c, s, rt)])
             )
-            for r, daily_cap in resource_daily_capacity_minutes.items()
-            for d in {slot_day for slot_day, _ in company_ordered_slots[r.company]}
-        })
+            constraints[f"Running_if_assigned_{resource.pk}_{pos}"] = (
+                slot_jobs <= resource_parallel_capacity[resource] * running,
+                f"Running_if_assigned_{resource.pk}_{pos}",
+            )
+            constraints[f"Running_only_if_assigned_{resource.pk}_{pos}"] = (
+                running <= slot_jobs,
+                f"Running_only_if_assigned_{resource.pk}_{pos}",
+            )
+
+        # Daily capacity
+        for resource, daily_cap in resource_daily_capacity_minutes.items():
+            slots = company_ordered_slots[resource.company]
+            for day in {slot_day for slot_day, _ in slots}:
+                if resource.counts_running_time_once:
+                    member = resource.members[0]
+                    daily_minutes = pulp.lpSum(
+                        variable_set["running"][(resource, pos)] * (
+                            ts - resource_slot_covered_minutes.get((member, pos), 0)
+                        )
+                        for pos, (slot_day, _) in enumerate(slots)
+                        if slot_day == day
+                    )
+                else:
+                    daily_minutes = pulp.lpSum(
+                        variable_set["x"].get((c, s, pos, resource, q), 0)
+                        for c in configurations
+                        for s in configuration_stages[c]
+                        for rt in stage_resource_types[(c, s)]
+                        if resource in resource_type_active_resources[rt]
+                        for q in range(stage_resource_type_quantity[(c, s, rt)])
+                        for pos, (slot_day, _) in enumerate(slots)
+                        if slot_day == day
+                    ) * ts
+                name = f"Daily_capacity_{resource.pk}_{day}"
+                constraints[name] = (
+                    daily_minutes <= daily_cap - resource_day_load.get((resource, day), 0),
+                    name,
+                )
 
         return constraints
 
@@ -755,7 +800,7 @@ class MarginScheduler(ScheduleStrategy):
             stage_resource_types, stage_resource_type_quantity, stage_duration,
             resource_type_active_resources, resource_parallel_capacity,
             resource_daily_capacity_minutes, resource_slot_load, 
-            resource_day_load
+            resource_day_load, resource_slot_covered_minutes,
         ) = optimization_dict_creation(start_date, end_date, configurations, self.ts)
 
         stage_required_slots = self._stage_required_slots(stage_duration, self.ts)
@@ -832,6 +877,7 @@ class MarginScheduler(ScheduleStrategy):
             covering_start_positions, resource_type_active_resources,
             resource_parallel_capacity, resource_daily_capacity_minutes, self.ts,
             resource_slot_load, resource_day_load, stage_position_windows,
+            resource_slot_covered_minutes,
         )
         prob = self._solve_problem(
             objective, constraints, use_warm_start,

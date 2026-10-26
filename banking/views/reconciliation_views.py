@@ -445,8 +445,8 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
         if update_fields:
             txn.save(update_fields=update_fields)
 
-    @staticmethod
-    def _get_candidate_documents(txn: BankTransaction) -> list:
+    @classmethod
+    def _get_candidate_documents(cls, txn: BankTransaction) -> list:
         """Return unpaid invoices, sales invoices, loan installments, or
         approved expense claims for this transaction's company.
 
@@ -494,7 +494,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": installment.amount_remaining_decimal,
                 })
 
-            results += self._tax_installment_rows(txn.company, cutoff_date, refund=False)
+            results += cls._tax_installment_rows(txn.company, cutoff_date, refund=False)
 
             claim_qs = candidates.expense_claim_candidates(
                 txn.company, cutoff_date
@@ -528,7 +528,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "remaining": doc.amount_remaining_decimal,
                 })
 
-            results += self._tax_installment_rows(txn.company, cutoff_date, refund=True)
+            results += cls._tax_installment_rows(txn.company, cutoff_date, refund=True)
 
         return results
 

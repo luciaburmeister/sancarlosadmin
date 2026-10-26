@@ -5,7 +5,7 @@ Configurations of an excluded product (e.g. vehicle reception) must never
 appear in the invoiceable summary, in any of the three item-building flows,
 in the aggregated taxes, or in the project file cached totals — unlike plain
 zero-value configurations, which are kept as 0 € lines (see
-tests_zero_value_items.py).
+test_zero_value_items.py).
 """
 from decimal import Decimal
 

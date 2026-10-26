@@ -30,7 +30,7 @@ from invoices.services.advances import AdvanceDeductionService
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, aeat_cancel_marker
-from invoices.tests.test_project_file_invoice_pricing_golden import _GoldenExpedienteBase
+from invoices.tests.billing.test_project_file_invoice_pricing_golden import _GoldenExpedienteBase
 
 
 class AdvanceSplitTests(AdvanceExpedienteMixin, TestCase):

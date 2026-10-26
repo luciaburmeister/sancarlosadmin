@@ -3,14 +3,14 @@ Cost center on supplier invoices: the provider default at creation, and the
 matched purchase order taking precedence over it.
 
 Run just this file:
-    python manage.py test invoices.tests.test_cost_center_propagation
+    python manage.py test invoices.tests.purchases.test_cost_center_propagation
 """
 
 from decimal import Decimal
 
 from accounting.models import CostCenter
 from invoices.services.po_matching import POInvoiceMatchService
-from invoices.tests.test_po_matching import POMatchingTestBase
+from invoices.tests.purchases.test_po_matching import POMatchingTestBase
 
 
 class InvoiceCostCenterTest(POMatchingTestBase):

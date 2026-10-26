@@ -3,7 +3,7 @@ Delivery orders built from quotes with negative lines, the value remainder
 carried by the order that completes a partially delivered line, and the
 superuser-only "Sync from Quote" action.
 
-    python manage.py test invoices.tests.test_delivery_order_sync
+    python manage.py test invoices.tests.billing.test_delivery_order_sync
 """
 from datetime import date
 from decimal import Decimal

@@ -9,7 +9,7 @@ to the existing row. A cost center the user already set on the invoice is
 never overwritten.
 
 Run just this file:
-    python manage.py test invoices.tests.test_invoice_ocr_cost_center
+    python manage.py test invoices.tests.ocr.test_invoice_ocr_cost_center
 """
 import tempfile
 

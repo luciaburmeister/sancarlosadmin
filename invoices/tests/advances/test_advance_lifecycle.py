@@ -87,7 +87,7 @@ from invoices.tests.advance_fixtures import (
     UserExpedienteMixin,
     aeat_cancel_marker,
 )
-from invoices.tests.test_project_file_invoice_pricing_golden import (
+from invoices.tests.billing.test_project_file_invoice_pricing_golden import (
     _GoldenExpedienteBase,
     _RetentionExpedienteBase,
 )

@@ -1,0 +1,81 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+<div class="max-w-5xl">
+    {% component "unfold/components/card.html" %}
+
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                {% trans "SEPA direct debit file" %}
+            </h1>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                {% blocktrans with company=company %}Charges what is left to pay of each invoice to the client's mandated bank account. Upload the file to {{ company }}'s bank; each collection arrives as its own bank movement and is reconciled by its payment reference.{% endblocktrans %}
+            </p>
+        </div>
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+
+            <div class="px-6 py-4">
+                {% if form.errors %}
+                    <div class="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-md">
+                        <div class="text-sm text-red-600 dark:text-red-400">
+                            {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+                            {% for field in form %}{% for error in field.errors %}<p>{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <div class="space-y-4">
+                    {% for field in form %}
+                        {% include "unfold/helpers/field.html" with field=field %}
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 dark:text-gray-400">
+                            <th class="py-2">{% trans "Invoice" %}</th>
+                            <th class="py-2">{% trans "Client" %}</th>
+                            <th class="py-2">{% trans "IBAN" %}</th>
+                            <th class="py-2 text-right">{% trans "Amount" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr class="border-t border-gray-100 dark:border-gray-800 {% if row.reason %}text-gray-400{% endif %}">
+                            <td class="py-2">{{ row.invoice.display_number }}</td>
+                            <td class="py-2">{{ row.invoice.client.name }}</td>
+                            <td class="py-2">
+                                {% if row.reason %}
+                                    <span class="text-red-600 dark:text-red-400">{% trans "Skipped" %}: {{ row.reason }}</span>
+                                {% else %}
+                                    {{ row.account.iban }}
+                                {% endif %}
+                            </td>
+                            <td class="py-2 text-right">{{ row.invoice.amount_remaining }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+                <a href="{% url 'admin:invoices_salesinvoice_changelist' %}"
+                   class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    {% trans "Cancel" %}
+                </a>
+                {% if collectable_count %}
+                    {% component "unfold/components/button.html" with submit=1 %}
+                        {% blocktrans count counter=collectable_count %}Download file ({{ counter }} invoice){% plural %}Download file ({{ counter }} invoices){% endblocktrans %}
+                    {% endcomponent %}
+                {% endif %}
+            </div>
+        </form>
+
+    {% endcomponent %}
+</div>
+{% endblock %}

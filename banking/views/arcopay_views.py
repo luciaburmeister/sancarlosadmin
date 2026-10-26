@@ -8,6 +8,7 @@ Flow:
 """
 import logging
 from http import HTTPStatus
+from urllib.parse import quote
 
 from django.conf import settings
 from django.contrib import messages
@@ -112,7 +113,11 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
         # Build callback + redirect URLs
         backend_url = settings.BACKEND_URL.rstrip("/")
         account_param = f"&bank_account_id={bank_account.pk}" if bank_account else ""
-        callback_url = f"{backend_url}/api/banking/arcopay/callback/?company_id={company.pk}{account_param}"
+        # The bank portal is recorded on the accounts: payments are sent through it
+        callback_url = (
+            f"{backend_url}/api/banking/arcopay/callback/?company_id={company.pk}{account_param}"
+            f"&service={quote(bank_service)}"
+        )
         callback_error_url = f"{backend_url}/api/banking/arcopay/callback-error/?company_id={company.pk}"
 
         redirect_url = request.build_absolute_uri(

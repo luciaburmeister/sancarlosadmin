@@ -19,6 +19,9 @@ from unfold.contrib.inlines.admin import NonrelatedTabularInline
 from unfold.decorators import action, display
 
 from banking.models import (
+    BankPaymentOrder,
+    BankPaymentOrderLine,
+    BankPaymentOrderStatus,
     BankReconciliation,
     BankTransaction,
     BankTransactionCategory,
@@ -40,6 +43,7 @@ from banking.views import (
     SkipReconciliationView,
     SyncAccountsView,
 )
+from banking.views.bank_payment_views import BankPaymentReturnView, PayInvoicesFromBankView
 from payments.models import PaymentAllocation
 
 logger = logging.getLogger(__name__)
@@ -537,3 +541,118 @@ class InvoiceReconciliationSuggestionAdmin(ModelAdmin):
         return redirect(
             reverse("admin:banking_invoicereconciliationsuggestion_review", args=[object_id])
         )
+
+class BankPaymentOrderLineInline(admin.TabularInline):
+    model = BankPaymentOrderLine
+    extra = 0
+    can_delete = False
+    fields = ("invoice", "amount", "destination_iban", "creditor_name", "concept", "payment")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BankPaymentOrder)
+class BankPaymentOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    """PSD2 payments sent from our bank accounts (see BankPaymentService). Read-only: they change only at the bank."""
+
+    list_display = ("id", "created_at", "kind", "bank_account", "amount", "status_badge", "bank_status", "created_by", "company")
+    list_filter = ("status", "kind")
+    search_fields = ("lines__invoice__invoice_number", "lines__concept", "arcopay_payment_id")
+    list_select_related = ("bank_account", "created_by", "company")
+    inlines = [BankPaymentOrderLineInline]
+    readonly_fields = (
+        "kind", "status", "bank_account", "source_iban", "amount", "arcopay_payment_id", "bank_status",
+        "error_code", "error_message", "created_by", "created_at", "status_checked_at", "completed_at",
+    )
+    fields = readonly_fields
+    actions_detail = ["sign_order_action", "refresh_order_action", "cancel_order_action"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "pay-invoices/",
+                self.admin_site.admin_view(PayInvoicesFromBankView.as_view(model_admin=self)),
+                name="banking_bankpaymentorder_pay",
+            ),
+            path(
+                "return/<uuid:token>/",
+                self.admin_site.admin_view(BankPaymentReturnView.as_view(model_admin=self)),
+                name="banking_bankpaymentorder_return",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            BankPaymentOrderStatus.PENDING: "info",
+            BankPaymentOrderStatus.COMPLETED: "success",
+            BankPaymentOrderStatus.REJECTED: "danger",
+            BankPaymentOrderStatus.ERROR: "danger",
+            BankPaymentOrderStatus.CANCELLED: "warning",
+            BankPaymentOrderStatus.EXPIRED: "warning",
+        },
+    )
+    def status_badge(self, obj):
+        return obj.status, obj.get_status_display()
+
+    def _pending_order(self, request, object_id):
+        return self.get_queryset(request).filter(pk=object_id, status=BankPaymentOrderStatus.PENDING).first()
+
+    def has_pending_order_permission(self, request, object_id=None):
+        if not request.user.has_perm("banking.can_initiate_bank_payment"):
+            return False
+        return not object_id or self._pending_order(request, object_id) is not None
+
+    @action(description=_("Sign at the bank"), icon="draw", url_path="sign", permissions=["pending_order"])
+    def sign_order_action(self, request, object_id):
+        order = self._pending_order(request, object_id)
+        if not order or not order.follow_url:
+            messages.error(request, _("This order has no signing link."))
+            return redirect(reverse("admin:banking_bankpaymentorder_change", args=[object_id]))
+        return redirect(order.follow_url)
+
+    @action(description=_("Refresh status"), icon="sync", url_path="refresh", permissions=["pending_order"])
+    def refresh_order_action(self, request, object_id):
+        from banking.services.bank_payments import BankPaymentService
+
+        order = self._pending_order(request, object_id)
+        if order:
+            try:
+                order = BankPaymentService.refresh_status(order)
+                messages.info(request, _("Status: %(status)s") % {"status": order.get_status_display()})
+            except Exception as e:
+                messages.error(request, _("Could not get the status from the bank: %(error)s") % {"error": e})
+        return redirect(reverse("admin:banking_bankpaymentorder_change", args=[object_id]))
+
+    @action(description=_("Cancel at the bank"), icon="cancel", url_path="cancel", permissions=["pending_order"])
+    def cancel_order_action(self, request, object_id):
+        from django.core.exceptions import ValidationError
+
+        from banking.services.bank_payments import BankPaymentService
+
+        order = self._pending_order(request, object_id)
+        if order:
+            try:
+                follow = BankPaymentService.cancel(order, request.user)
+            except ValidationError as e:
+                messages.error(request, " ".join(e.messages))
+            except Exception as e:
+                messages.error(request, _("The bank could not cancel it: %(error)s") % {"error": e})
+            else:
+                if follow:
+                    return redirect(follow)
+                messages.success(request, _("Payment cancelled."))
+        return redirect(reverse("admin:banking_bankpaymentorder_change", args=[object_id]))

@@ -83,6 +83,7 @@ class ClientBankAccountInline(StackedInline):
                 ("iban", "swift_bic"),
                 ("account_number", "routing_number"),
                 ("country", "is_default"),
+                ("sepa_mandate_reference", "sepa_mandate_signed_on"),
             ),
         }),
     )

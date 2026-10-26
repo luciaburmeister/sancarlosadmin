@@ -55,6 +55,12 @@ class Company(models.Model):
         help_text=_("e.g., CNAE, SIC code, or similar industry classification"),
     )
     constituted_country = CountryField(null=True,verbose_name=_("Constitude Country"))
+    sepa_creditor_id = models.CharField(
+        max_length=35,
+        blank=True,
+        verbose_name=_("SEPA Creditor Identifier"),
+        help_text=_("Given by the bank to collect by SEPA direct debit, e.g. ES12000B12345678."),
+    )
     production_stages = ArrayField(
         base_field=models.CharField(max_length=50),
         default=list,
@@ -1036,6 +1042,12 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         blank=True,
         verbose_name=_("Nuek Consent ID"),
         help_text=_("Consent identifier from Arcopay. Used to check consent status and refresh tokens."),
+    )
+    nuek_service = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Arcopay Bank Service"),
+        help_text=_("Arcopay's identifier of the bank portal the consent was given at. Payments are sent through it."),
     )
     nuek_product_id = models.CharField(
         max_length=200,

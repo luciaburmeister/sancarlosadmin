@@ -1,0 +1,94 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto p-6">
+
+    <div class="flex items-center justify-between mb-8 pb-4 border-b border-gray-100 dark:border-gray-800">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{% trans "Pay from the bank" %}</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ company }}</p>
+        </div>
+    </div>
+
+    <div class="mb-6 px-4 py-3 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg">
+        <p class="text-sm text-primary-800 dark:text-primary-300">
+            {% blocktrans %}You will sign the transfer at your bank. Each concept starts with the invoice's payment reference, so the bank movement is matched to it. The invoices are marked paid once the bank confirms the payment.{% endblocktrans %}
+        </p>
+    </div>
+
+    {% if refused %}
+    <div class="mb-6 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-300">
+        <p class="font-medium mb-1">{% trans "These invoices cannot be paid from the bank and are left out:" %}</p>
+        <ul class="list-disc pl-5">
+            {% for invoice, reason in refused %}
+            <li>{{ invoice.invoice_number|default:invoice.pk }} &mdash; {{ invoice.provider|default:"" }}: {{ reason }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if rows %}
+    <form method="post" novalidate id="pay-from-bank-form">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+        <div class="mb-6 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 mb-6">
+            {% include "unfold/helpers/field.html" with field=form.bank_account %}
+        </div>
+
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                    <tr>
+                        <th class="px-4 py-3 font-medium">{% trans "Invoice" %}</th>
+                        <th class="px-4 py-3 font-medium">{% trans "Provider" %}</th>
+                        <th class="px-4 py-3 font-medium">{% trans "To IBAN" %}</th>
+                        <th class="px-4 py-3 font-medium">{% trans "Concept" %}</th>
+                        <th class="px-4 py-3 font-medium text-right">{% trans "Remaining" %}</th>
+                        <th class="px-4 py-3 font-medium w-40">{% trans "Amount" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr class="border-b border-gray-100 dark:border-gray-800 last:border-0 align-top">
+                        <td class="px-4 py-3">
+                            <a class="text-primary-600 underline" href="{% url 'admin:invoices_invoice_change' row.invoice.pk %}">{{ row.invoice.invoice_number|default:row.invoice.pk }}</a>
+                            {% if row.invoice.due_date %}<div class="text-xs text-gray-500">{{ row.invoice.due_date }}</div>{% endif %}
+                        </td>
+                        <td class="px-4 py-3">{{ row.invoice.provider }}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{ row.destination.iban }}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{ row.concept }}</td>
+                        <td class="px-4 py-3 text-right whitespace-nowrap">{{ row.invoice.amount_remaining }}</td>
+                        <td class="px-4 py-3">
+                            {{ row.amount }}
+                            {% if row.amount.errors %}<div class="text-xs text-red-600 mt-1">{{ row.amount.errors|join:" " }}</div>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex justify-between items-center py-6 border-t border-gray-100 dark:border-gray-800 mt-6">
+            <a href="{{ cancel_url }}"
+               class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300">
+                {% trans "Cancel" %}
+            </a>
+            <button type="submit"
+                    class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100">
+                {% blocktrans count counter=rows|length %}Sign the transfer at the bank{% plural %}Sign {{ counter }} transfers at the bank{% endblocktrans %}
+            </button>
+        </div>
+    </form>
+    {% else %}
+    <a href="{{ cancel_url }}" class="text-primary-600 underline text-sm">{% trans "Back" %}</a>
+    {% endif %}
+
+</div>
+{% endblock %}

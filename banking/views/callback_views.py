@@ -103,6 +103,12 @@ class ArcopayCallbackView(View):
             result = ArcopayService.process_consent_callback(
                 payload, company, bank_account=bank_account,
             )
+            service = request.GET.get("service", "")
+            if service:
+                account_ids = [a["bank_account_id"] for a in result.get("accounts", [])]
+                if bank_account is not None:
+                    account_ids.append(bank_account.pk)
+                BankAccount.objects.filter(pk__in=account_ids, company=company).update(nuek_service=service)
             logger.info(
                 "Arcopay consent callback processed: consent_id=%s, accounts=%d",
                 result.get("consent_id"),
@@ -148,4 +154,91 @@ class ArcopayErrorCallbackView(View):
             payload.get("consentId", "unknown"),
         )
 
+        return JsonResponse({"result": "OK"})
+
+
+def _payment_callback_payload(request) -> dict:
+    try:
+        if request.content_type and "json" in request.content_type:
+            payload = json.loads(request.body)
+            return payload if isinstance(payload, dict) else {}
+    except (json.JSONDecodeError, ValueError):
+        return {}
+    return request.POST.dict()
+
+
+def _order_from_callback(request):
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    from banking.models import BankPaymentOrder
+
+    try:
+        return BankPaymentOrder.objects.filter(token=request.GET.get("order", "")).first()
+    except DjangoValidationError:
+        # Not a UUID
+        return None
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ArcopayPaymentCallbackView(View):
+    """POST /api/banking/arcopay/payment-callback/?order=<token>
+
+    Called by Arcopay once the user has gone through a payment initiated by
+    BankPaymentService (paymentInitiateCallback: {"token", "paymentId"}).
+
+    The body is never trusted: it only prompts us to ask Arcopay for the
+    order's status, so a forged call can at most trigger that check.
+    """
+
+    def post(self, request):
+        from banking.services.bank_payments import BankPaymentService
+
+        payload = _payment_callback_payload(request)
+        order = _order_from_callback(request)
+        logger.info(
+            "Arcopay payment callback: order=%s, paymentId=%s",
+            order.pk if order else None, payload.get("paymentId", ""),
+        )
+        if not order:
+            return JsonResponse({"result": "KO", "error": "Unknown order"}, status=404)
+        if payload.get("paymentId") and order.arcopay_payment_id and payload["paymentId"] != order.arcopay_payment_id:
+            logger.warning(
+                "Arcopay payment callback for order %s carries paymentId %s, expected %s",
+                order.pk, payload["paymentId"], order.arcopay_payment_id,
+            )
+            return JsonResponse({"result": "KO", "error": "paymentId mismatch"}, status=400)
+        try:
+            BankPaymentService.refresh_status(order)
+        except Exception:
+            # The periodic poll picks it up again
+            logger.exception("Arcopay payment callback: status refresh failed for order %s", order.pk)
+        return JsonResponse({"result": "OK"})
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ArcopayPaymentErrorCallbackView(View):
+    """POST /api/banking/arcopay/payment-callback-error/?order=<token>
+
+    paymentInitiateCallbackError: {"message", "code", "paymentId"}. Recorded
+    on the order for the user to see; its status still comes from Arcopay.
+    """
+
+    def post(self, request):
+        from banking.services.bank_payments import BankPaymentService
+
+        payload = _payment_callback_payload(request)
+        order = _order_from_callback(request)
+        logger.warning(
+            "Arcopay payment error callback: order=%s, code=%s, message=%s, paymentId=%s",
+            order.pk if order else None, payload.get("code", ""), payload.get("message", ""),
+            payload.get("paymentId", ""),
+        )
+        if order and order.is_pending:
+            order.error_code = str(payload.get("code", ""))[:20]
+            order.error_message = str(payload.get("message", ""))[:1000]
+            order.save(update_fields=["error_code", "error_message"])
+            try:
+                BankPaymentService.refresh_status(order)
+            except Exception:
+                logger.exception("Arcopay payment error callback: status refresh failed for order %s", order.pk)
         return JsonResponse({"result": "OK"})

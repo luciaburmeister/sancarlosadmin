@@ -146,6 +146,18 @@ class ClientBankAccount(CompanyOwnedModel, BaseBankAccount):
         verbose_name=_("Client")
     )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+    # The client's signed authorization to collect from this account by
+    # SEPA direct debit: both are required in the SEPA file.
+    sepa_mandate_reference = models.CharField(
+        max_length=35,
+        blank=True,
+        verbose_name=_("SEPA Mandate Reference"),
+    )
+    sepa_mandate_signed_on = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("SEPA Mandate Signed On"),
+    )
 
     class Meta:
         verbose_name = _("Client Bank Account")

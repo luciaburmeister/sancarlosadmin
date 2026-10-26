@@ -6,6 +6,7 @@ Handles:
 - Account synchronisation
 """
 import hashlib
+import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
@@ -872,6 +873,116 @@ class ArcopayService:
             "token": token,
             "accounts": accounts_processed,
         }
+
+
+    # ------------------------------------------------------------------
+    # Payment initiation (PSD2 Payments)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _post_payments_api(endpoint: str, payload: dict) -> dict:
+        """POST to a payments endpoint; Arcopay's own code/message on any error."""
+        resp = requests.post(
+            f"{ARCOPAY_API_URL}{endpoint}",
+            data={"servicekey": NUEK_SERVICE_KEY, **payload},
+            timeout=30,
+        )
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {"message": resp.text, "code": str(resp.status_code)}
+        if not resp.ok or (isinstance(data, dict) and data.get("code")):
+            logger.error(
+                "Arcopay %s failed: status=%s, response=%s", endpoint, resp.status_code, data,
+            )
+            if not isinstance(data, dict):
+                data = {"message": str(data)}
+            raise ArcopayAPIError(
+                data.get("message", "Unknown error"), str(data.get("code") or resp.status_code),
+            )
+        return data
+
+    @classmethod
+    def iban_to_service(cls, iban: str) -> list[str]:
+        """POST /ibanToService/ — the bank portals (services) an IBAN may belong to."""
+        data = cls._post_payments_api("/ibanToService/", {"iban": iban})
+        return [s["service"] for s in data.get("services", []) if isinstance(s, dict) and s.get("service")]
+
+    @classmethod
+    def initiate_direct_payment(
+        cls,
+        *,
+        bank_service: str,
+        owner_name: str,
+        source_iban: str,
+        destination_iban: str,
+        creditor_name: str,
+        amount: Decimal,
+        currency: str,
+        description: str,
+        callback_url: str,
+        callback_error_url: str,
+        redirect_url: str,
+    ) -> dict:
+        """POST /directPayment/initiate/ — one normal (non-instant) SEPA transfer.
+
+        Returns dict with ``follow`` (URL where the user signs) and ``paymentId``.
+        """
+        return cls._post_payments_api("/directPayment/initiate/", {
+            "service": bank_service,
+            "ownerName": owner_name,
+            "paymentType": "normal",
+            "currency": currency,
+            "amount": f"{amount:.2f}",
+            "sourceIBAN": source_iban,
+            "destinationIBAN": destination_iban,
+            "destinationCreditorName": creditor_name,
+            "paymentDescription": description,
+            "yourPaymentCallback": callback_url,
+            "yourPaymentCallbackError": callback_error_url,
+            "urlRedirect": redirect_url,
+        })
+
+    @classmethod
+    def initiate_bulk_payment(
+        cls,
+        *,
+        bank_service: str,
+        owner_name: str,
+        source_iban: str,
+        currency: str,
+        payments: list[dict],
+        callback_url: str,
+        callback_error_url: str,
+        redirect_url: str,
+    ) -> dict:
+        """POST /bulkPayment/initiate/ — several transfers signed at once.
+
+        ``payments`` items carry ``amount``, ``destinationIBAN``,
+        ``destinationCreditorName`` and ``paymentDescription``.
+        Returns dict with ``follow`` and ``paymentId`` (one for the batch).
+        """
+        items = [{**item, "amount": float(f"{item['amount']:.2f}")} for item in payments]
+        return cls._post_payments_api("/bulkPayment/initiate/", {
+            "service": bank_service,
+            "ownerName": owner_name,
+            "sourceIBAN": source_iban,
+            "currency": currency,
+            "payments": json.dumps(items),
+            "yourPaymentCallback": callback_url,
+            "yourPaymentCallbackError": callback_error_url,
+            "urlRedirect": redirect_url,
+        })
+
+    @classmethod
+    def get_payment_status(cls, payment_id: str) -> dict:
+        """POST /payment/status/ — ``status`` is OK, KO, RJCT or CNCL (raw, may be others)."""
+        return cls._post_payments_api("/payment/status/", {"paymentId": payment_id})
+
+    @classmethod
+    def cancel_payment(cls, payment_id: str) -> dict:
+        """POST /payment/cancel/ — ``status`` CANC when done; ``follow`` when the user must confirm."""
+        return cls._post_payments_api("/payment/cancel/", {"paymentId": payment_id})
 
 
 class ArcopayAPIError(Exception):

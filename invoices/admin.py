@@ -70,6 +70,7 @@ from invoices.views.sales_invoice_pdf import SalesInvoicePdfDownloadView, SalesI
 from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminView
 from invoices.views.invoice.bulk_mark_paid import BulkMarkPaidAdminView
 from invoices.views.invoice.bulk_mark_invoice_paid import BulkMarkInvoicePaidAdminView
+from invoices.views.invoice.sepa_direct_debit import SepaDirectDebitAdminView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView, SalesInvoiceDistributeSurplusView
 from invoices.views.sales_invoice_apply_credit import SalesInvoiceApplyCreditView
@@ -560,6 +561,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         "import_from_excel",
         "run_matcher_bulk",
         "bulk_mark_as_paid",
+        "pay_from_bank",
     ]
     actions_row = [
         "review_invoice_row_action",
@@ -572,6 +574,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
             "items": [
                 "download_pdf_detail_action",
                 "register_payment_detail_action",
+                "pay_from_bank_detail_action",
                 "intercompany_payment_detail_action",
                 "apply_credit_detail_action",
                 "run_invoice_matcher_detail_action",
@@ -1065,6 +1068,27 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     @action(description=_("Register Payment"), icon="payments")
     def register_payment_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_register_payment", args=[object_id]))
+
+    # Only offered where the invoice's company has a bank account with a
+    # valid PSD2 consent to pay from (see BankPaymentService)
+    def has_pay_from_bank_permission(self, request, object_id=None):
+        from banking.services.bank_payments import BankPaymentService
+
+        if not request.user.has_perm("banking.can_initiate_bank_payment"):
+            return False
+        if not object_id:
+            return True
+        invoice = self.get_queryset(request).filter(pk=object_id).select_related("company").first()
+        return bool(invoice) and BankPaymentService.can_pay_from_bank(request.user, invoice.company)
+
+    @action(description=_("Pay from the bank"), icon="account_balance", permissions=["pay_from_bank"])
+    def pay_from_bank_detail_action(self, request, object_id):
+        return redirect(f"{reverse('admin:banking_bankpaymentorder_pay')}?ids={object_id}")
+
+    @admin.action(description=_("Pay from the bank"), permissions=["pay_from_bank"])
+    def pay_from_bank(self, request, queryset):
+        ids = ",".join(str(pk) for pk in queryset.values_list("pk", flat=True))
+        return redirect(f"{reverse('admin:banking_bankpaymentorder_pay')}?ids={ids}")
 
     def has_register_intercompany_payment_permission(self, request, object_id=None):
         if not object_id:
@@ -1652,7 +1676,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 level=messages.WARNING,
             )
     
-    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel","run_matcher_bulk", "journalize_selected"]
+    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "generate_sepa_file", "import_from_excel","run_matcher_bulk", "journalize_selected"]
     actions_row = [
         "view_pdf_row_action",
         "download_pdf_row_action",
@@ -1966,6 +1990,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 name="invoices_salesinvoice_bulk_mark_paid",
             ),
             path(
+                "sepa-direct-debit/",
+                self.admin_site.admin_view(
+                    SepaDirectDebitAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_sepa_direct_debit",
+            ),
+            path(
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
@@ -2152,6 +2183,11 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     def has_bulk_mark_paid_salesinvoice_permission(self, request):
         return request.user.has_perm("invoices.bulk_mark_paid_salesinvoice")
+
+    @admin.action(description=_("Generate SEPA direct debit file"), permissions=["change"])
+    def generate_sepa_file(self, request, queryset):
+        ids = ",".join(str(pk) for pk in queryset.values_list("pk", flat=True))
+        return redirect(f"{reverse('admin:invoices_salesinvoice_sepa_direct_debit')}?ids={ids}")
 
     def has_change_salesinvoice_permission(self, request, object_id=None):
         # A dotted "invoices.change_salesinvoice" in @action(permissions=...)

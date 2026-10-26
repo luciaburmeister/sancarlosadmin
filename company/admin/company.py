@@ -531,6 +531,7 @@ class CompanyAdmin(ModelAdmin):
         (_("Taxes"), {
             "fields": (
                 "tax_identifier",
+                "sepa_creditor_id",
                 "industry_identifier",
                 "business_activity_description"
             ),

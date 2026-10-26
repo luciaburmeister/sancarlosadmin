@@ -339,3 +339,18 @@ def sync_bank_account_task(self, bank_account_id: int):
     except Exception as exc:
         logger.exception("Sync failed for BankAccount %s", bank_account_id)
         raise self.retry(exc=exc)
+
+
+@shared_task
+def poll_bank_payment_orders():
+    """Periodic task: refresh PSD2 payment orders still awaiting signature.
+
+    Callbacks normally settle them; this catches the ones whose callback
+    never arrived and expires the abandoned ones. Schedule it (e.g. every
+    15 minutes) with a PeriodicTask in the admin.
+    """
+    from banking.services.bank_payments import BankPaymentService
+
+    result = BankPaymentService.poll_pending()
+    logger.info("Bank payment orders polled: %s", result)
+    return result

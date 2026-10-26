@@ -20978,3 +20978,281 @@ msgstr "Algún ticket pendiente de revisión"
 #: apps/expenses/admin.py
 msgid "Every ticket reviewed"
 msgstr "Todos los tickets revisados"
+
+msgid "%(company)s has no connected bank account with a valid consent to pay from."
+msgstr "%(company)s no tiene ninguna cuenta bancaria conectada con un consentimiento válido desde la que pagar."
+
+msgid "%(number)s: the amount must be above zero and at most the %(remaining)s still outstanding."
+msgstr "%(number)s: el importe debe ser mayor que cero y como máximo los %(remaining)s pendientes."
+
+msgid "A bank payment for it is already awaiting signature."
+msgstr "Ya hay un pago bancario suyo pendiente de firma."
+
+msgid "A bank payment leaves from one company's account: select invoices of one company."
+msgstr "Un pago bancario sale de la cuenta de una sola empresa: selecciona facturas de una misma empresa."
+
+msgid "Arcopay Bank Service"
+msgstr "Servicio bancario de Arcopay"
+
+msgid "Arcopay did not return a link to sign the payment."
+msgstr "Arcopay no ha devuelto un enlace para firmar el pago."
+
+msgid "Arcopay payment ID"
+msgstr "ID de pago de Arcopay"
+
+msgid "Arcopay's identifier of the bank portal the consent was given at. Payments are sent through it."
+msgstr "Identificador de Arcopay de la banca online en la que se dio el consentimiento. Los pagos se envían a través de ella."
+
+msgid "Awaiting signature"
+msgstr "Pendiente de firma"
+
+msgid "Bank Payment Order"
+msgstr "Orden de pago bancaria"
+
+msgid "Bank Payment Orders"
+msgstr "Órdenes de pago bancarias"
+
+msgid "Bank Payment Order Line"
+msgstr "Línea de orden de pago bancaria"
+
+msgid "Bank Payment Order Lines"
+msgstr "Líneas de orden de pago bancaria"
+
+msgid "Bank status"
+msgstr "Estado en el banco"
+
+msgid "Bulk transfer"
+msgstr "Remesa de transferencias"
+
+msgid "Single transfer"
+msgstr "Transferencia individual"
+
+msgid "Can send payments from the bank (PSD2)"
+msgstr "Puede enviar pagos desde el banco (PSD2)"
+
+msgid "Cancel at the bank"
+msgstr "Cancelar en el banco"
+
+msgid "Cannot tell which online banking %(bank)s uses. Reconnect the bank account once to send payments from it."
+msgstr "No se puede saber qué banca online usa %(bank)s. Vuelve a conectar la cuenta una vez para poder enviar pagos desde ella."
+
+msgid "Completed at"
+msgstr "Completado el"
+
+msgid "Could not check the bank consent: %(error)s"
+msgstr "No se ha podido comprobar el consentimiento bancario: %(error)s"
+
+msgid "Could not get the status from the bank: %(error)s"
+msgstr "No se ha podido obtener el estado del banco: %(error)s"
+
+msgid "Credit notes are not paid by us."
+msgstr "Los abonos no los pagamos nosotros."
+
+msgid "Creditor name"
+msgstr "Nombre del beneficiario"
+
+msgid "Destination IBAN"
+msgstr "IBAN de destino"
+
+msgid "Source IBAN"
+msgstr "IBAN de origen"
+
+msgid "Error code"
+msgstr "Código de error"
+
+msgid "Error message"
+msgstr "Mensaje de error"
+
+msgid "Expired"
+msgstr "Caducado"
+
+msgid "Identifies the order in Arcopay's callback URLs."
+msgstr "Identifica la orden en las URLs de callback de Arcopay."
+
+msgid "Invoice %(number)s belongs to another company than the bank account."
+msgstr "La factura %(number)s es de otra empresa que la cuenta bancaria."
+
+msgid "It is paid by %(method)s, not by transfer."
+msgstr "Se paga por %(method)s, no por transferencia."
+
+msgid "Nothing is left to pay."
+msgstr "No queda nada por pagar."
+
+msgid "Only connected accounts with a valid consent. You sign the transfer at the bank next."
+msgstr "Solo cuentas conectadas con un consentimiento válido. A continuación firmarás la transferencia en el banco."
+
+msgid "Only invoices in euros can be paid from the bank."
+msgstr "Solo se pueden pagar desde el banco facturas en euros."
+
+msgid "Only orders awaiting signature can be cancelled."
+msgstr "Solo se pueden cancelar órdenes pendientes de firma."
+
+msgid "Pay from the bank"
+msgstr "Pagar desde el banco"
+
+msgid "Payment cancelled."
+msgstr "Pago cancelado."
+
+msgid "Payments can only leave from a connected account with a valid consent."
+msgstr "Los pagos solo pueden salir de una cuenta conectada con un consentimiento válido."
+
+msgid "Raw status last reported by Arcopay (OK, KO, RJCT, CNCL...)."
+msgstr "Último estado recibido de Arcopay, tal cual (OK, KO, RJCT, CNCL...)."
+
+msgid "Refresh status"
+msgstr "Actualizar estado"
+
+msgid "Registered when the bank reports the transfer done."
+msgstr "Se registra cuando el banco confirma la transferencia."
+
+msgid "Select at least one invoice to pay."
+msgstr "Selecciona al menos una factura que pagar."
+
+msgid "Sent from the bank (PSD2), order #%(order)s: %(concept)s"
+msgstr "Enviado desde el banco (PSD2), orden #%(order)s: %(concept)s"
+
+msgid "Sign at the bank"
+msgstr "Firmar en el banco"
+
+msgid "Signing link"
+msgstr "Enlace de firma"
+
+msgid "Some of the invoices no longer exist."
+msgstr "Algunas de las facturas ya no existen."
+
+msgid "Starts with the invoice's payment reference, so the bank movement is matched to it."
+msgstr "Empieza por la referencia de pago de la factura, para que el movimiento bancario se concilie con ella."
+
+msgid "Status checked at"
+msgstr "Estado comprobado el"
+
+msgid "Status: %(status)s"
+msgstr "Estado: %(status)s"
+
+msgid "The bank consent of %(bank)s is no longer valid. Renew or reconnect it first."
+msgstr "El consentimiento bancario de %(bank)s ya no es válido. Renuévalo o vuelve a conectarlo primero."
+
+msgid "The bank could not cancel it: %(error)s"
+msgstr "El banco no ha podido cancelarlo: %(error)s"
+
+msgid "The bank did not accept the payment: %(error)s"
+msgstr "El banco no ha aceptado el pago: %(error)s"
+
+msgid "The bank has accepted the payment: the invoices are marked paid and the movement will be matched when it syncs."
+msgstr "El banco ha aceptado el pago: las facturas quedan pagadas y el movimiento se conciliará al sincronizarse."
+
+msgid "The bank has not confirmed the payment yet. Its status is checked again automatically."
+msgstr "El banco aún no ha confirmado el pago. Su estado se vuelve a comprobar automáticamente."
+
+msgid "The invoice has no payment reference."
+msgstr "La factura no tiene referencia de pago."
+
+msgid "The payment was not made: %(status)s."
+msgstr "El pago no se ha realizado: %(status)s."
+
+msgid "The provider has no default bank account with an IBAN."
+msgstr "El proveedor no tiene una cuenta bancaria predeterminada con IBAN."
+
+msgid "This order has no signing link."
+msgstr "Esta orden no tiene enlace de firma."
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Where the user authorises the transfer at the bank."
+msgstr "Donde el usuario autoriza la transferencia en el banco."
+
+msgid "You will sign the transfer at your bank. Each concept starts with the invoice's payment reference, so the bank movement is matched to it. The invoices are marked paid once the bank confirms the payment."
+msgstr "Firmarás la transferencia en tu banco. Cada concepto empieza por la referencia de pago de la factura, para que el movimiento bancario se concilie con ella. Las facturas quedan pagadas cuando el banco confirma el pago."
+
+msgid "These invoices cannot be paid from the bank and are left out:"
+msgstr "Estas facturas no se pueden pagar desde el banco y quedan fuera:"
+
+msgid "To IBAN"
+msgstr "IBAN destino"
+
+msgid "Sign the transfer at the bank"
+msgid_plural "Sign %(counter)s transfers at the bank"
+msgstr[0] "Firmar la transferencia en el banco"
+msgstr[1] "Firmar %(counter)s transferencias en el banco"
+
+msgid "SEPA Creditor Identifier"
+msgstr "Identificador de acreedor SEPA"
+
+msgid "Given by the bank to collect by SEPA direct debit, e.g. ES12000B12345678."
+msgstr "Lo facilita el banco para cobrar por adeudo directo SEPA, p. ej. ES12000B12345678."
+
+msgid "SEPA Mandate Reference"
+msgstr "Referencia del mandato SEPA"
+
+msgid "SEPA Mandate Signed On"
+msgstr "Fecha de firma del mandato SEPA"
+
+msgid "Generate SEPA direct debit file"
+msgstr "Generar fichero de adeudos SEPA"
+
+msgid "SEPA direct debit file"
+msgstr "Fichero de adeudos SEPA"
+
+msgid "Collect into"
+msgstr "Cobrar en"
+
+msgid "Collection date"
+msgstr "Fecha de cargo"
+
+msgid "Day the bank charges the clients."
+msgstr "Día en que el banco carga el importe a los clientes."
+
+#, python-format
+msgid "The bank needs the file at least %(days)d business days before: pick %(date)s or later."
+msgstr "El banco necesita el fichero con al menos %(days)d días hábiles de antelación: elige el %(date)s o una fecha posterior."
+
+msgid "belongs to another company"
+msgstr "pertenece a otra empresa"
+
+msgid "is not a final invoice"
+msgstr "no es una factura definitiva"
+
+msgid "is not in EUR"
+msgstr "no está en EUR"
+
+msgid "has nothing left to collect"
+msgstr "no tiene importe pendiente de cobro"
+
+msgid "the client has no bank account with a SEPA mandate"
+msgstr "el cliente no tiene ninguna cuenta bancaria con mandato SEPA"
+
+msgid "the client's IBAN is not valid"
+msgstr "el IBAN del cliente no es válido"
+
+#, python-format
+msgid "%(company)s has no SEPA creditor identifier: set it on the company."
+msgstr "%(company)s no tiene identificador de acreedor SEPA: indícalo en la empresa."
+
+#, python-format
+msgid "The bank account %(account)s needs a valid IBAN and its BIC to collect by SEPA."
+msgstr "La cuenta bancaria %(account)s necesita un IBAN válido y su BIC para cobrar por SEPA."
+
+#, python-format
+msgid "Invoice %(number)s %(reference)s"
+msgstr "Factura %(number)s %(reference)s"
+
+msgid "None of the selected invoices can be collected by SEPA."
+msgstr "Ninguna de las facturas seleccionadas se puede cobrar por SEPA."
+
+#, python-format
+msgid "The SEPA file is not valid: %(error)s"
+msgstr "El fichero SEPA no es válido: %(error)s"
+
+msgid "Select invoices of a single company: a SEPA file collects into one company's account."
+msgstr "Selecciona facturas de una sola empresa: un fichero SEPA cobra en la cuenta de una única empresa."
+
+#, python-format
+msgid "Charges what is left to pay of each invoice to the client's mandated bank account. Upload the file to %(company)s's bank; each collection arrives as its own bank movement and is reconciled by its payment reference."
+msgstr "Carga el importe pendiente de cada factura en la cuenta del cliente con mandato. Sube el fichero al banco de %(company)s; cada cobro llega como un movimiento bancario propio y se concilia por su referencia de pago."
+
+#, python-format
+msgid "Download file (%(counter)s invoice)"
+msgid_plural "Download file (%(counter)s invoices)"
+msgstr[0] "Descargar fichero (%(counter)s factura)"
+msgstr[1] "Descargar fichero (%(counter)s facturas)"

@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
@@ -292,3 +294,135 @@ class InvoiceReconciliationSuggestion(CompanyOwnedModel):
     def __str__(self):
         status = "confirmed" if self.is_confirmed else "pending"
         return f"InvoiceMatchSuggestion #{self.pk} ({status})"
+
+class BankPaymentOrderKind(models.TextChoices):
+    DIRECT = "direct", _("Single transfer")
+    BULK = "bulk", _("Bulk transfer")
+
+
+class BankPaymentOrderStatus(models.TextChoices):
+    PENDING = "pending", _("Awaiting signature")
+    COMPLETED = "completed", _("Completed")
+    REJECTED = "rejected", _("Rejected")
+    CANCELLED = "cancelled", _("Cancelled")
+    EXPIRED = "expired", _("Expired")
+    ERROR = "error", _("Error")
+
+
+class BankPaymentOrder(CompanyOwnedModel):
+    """
+    Transfers sent through Arcopay PSD2 payment initiation (/directPayment/
+    or /bulkPayment/) from one of our consented bank accounts, one line per
+    purchase invoice paid. The user signs it at the bank (``follow_url``);
+    once the bank reports it done, BankPaymentService registers one Payment
+    per line expecting the invoice's payment reference, so the bank movement
+    links to it when it is synced. See banking/services/bank_payments.py.
+    """
+
+    token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        verbose_name=_("Token"),
+        help_text=_("Identifies the order in Arcopay's callback URLs."),
+    )
+    kind = models.CharField(max_length=10, choices=BankPaymentOrderKind.choices, verbose_name=_("Kind"))
+    status = models.CharField(
+        max_length=10,
+        choices=BankPaymentOrderStatus.choices,
+        default=BankPaymentOrderStatus.PENDING,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+    bank_account = models.ForeignKey(
+        BankAccount,
+        on_delete=models.PROTECT,
+        related_name="payment_orders",
+        verbose_name=_("From bank account"),
+    )
+    source_iban = models.CharField(max_length=50, verbose_name=_("Source IBAN"))
+    amount = MoneyField(max_digits=12, decimal_places=2, default_currency="EUR", verbose_name=_("Amount"))
+    arcopay_payment_id = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Arcopay payment ID"),
+    )
+    follow_url = models.TextField(
+        blank=True,
+        verbose_name=_("Signing link"),
+        help_text=_("Where the user authorises the transfer at the bank."),
+    )
+    bank_status = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name=_("Bank status"),
+        help_text=_("Raw status last reported by Arcopay (OK, KO, RJCT, CNCL...)."),
+    )
+    error_code = models.CharField(max_length=20, blank=True, verbose_name=_("Error code"))
+    error_message = models.TextField(blank=True, verbose_name=_("Error message"))
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+        verbose_name=_("Created by"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+    status_checked_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Status checked at"))
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Completed at"))
+
+    class Meta:
+        verbose_name = _("Bank Payment Order")
+        verbose_name_plural = _("Bank Payment Orders")
+        ordering = ["-created_at"]
+        permissions = [("can_initiate_bank_payment", _("Can send payments from the bank (PSD2)"))]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} #{self.pk} — {self.amount} ({self.get_status_display()})"
+
+    @property
+    def is_pending(self):
+        return self.status == BankPaymentOrderStatus.PENDING
+
+
+class BankPaymentOrderLine(models.Model):
+    """One transfer of a BankPaymentOrder: what was sent to the bank for one purchase invoice."""
+
+    order = models.ForeignKey(
+        BankPaymentOrder,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("Order"),
+    )
+    invoice = models.ForeignKey(
+        "invoices.Invoice",
+        on_delete=models.PROTECT,
+        related_name="bank_payment_lines",
+        verbose_name=_("Invoice"),
+    )
+    amount = MoneyField(max_digits=12, decimal_places=2, default_currency="EUR", verbose_name=_("Amount"))
+    destination_iban = models.CharField(max_length=50, verbose_name=_("Destination IBAN"))
+    creditor_name = models.CharField(max_length=200, verbose_name=_("Creditor name"))
+    concept = models.CharField(
+        max_length=140,
+        verbose_name=_("Concept"),
+        help_text=_("Starts with the invoice's payment reference, so the bank movement is matched to it."),
+    )
+    payment = models.OneToOneField(
+        "payments.Payment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="bank_payment_line",
+        verbose_name=_("Payment"),
+        help_text=_("Registered when the bank reports the transfer done."),
+    )
+
+    class Meta:
+        verbose_name = _("Bank Payment Order Line")
+        verbose_name_plural = _("Bank Payment Order Lines")
+        ordering = ["pk"]
+
+    def __str__(self):
+        return f"{self.invoice} — {self.amount}"

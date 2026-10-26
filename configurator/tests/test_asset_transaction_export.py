@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.utils import timezone
 
-from assets.models import Asset, AssetTransaction, AssetType, TransactionTypeChoices
+from assets.models import Asset, AssetTransaction, AssetTransactionReceipt, AssetType, TransactionTypeChoices
 from company.models import Company, WorkingZone
 from configurator.services.export.asset_transaction import AssetTransactionExportStrategy
 from management.models import ProjectFile
@@ -390,3 +390,72 @@ class AssetTransactionExportLandfillContextTests(_AssetTransactionExportTestCase
         context = AssetTransactionExportStrategy(transaction).get_context()
 
         self.assertIsNone(context["landfill"])
+
+
+class AssetTransactionExportReceiptMatriculaContextTests(_AssetTransactionExportTestCase):
+    """A RECEIPT (verteo) transaction never records the truck plate itself --
+    the mobile submission that creates it has no such field, only the earlier
+    MOVEMENT that dropped off the cuba does. The export context falls back to
+    that related movement's plate so receipt documents print it too."""
+
+    def test_receipt_inherits_the_plate_from_its_related_movement(self):
+        movement = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            data={"matricula": "0709CBB"},
+        )
+        receipt_tx = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(),
+            data={"nro_albaran": "01083485"},
+        )
+        AssetTransactionReceipt.objects.create(
+            transaction=receipt_tx, nro_albaran="01083485", movement_transaction=movement,
+        )
+
+        context = AssetTransactionExportStrategy(receipt_tx).get_context()
+
+        self.assertEqual(context["data"]["matricula"], "0709CBB")
+        # Nothing else in `data` gets disturbed by the splice.
+        self.assertEqual(context["data"]["nro_albaran"], "01083485")
+
+    def test_receipt_without_a_related_movement_has_no_plate(self):
+        receipt_tx = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(),
+            data={"nro_albaran": "01083485"},
+        )
+
+        context = AssetTransactionExportStrategy(receipt_tx).get_context()
+
+        self.assertNotIn("matricula", context["data"])
+
+    def test_receipt_own_plate_is_not_overridden_by_the_movement(self):
+        movement = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            data={"matricula": "0709CBB"},
+        )
+        receipt_tx = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(),
+            data={"matricula": "1111AAA"},
+        )
+        AssetTransactionReceipt.objects.create(
+            transaction=receipt_tx, nro_albaran="01083485", movement_transaction=movement,
+        )
+
+        context = AssetTransactionExportStrategy(receipt_tx).get_context()
+
+        self.assertEqual(context["data"]["matricula"], "1111AAA")
+
+    def test_movement_transaction_is_unaffected(self):
+        movement = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            data={"matricula": "0709CBB"},
+        )
+
+        context = AssetTransactionExportStrategy(movement).get_context()
+
+        self.assertEqual(context["data"]["matricula"], "0709CBB")

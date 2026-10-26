@@ -1,5 +1,7 @@
 from typing import Any, Dict
 
+from assets.models import TransactionTypeChoices
+from assets.services.movement_context import get_related_movement
 from configurator.templatetags.formatting import qr
 from core.text import join_unique
 
@@ -48,16 +50,7 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
             "to_zone": str(self.transaction.to_zone) if self.transaction.to_zone else None,
             "date": self.transaction.date,
             "notes": self.transaction.notes or "",
-            # reference_number is now a real model field, not a `data` key --
-            # but every template (including ones already live in production)
-            # reads it as `{{ data.reference_number }}`, so it's spliced back
-            # into the dict handed to templates rather than making every
-            # template change. Falls back to the legacy `data` key for any
-            # row the backfill hasn't reached yet.
-            "data": {
-                **(self.transaction.data or {}),
-                "reference_number": self.transaction.reference_number or (self.transaction.data or {}).get("reference_number", ""),
-            },
+            "data": self._build_data(),
             "firma": self.transaction.firma or "",
             "firma_image": (
                 f"data:image/png;base64,{self.transaction.firma}"
@@ -95,6 +88,32 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
         context.update(company_ctx)
 
         return context
+
+    def _build_data(self) -> Dict[str, Any]:
+        """
+        `data` dict spliced for templates, which all read it as a flat
+        `{{ data.* }}` namespace regardless of where the value actually lives.
+
+        - reference_number is a real model field now, not a `data` key, but
+          every template -- including ones already live in production --
+          reads it as `data.reference_number`, so it's spliced back in here.
+          Falls back to the legacy `data` key for any row the backfill
+          hasn't reached yet.
+        - matricula (the truck plate) is never recorded on a RECEIPT
+          transaction itself -- the verteo submission that creates it has no
+          such field, only the earlier MOVEMENT that dropped off the cuba
+          does. Fall back to that related movement's plate so receipt
+          documents print it too.
+        """
+        data = {
+            **(self.transaction.data or {}),
+            "reference_number": self.transaction.reference_number or (self.transaction.data or {}).get("reference_number", ""),
+        }
+        if self.transaction.transaction_type == TransactionTypeChoices.RECEIPT and not data.get("matricula"):
+            movement = get_related_movement(self.transaction)
+            if movement:
+                data["matricula"] = (movement.data or {}).get("matricula", "")
+        return data
 
     def get_product(self):
         """

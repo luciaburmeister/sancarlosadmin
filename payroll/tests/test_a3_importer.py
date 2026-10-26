@@ -165,6 +165,16 @@ class ValidateTests(A3ImporterTestBase):
             self.assertFalse(row.is_importable)
         self.assertEqual(report.matched_count, 0)
 
+    def test_explicit_company_is_used_when_nif_is_shared(self):
+        make_company(name="Twin Company")
+        report = A3PayrollImportService(
+            build_a3_workbook(), company=self.company
+        ).validate()
+        self.assertFalse(report.has_blocking_errors, report.errors)
+        self.assertFalse(report.needs_company_selection)
+        self.assertEqual(report.company_id, self.company.id)
+        self.assertTrue(report.can_commit)
+
     def test_manual_company_resolves_duplicate_nif(self):
         make_company(name="Twin Company")
         report = A3PayrollImportService(

@@ -6,7 +6,28 @@ from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 from company.models import Company, Employee
 
 
+class CompanyChoiceField(forms.ModelChoiceField):
+    """Company select labelled with the tax id, so shared NIFs stay distinct."""
+
+    def label_from_instance(self, obj):
+        tax_id = (obj.tax_identifier or "").strip()
+        if tax_id:
+            return f"{obj.name} ({tax_id})"
+        return obj.name
+
+
 class A3PayrollImportForm(forms.Form):
+    company = CompanyChoiceField(
+        queryset=Company.objects.none(),
+        required=False,
+        label=_("Import into company"),
+        empty_label=_("Detect from the file"),
+        widget=UnfoldAdminSelectWidget(),
+        help_text=_(
+            "Choose the company when several share the file NIF. "
+            "Leave empty to detect it from the file."
+        ),
+    )
     file = forms.FileField(
         label=_("A3 Payroll Excel"),
         validators=[FileExtensionValidator(allowed_extensions=["xlsx", "xls"])],
@@ -18,12 +39,16 @@ class A3PayrollImportForm(forms.Form):
         ),
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["company"].queryset = Company.objects.order_by("name")
+
 
 class ImportCompanySelectForm(forms.Form):
     """Pick the company for an import whose file NIF did not resolve
     (missing, unknown, or shared by more than one company)."""
 
-    company = forms.ModelChoiceField(
+    company = CompanyChoiceField(
         queryset=Company.objects.none(),
         label=_("Import into company"),
         widget=UnfoldAdminSelectWidget(),

@@ -4,9 +4,11 @@ Admin view for importing A3 payroll Excel files.
 Two-phase flow:
     1. Upload  -> file is stored in a temporary location and ``validate()``
        runs a dry-run; a preview with totals, warnings and errors is shown.
-       If the file NIF does not resolve to exactly one company (missing,
-       unknown, or shared), the preview asks the user to pick the company
-       and re-validates with it (``action=revalidate``) — the stored file
+       The upload form can name the company. That choice is used even when
+       several companies share the file NIF, as long as the NIF matches.
+       If the company is left empty and the NIF does not resolve to exactly
+       one company (missing, unknown, or shared), the preview asks the user
+       to pick it and re-validates (``action=revalidate``) — the stored file
        is reused, no re-upload needed.
     2. Confirm -> the stored file is re-opened and ``commit()`` writes the
        data atomically. The temporary file is always cleaned up afterwards.
@@ -56,29 +58,27 @@ class PayrollImportAdminView(UnfoldModelAdminViewMixin, TemplateView):
             return self.render_to_response(self.get_context_data(form=form))
 
         upload = form.cleaned_data["file"]
+        company = form.cleaned_data["company"]
         token = uuid.uuid4().hex
         stored_path = default_storage.save(f"{_TMP_PREFIX}{token}.xlsx", upload)
 
         try:
-            with default_storage.open(stored_path) as fh:
-                service = A3PayrollImportService(fh, source_file=upload.name)
-                report = service.validate()
+            report = self._validate_stored(stored_path, upload.name, company=company)
         except A3PayrollParseError as exc:
             default_storage.delete(stored_path)
             messages.error(request, str(exc))
-            return self.render_to_response(self.get_context_data(form=A3PayrollImportForm()))
-
-        context = self.get_context_data(
-            form=A3PayrollImportForm(),
-            report=report,
-            token=token,
-            source_file=upload.name,
-        )
-        if report.needs_company_selection:
-            context["company_form"] = ImportCompanySelectForm(
-                candidate_ids=report.company_candidate_ids
+            return self.render_to_response(
+                self.get_context_data(form=A3PayrollImportForm())
             )
-        return self.render_to_response(context)
+
+        return self.render_to_response(
+            self._preview_context(
+                report,
+                token=token,
+                source_file=upload.name,
+                selected_company_id=company.pk if company else None,
+            )
+        )
 
     # ── Phase 1b: re-validate with a manually selected company ─
 
@@ -93,28 +93,28 @@ class PayrollImportAdminView(UnfoldModelAdminViewMixin, TemplateView):
 
         company_form = ImportCompanySelectForm(request.POST)
         if not company_form.is_valid():
-            messages.error(request, _("Select a valid company."))
-            return redirect(reverse("admin:payroll_payroll_import"))
+            return self._render_unresolved_preview(
+                stored_path, source_file, token, request.POST
+            )
         company = company_form.cleaned_data["company"]
 
         try:
-            with default_storage.open(stored_path) as fh:
-                service = A3PayrollImportService(
-                    fh,
-                    company=company,
-                    source_file=source_file,
-                    allow_nif_mismatch=True,
-                )
-                report = service.validate()
+            report = self._validate_stored(
+                stored_path,
+                source_file,
+                company=company,
+                allow_nif_mismatch=True,
+            )
         except A3PayrollParseError as exc:
             default_storage.delete(stored_path)
             messages.error(request, str(exc))
-            return self.render_to_response(self.get_context_data(form=A3PayrollImportForm()))
+            return self.render_to_response(
+                self.get_context_data(form=A3PayrollImportForm())
+            )
 
         return self.render_to_response(
-            self.get_context_data(
-                form=A3PayrollImportForm(),
-                report=report,
+            self._preview_context(
+                report,
                 token=token,
                 source_file=source_file,
                 selected_company_id=company.pk,
@@ -151,7 +151,9 @@ class PayrollImportAdminView(UnfoldModelAdminViewMixin, TemplateView):
                 period = service.commit()
         except A3PayrollParseError as exc:
             messages.error(request, str(exc))
-            return self.render_to_response(self.get_context_data(form=A3PayrollImportForm()))
+            return self.render_to_response(
+                self.get_context_data(form=A3PayrollImportForm())
+            )
         finally:
             default_storage.delete(stored_path)
 
@@ -166,3 +168,45 @@ class PayrollImportAdminView(UnfoldModelAdminViewMixin, TemplateView):
             },
         )
         return redirect(reverse("admin:payroll_payrollperiod_change", args=[period.pk]))
+
+    def _validate_stored(
+        self, stored_path, source_file, company=None, allow_nif_mismatch=False
+    ):
+        with default_storage.open(stored_path) as fh:
+            return A3PayrollImportService(
+                fh,
+                company=company,
+                source_file=source_file,
+                allow_nif_mismatch=allow_nif_mismatch,
+            ).validate()
+
+    def _preview_context(self, report, *, token, source_file, selected_company_id=None):
+        context = self.get_context_data(
+            form=A3PayrollImportForm(),
+            report=report,
+            token=token,
+            source_file=source_file,
+            selected_company_id=selected_company_id,
+        )
+        if report.needs_company_selection:
+            context["company_form"] = ImportCompanySelectForm(
+                candidate_ids=report.company_candidate_ids
+            )
+        return context
+
+    def _render_unresolved_preview(self, stored_path, source_file, token, data):
+        try:
+            report = self._validate_stored(stored_path, source_file)
+        except A3PayrollParseError as exc:
+            default_storage.delete(stored_path)
+            messages.error(self.request, str(exc))
+            return self.render_to_response(
+                self.get_context_data(form=A3PayrollImportForm())
+            )
+
+        context = self._preview_context(report, token=token, source_file=source_file)
+        context["company_form"] = ImportCompanySelectForm(
+            data, candidate_ids=report.company_candidate_ids
+        )
+        context["company_form"].is_valid()
+        return self.render_to_response(context)

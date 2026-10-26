@@ -54,6 +54,34 @@
                 </p>
             </div>
 
+            {% if report.needs_company_selection %}
+            <form method="post" class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revalidate">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="source_file" value="{{ source_file }}">
+                <div class="mb-4 p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700">
+                    <div class="flex items-start">
+                        <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 mr-2">business</span>
+                        <div class="text-sm text-amber-800 dark:text-amber-300">
+                            <p class="font-semibold">{% trans "The company could not be resolved from the file NIF." %}</p>
+                            <p class="mt-1">{% trans "Choose the company this payroll file belongs to. Nothing is saved yet: the file will be re-validated against the selected company." %}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    {% for field in company_form %}
+                        {% include "unfold/helpers/field.html" with field=field %}
+                    {% endfor %}
+                </div>
+                <div class="mt-4 flex justify-end">
+                    {% component "unfold/components/button.html" with submit=1 %}
+                        {% trans "Validate with this company" %}
+                    {% endcomponent %}
+                </div>
+            </form>
+            {% endif %}
+
             <div class="px-6 py-4 grid grid-cols-4 gap-4 border-b border-gray-200 dark:border-gray-700">
                 <div class="text-center">
                     <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ report.rows|length }}</div>
@@ -149,33 +177,7 @@
                 </table>
             </div>
 
-            {% if report.needs_company_selection %}
-            <form method="post" class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="revalidate">
-                <input type="hidden" name="token" value="{{ token }}">
-                <input type="hidden" name="source_file" value="{{ source_file }}">
-                <div class="mb-4 p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700">
-                    <div class="flex items-start">
-                        <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 mr-2">business</span>
-                        <div class="text-sm text-amber-800 dark:text-amber-300">
-                            <p class="font-semibold">{% trans "The company could not be resolved from the file NIF." %}</p>
-                            <p class="mt-1">{% trans "Choose the company this payroll file belongs to. Nothing is saved yet: the file will be re-validated against the selected company." %}</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="space-y-4">
-                    {% for field in company_form %}
-                        {% include "unfold/helpers/field.html" with field=field %}
-                    {% endfor %}
-                </div>
-                <div class="mt-4 flex justify-end">
-                    {% component "unfold/components/button.html" with submit=1 %}
-                        {% trans "Validate with this company" %}
-                    {% endcomponent %}
-                </div>
-            </form>
-            {% elif report.can_commit %}
+            {% if report.can_commit %}
             <form method="post" class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="confirm">
@@ -186,7 +188,7 @@
                     {% trans "Confirm import" %}
                 {% endcomponent %}
             </form>
-            {% else %}
+            {% elif not report.needs_company_selection %}
             <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
                 {% trans "Resolve the blocking errors above before importing." %}
             </div>

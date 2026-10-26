@@ -13010,6 +13010,16 @@ msgstr ""
 msgid "Import into company"
 msgstr "Importar en la empresa"
 
+msgid "Detect from the file"
+msgstr "Detectar a partir del archivo"
+
+msgid ""
+"Choose the company when several share the file NIF. Leave empty to detect "
+"it from the file."
+msgstr ""
+"Elige la empresa cuando varias comparten el NIF del archivo. Déjalo vacío "
+"para detectarla a partir del archivo."
+
 #, fuzzy
 #| msgid "Assign Employee"
 msgid "Assign to employee"

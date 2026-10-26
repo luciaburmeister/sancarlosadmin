@@ -20,6 +20,7 @@ from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
 from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
 from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
+from assets.views.asset_transaction_wizard import AssetTransactionFromPlanningWizardView
 
 
 class AutoAssignBulkForm(BaseDialogForm):
@@ -180,8 +181,6 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         return AssetPlanningChangeList
 
     def get_urls(self):
-        from assets.views.asset_transaction_wizard import AssetTransactionFromPlanningWizardView
-
         urls = super().get_urls()
         custom = [
             path(

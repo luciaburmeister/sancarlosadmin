@@ -8,6 +8,7 @@ from unfold.widgets import (
     UnfoldAdminTextInputWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminSelect2MultipleWidget,
+    UnfoldAdminTextareaWidget,
     UnfoldBooleanSwitchWidget,
 )
 
@@ -123,20 +124,42 @@ from core.admin.company_access import get_user_companies
 from core.forms.dynamic_fields import DynamicFieldBuilder
 from sales.models import Client
 
-from .constants import SERVICE_TYPE_PLANNING_TYPE
+from .constants import SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_PLANNING_TYPE
 from .models import (
     Asset,
     AssetIdentifier,
     AssetPlanning,
     AssetPlanningRequest,
     AssetType,
+    AssetIdentifierLabel,
     AssetTypeCategory,
+    CubaFillState,
+    CubaTransactionKey,
+    FormAffirmative,
     PlanningType,
+    PorteTransactionDataKey,
     PlanningUrgency,
     ServiceType,
     TransactionTypeChoices,
 )
-from .transaction_data_schema import build_data_from_cleaned, data_schema_fields, match_choice_value
+from .transaction_data_schema import (
+    SelectedOnlyAutocompleteWidget,
+    autocomplete_field,
+    build_data_from_cleaned,
+    data_schema_fields,
+    match_choice_value,
+    text_field,
+)
+
+
+class TruckPlateChoiceField(UnfoldAdminAutocompleteModelChoiceField):
+    widget = SelectedOnlyAutocompleteWidget
+
+    def label_from_instance(self, obj):
+        plate = obj.matricula or ""
+        if plate:
+            return f"{plate} — {obj.name}"
+        return str(obj)
 
 # Namespaced to Asset specifically: a generic "data__" prefix would eventually
 # collide with another model/form using the same convention.
@@ -475,38 +498,22 @@ PORTE_TRANSACTION_TYPE_CHOICES = [
 
 
 class ManualTransactionForm(forms.Form):
-    """"Create Transaction" wizard form, launched from an AssetPlanning's
-    change page. Pre-filled by the view from the planning; see
-    assets.views.asset_transaction_wizard.AssetTransactionFromPlanningWizardView.
-    """
 
     transaction_type = forms.ChoiceField(
         label=_("Type"),
         choices=CUBA_TRANSACTION_TYPE_CHOICES,
         widget=UnfoldAdminSelectWidget,
     )
-    asset = forms.ModelChoiceField(
-        label=_("Asset"),
-        queryset=Asset.objects.none(),
-        required=False,
-        widget=UnfoldAdminSelectWidget,
-        help_text=_("Only needed if the planning has no asset/truck/machine assigned yet — picks what this transaction is recorded against. Pre-filled from the planning when it already has one."),
-    )
-    zone = forms.ModelChoiceField(
-        label=_("Zone"),
-        queryset=WorkingZone.objects.none(),
-        required=False,
-        help_text=_("Delivery: destination zone (defaults to the planning's destination if left blank). Receipt: the landfill/vertedero, if known. Not used for Movement or Porte (porte always uses the planning's own origin/destination)."),
-    )
     performed_by = forms.ModelChoiceField(
         label=_("Performed by"),
         queryset=Employee.objects.none(),
         required=False,
+        widget=UnfoldAdminSelectWidget,
     )
     notes = forms.CharField(
-        label=_("Notes"),
+        label=_("Notes (optional)"),
         required=False,
-        widget=forms.Textarea(attrs={"rows": 2, "placeholder": _("e.g. Manual correction: driver's phone failed.")}),
+        widget=UnfoldAdminTextareaWidget(attrs={"rows": 2}),
     )
     # A real AssetTransaction field, not one of the per-type data_schema_fields
     # below -- applies to every transaction type, so it's a plain top-level
@@ -517,96 +524,236 @@ class ManualTransactionForm(forms.Form):
         widget=UnfoldAdminTextInputWidget(attrs={"placeholder": _("Customer/order reference, if any")}),
     )
 
+    _MOVEMENT_FIELDS = (
+        CubaTransactionKey.ESTADO, CubaTransactionKey.MATERIAL, CubaTransactionKey.VAS_A_VERTER,
+        CubaTransactionKey.LANDFILL, CubaTransactionKey.M3, PorteTransactionDataKey.MATRICULA,
+    )
+    _DELIVERY_FIELDS = (
+        CubaTransactionKey.ESTADO, CubaTransactionKey.MATERIAL, CubaTransactionKey.M3,
+        PorteTransactionDataKey.MATRICULA,
+    )
+    _RECEIPT_FIELDS = (CubaTransactionKey.ALBARAN, CubaTransactionKey.MATERIAL_DUMPED)
+    _PORTE_LOAD_FIELDS = (
+        PorteTransactionDataKey.GOODS_TYPE, PorteTransactionDataKey.TONNES_TRANSPORTED,
+        PorteTransactionDataKey.PACKAGE_COUNT,
+    )
+    _REQUIRES_FULL = frozenset({CubaTransactionKey.MATERIAL, CubaTransactionKey.VAS_A_VERTER})
+    _REQUIRES_DUMP = frozenset({CubaTransactionKey.LANDFILL})
+    _MOVEMENT_AND_DELIVERY = f"{TransactionTypeChoices.MOVEMENT},{TransactionTypeChoices.DELIVERY}"
+
     def __init__(self, *args, planning=None, **kwargs):
         self.planning = planning
         super().__init__(*args, **kwargs)
         company = planning.company if planning is not None else None
+        is_porte = planning is not None and planning.planning_type == PlanningType.PORTE
         # "" (falsy) renders these ungrouped, above the per-type sections below.
-        for name in ("transaction_type", "asset", "zone", "performed_by", "reference_number", "notes"):
+        for name in ("transaction_type", "performed_by", "reference_number", "notes"):
             self.fields[name].parameter_group = ""
-        # Porte always uses the planning's own origin/destination, never `zone`.
-        self.fields["zone"].widget.attrs["data-shows-for"] = "movement,delivery,receipt"
-        if planning is not None and planning.planning_type == PlanningType.PORTE:
+        if is_porte:
             self.fields["transaction_type"].choices = PORTE_TRANSACTION_TYPE_CHOICES
         if planning is not None and planning.company_id:
-            self.fields["asset"].queryset = Asset.objects.filter(
-                company_id=planning.company_id
-            ).order_by("name")
-            # Planning may already have one on any of these, depending on type/step
-            # (cuba: asset; porte: transport_asset or, for an own-machine porte,
-            # machine) -- pre-fill from whichever is actually set so re-submitting
-            # a correction doesn't require re-picking it.
-            current_asset = planning.asset or planning.transport_asset or planning.machine
-            if current_asset is not None:
-                self.fields["asset"].initial = current_asset.pk
-            self.fields["zone"].queryset = WorkingZone.objects.filter(
-                company_id=planning.company_id
-            ).order_by("name")
-            self.fields["performed_by"].queryset = Employee.objects.filter(
-                company_id=planning.company_id, is_active=True
-            ).order_by("first_name", "last_name")
-            self.fields["zone"].initial = planning.destination_id
-            self.fields["performed_by"].initial = planning.assigned_to_id
-        # Only the families relevant to this planning's type are built at all.
-        # A field name shared across families (e.g. "matricula") must NOT be
-        # replaced by a later loop -- that would drop the earlier family's
-        # data-shows-for value and hide the field for it entirely.
-        if planning is not None and planning.planning_type == PlanningType.PORTE:
-            families = [
-                (_("Porte Details"), "porte_movement,porte_load,porte_delivery", TransactionTypeChoices.PORTE_MOVEMENT),
-            ]
-        else:
-            families = [
-                (_("Container Details"), "movement,delivery", TransactionTypeChoices.MOVEMENT),
-                (_("Receipt (Verteo) Details"), "receipt", TransactionTypeChoices.RECEIPT),
-            ]
-        for parameter_group, shows_for, field_transaction_type in families:
-            for name, field in data_schema_fields(field_transaction_type, company).items():
-                if name in self.fields:
-                    existing = self.fields[name].widget.attrs.get("data-shows-for", "")
-                    field.widget.attrs["data-shows-for"] = ",".join(
-                        filter(None, [existing, shows_for])
-                    )
-                else:
-                    field.widget.attrs["data-shows-for"] = shows_for
-                field.parameter_group = self.fields[name].parameter_group if name in self.fields else parameter_group
-                self.fields[name] = field
+            performed_by = autocomplete_field(
+                _("Performed by"),
+                Employee.objects.filter(
+                    company_id=planning.company_id, is_active=True,
+                ).order_by("last_name", "first_name"),
+                "admin:employee_autocomplete",
+            )
+            performed_by.initial = planning.assigned_to_id
+            performed_by.parameter_group = ""
+            self.fields["performed_by"] = performed_by
+            self._add_asset_field()
+            if is_porte:
+                self._add_porte_fields(company)
+            else:
+                self._add_cuba_fields(company)
+        self.order_fields([
+            "transaction_type", "asset", "performed_by", "reference_number", "notes",
+        ])
 
-        # The planning already carries this info under its own name/format
-        # (cuba_size is e.g. "7m3") -- pre-fill rather than retype it.
-        if planning is not None and planning.cuba_size and "m3" in self.fields:
-            self.fields["m3"].initial = match_choice_value(
-                self.fields["m3"], AssetPlanning.normalize_cuba_size(planning.cuba_size)
+    def _add_asset_field(self):
+        planning = self.planning
+        if planning.asset_id:
+            return
+        queryset = Asset.objects.filter(
+            company_id=planning.company_id, is_active=True,
+        ).exclude(
+            asset_type__category__in=(AssetTypeCategory.TRUCK, AssetTypeCategory.MACHINE),
+        )
+        field = autocomplete_field(
+            _("Cuba"), queryset.order_by("name"), "admin:container_autocomplete",
+        )
+        field.help_text = _("The container this transaction is about. The planning doesn't have one yet.")
+        field.parameter_group = ""
+        self.fields["asset"] = field
+
+    def _add_plate_field(self, shows_for, group):
+        queryset = Asset.objects.filter(
+            company_id=self.planning.company_id,
+            is_active=True,
+            asset_type__category=AssetTypeCategory.TRUCK,
+            identifiers__label__iexact=AssetIdentifierLabel.PLATE,
+        ).distinct()
+        field = TruckPlateChoiceField(
+            url_path="admin:truck_plate_autocomplete",
+            label=_("Plate"),
+            queryset=queryset.order_by("name"),
+            required=False,
+        )
+        self._add_schema_field(PorteTransactionDataKey.MATRICULA, field, shows_for, group)
+
+    def _add_schema_field(self, name, field, shows_for, group, requires=""):
+        field.widget.attrs["data-shows-for"] = shows_for
+        if requires:
+            field.widget.attrs["data-requires"] = requires
+        field.parameter_group = group
+        self.fields[name] = field
+
+    def _add_cuba_fields(self, company):
+        planning = self.planning
+        container = data_schema_fields(TransactionTypeChoices.MOVEMENT, company)
+        receipt = data_schema_fields(TransactionTypeChoices.RECEIPT, company)
+        if not planning.destination_id:
+            self.fields["zone"] = forms.ModelChoiceField(
+                label=_("Destination zone"),
+                queryset=WorkingZone.objects.filter(company_id=planning.company_id).order_by("name"),
+                required=False,
+                widget=UnfoldAdminSelectWidget,
             )
-        if planning is not None and planning.load_description and "tipo_cuba" in self.fields:
-            self.fields["tipo_cuba"].initial = match_choice_value(
-                self.fields["tipo_cuba"], planning.load_description.strip()
+            self.fields["zone"].widget.attrs["data-shows-for"] = TransactionTypeChoices.DELIVERY
+            self.fields["zone"].parameter_group = ""
+        group = _("Container Details")
+        plate_known = bool(planning.transport_plate())
+        m3_known = bool(planning.recorded_capacity())
+        for name in self._MOVEMENT_FIELDS:
+            if name == PorteTransactionDataKey.MATRICULA and plate_known:
+                continue
+            if name == CubaTransactionKey.M3 and m3_known:
+                continue
+            shows_for = (
+                TransactionTypeChoices.MOVEMENT
+                if name in (CubaTransactionKey.VAS_A_VERTER, CubaTransactionKey.LANDFILL)
+                else self._MOVEMENT_AND_DELIVERY
             )
-        # Pre-filled from the planning but left editable, in case it's wrong.
-        if planning is not None and planning.load_description and "load_description" in self.fields:
-            self.fields["load_description"].initial = planning.load_description.strip()
+            if name not in self._DELIVERY_FIELDS:
+                shows_for = TransactionTypeChoices.MOVEMENT
+            if name == PorteTransactionDataKey.MATRICULA:
+                self._add_plate_field(shows_for, group)
+                continue
+            requires = ""
+            if name in self._REQUIRES_FULL:
+                requires = "full"
+            elif name in self._REQUIRES_DUMP:
+                requires = "dump"
+            self._add_schema_field(name, container[name], shows_for, group, requires)
+        if CubaTransactionKey.MATERIAL in self.fields and planning.load_description:
+            self.fields[CubaTransactionKey.MATERIAL].initial = match_choice_value(
+                self.fields[CubaTransactionKey.MATERIAL], planning.load_description.strip()
+            )
+        receipt_group = _("Receipt (Verteo) Details")
+        for name in self._RECEIPT_FIELDS:
+            self._add_schema_field(name, receipt[name], TransactionTypeChoices.RECEIPT, receipt_group)
+        self._add_schema_field(
+            CubaTransactionKey.NET_WEIGHT,
+            text_field(_("Net weight (kg)"), placeholder=_("e.g. 500")),
+            TransactionTypeChoices.RECEIPT,
+            receipt_group,
+        )
+        self.fields["receipt_zone"] = forms.ModelChoiceField(
+            label=_("Landfill"),
+            queryset=WorkingZone.objects.filter(
+                company_id=planning.company_id, zone_type=WorkingZone.ZoneType.VERTEDERO,
+            ).order_by("name"),
+            required=False,
+            widget=UnfoldAdminSelectWidget,
+        )
+        self.fields["receipt_zone"].widget.attrs["data-shows-for"] = TransactionTypeChoices.RECEIPT
+        self.fields["receipt_zone"].parameter_group = receipt_group
+
+    def _add_porte_fields(self, company):
+        planning = self.planning
+        porte = data_schema_fields(TransactionTypeChoices.PORTE_MOVEMENT, company)
+        group = _("Porte Details")
+        plate_types = [
+            TransactionTypeChoices.PORTE_MOVEMENT,
+            TransactionTypeChoices.PORTE_DELIVERY,
+        ]
+        if planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA:
+            plate_types.append(TransactionTypeChoices.PORTE_LOAD)
+        if not planning.transport_plate():
+            self._add_plate_field(",".join(plate_types), group)
+        for name in self._PORTE_LOAD_FIELDS:
+            self._add_schema_field(name, porte[name], TransactionTypeChoices.PORTE_LOAD, group)
+
+    def _shown(self, name, transaction_type):
+        field = self.fields.get(name)
+        if field is None:
+            return False
+        allowed = field.widget.attrs.get("data-shows-for", "").split(",")
+        return transaction_type in allowed
 
     def clean(self):
         cleaned = super().clean()
         transaction_type = cleaned.get("transaction_type")
-        if self.planning is not None and not cleaned.get("asset"):
-            planning_has_asset = bool(
-                self.planning.asset_id or self.planning.transport_asset_id or self.planning.machine_id
+        plate = cleaned.get(PorteTransactionDataKey.MATRICULA)
+        if plate is not None and not isinstance(plate, str):
+            cleaned[PorteTransactionDataKey.MATRICULA] = plate.matricula or ""
+        if self.planning is not None and "asset" in self.fields and not cleaned.get("asset"):
+            machine_delivery = (
+                transaction_type == TransactionTypeChoices.PORTE_DELIVERY
+                and self.planning.machine_id
             )
-            if not planning_has_asset:
-                self.add_error("asset", _("This planning has no asset/truck/machine assigned yet — pick one here to continue."))
-        if transaction_type == TransactionTypeChoices.DELIVERY:
-            zone = cleaned.get("zone")
-            destination = self.planning.destination if self.planning else None
-            if not zone and not destination:
-                self.add_error("zone", _("Choose a destination zone, or set one on the planning."))
+            if not machine_delivery:
+                self.add_error("asset", _("Pick the container. The planning doesn't have one yet."))
+        if transaction_type in (TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY):
+            self._clean_container(cleaned, transaction_type)
         elif transaction_type == TransactionTypeChoices.RECEIPT:
-            if not (cleaned.get("nro_albaran") or "").strip():
-                self.add_error("nro_albaran", _("An albaran number is required to register a receipt (verteo)."))
+            self._clean_receipt(cleaned)
+        if transaction_type == TransactionTypeChoices.DELIVERY and "zone" in self.fields and not cleaned.get("zone"):
+            self.add_error("zone", _("Choose a destination zone, or set one on the planning."))
+        if self._shown(PorteTransactionDataKey.MATRICULA, transaction_type) and not (cleaned.get(PorteTransactionDataKey.MATRICULA) or "").strip():
+            self.add_error(PorteTransactionDataKey.MATRICULA, _("Plate is required."))
         return cleaned
 
+    def _clean_container(self, cleaned, transaction_type):
+        full = cleaned.get(CubaTransactionKey.ESTADO) == CubaFillState.FULL
+        if not cleaned.get(CubaTransactionKey.ESTADO):
+            self.add_error(CubaTransactionKey.ESTADO, _("Container state is required."))
+        if self._shown(CubaTransactionKey.M3, transaction_type) and not (cleaned.get(CubaTransactionKey.M3) or "").strip():
+            self.add_error(CubaTransactionKey.M3, _("m³ is required."))
+        if full:
+            if self._shown(CubaTransactionKey.MATERIAL, transaction_type) and not (cleaned.get(CubaTransactionKey.MATERIAL) or "").strip():
+                self.add_error(CubaTransactionKey.MATERIAL, _("Container material is required when the container is full."))
+            if transaction_type == TransactionTypeChoices.MOVEMENT and not cleaned.get(CubaTransactionKey.VAS_A_VERTER):
+                self.add_error(CubaTransactionKey.VAS_A_VERTER, _("Say whether it is going to be dumped."))
+        else:
+            cleaned[CubaTransactionKey.MATERIAL] = ""
+        if transaction_type != TransactionTypeChoices.MOVEMENT:
+            cleaned.pop(CubaTransactionKey.VAS_A_VERTER, None)
+            cleaned.pop(CubaTransactionKey.LANDFILL, None)
+            return
+        dumping = full and cleaned.get(CubaTransactionKey.VAS_A_VERTER) == FormAffirmative.YES
+        if not full:
+            cleaned[CubaTransactionKey.VAS_A_VERTER] = ""
+        if dumping and not cleaned.get(CubaTransactionKey.LANDFILL):
+            self.add_error(CubaTransactionKey.LANDFILL, _("The landfill is required when it is going to be dumped."))
+        if not dumping:
+            cleaned[CubaTransactionKey.LANDFILL] = None
+
+    def _clean_receipt(self, cleaned):
+        if not (cleaned.get(CubaTransactionKey.ALBARAN) or "").strip():
+            self.add_error(CubaTransactionKey.ALBARAN, _("An albaran number is required to register a receipt (verteo)."))
+        if not cleaned.get("receipt_zone"):
+            self.add_error("receipt_zone", _("The landfill is required."))
+        else:
+            cleaned["zone"] = cleaned["receipt_zone"]
+
     def build_data(self):
-        """The typed container fields, assembled into an AssetTransaction.data
-        dict via the shared schema (see assets.transaction_data_schema)."""
-        return build_data_from_cleaned(self.cleaned_data.get("transaction_type"), self.cleaned_data)
+        """Typed fields for AssetTransaction.data. peso_neto is verteo-only and
+        is not part of the shared receipt schema used by the transaction editor."""
+        transaction_type = self.cleaned_data.get("transaction_type")
+        data = build_data_from_cleaned(transaction_type, self.cleaned_data)
+        if transaction_type == TransactionTypeChoices.RECEIPT:
+            data[CubaTransactionKey.NET_WEIGHT] = (self.cleaned_data.get(CubaTransactionKey.NET_WEIGHT) or "").strip()
+        return data
 

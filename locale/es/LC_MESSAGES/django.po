@@ -1693,7 +1693,7 @@ msgid "Container Details"
 msgstr "Detalles del Contenedor"
 
 msgid "Receipt (Verteo) Details"
-msgstr "Detalles del Recibo (Verteo)"
+msgstr "Verteo"
 
 msgid "Choose a destination zone, or set one on the planning."
 msgstr "Elige una zona de destino, o indica una en la planificación."
@@ -1819,7 +1819,7 @@ msgid "Empty container"
 msgstr "Cuba vacía"
 
 msgid "Pickup"
-msgstr ""
+msgstr "Recogida"
 
 msgid "Load"
 msgstr "Carga"
@@ -2816,6 +2816,18 @@ msgstr "Aún sin camión asignado"
 msgid "Cuba"
 msgstr "Cuba"
 
+msgid "The container this transaction is about. The planning doesn't have one yet."
+msgstr "La cuba de esta transacción. El plan aún no la tiene."
+
+msgid "Pick the container. The planning doesn't have one yet."
+msgstr "Elige la cuba. El plan aún no la tiene."
+
+msgid "This planning has no asset or truck yet."
+msgstr "Esta planificación aún no tiene activo ni camión."
+
+msgid "This planning has no asset or truck yet — pick one to continue."
+msgstr "Esta planificación aún no tiene activo ni camión — elige uno para continuar."
+
 msgid "Time"
 msgstr "Tiempo"
 
@@ -3010,16 +3022,16 @@ msgid "No preset list yet — type a value"
 msgstr "Aún no hay una lista predefinida — escribe un valor"
 
 msgid "Container material"
-msgstr "Material del Contenedor"
+msgstr "Tipo de Cuba"
 
 msgid "Container state"
-msgstr "Estado del Contenedor"
+msgstr "Cuba llena o vacía"
 
 msgid "Going to be dumped?"
-msgstr "¿Va a verterse?"
+msgstr "Vas a verter?"
 
 msgid "m³"
-msgstr "m³"
+msgstr "Metros Cúbicos"
 
 msgid "Work type"
 msgstr "Tipo de Trabajo"
@@ -3056,10 +3068,64 @@ msgid "e.g. zahorra"
 msgstr "ej. zahorra"
 
 msgid "Albaran Number"
-msgstr "Número de Albarán"
+msgstr "Nro de Albaran"
 
 msgid "Material Dumped"
-msgstr "Material Vertido"
+msgstr "Material de Vertido"
+
+msgid "Reference number"
+msgstr "Número de referencia"
+
+msgid "Customer/order reference, if any"
+msgstr "Referencia del pedido del cliente. No es el Nro de Albaran."
+
+msgid "Net weight (kg)"
+msgstr "Peso Neto (kg)"
+
+msgid "Goods type"
+msgstr "Tipo de mercancía"
+
+msgid "Tonnes transported"
+msgstr "Toneladas transportadas"
+
+msgid "e.g. 12.5"
+msgstr "ej. 12.5"
+
+msgid "Number of packages"
+msgstr "En caso de paquetes (número)"
+
+msgid "Only if transported as packages"
+msgstr "Solo si se transporta en paquetes"
+
+msgid "Notes (optional)"
+msgstr "Notas (opcional)"
+
+msgid "Destination zone"
+msgstr "Zona de destino"
+
+msgctxt "asset transaction"
+msgid "Movement"
+msgstr "Recogida"
+
+msgctxt "asset transaction"
+msgid "Delivery"
+msgstr "Dejada"
+
+msgctxt "asset transaction"
+msgid "Receipt"
+msgstr "Verteo"
+
+msgctxt "asset transaction"
+msgid "Movement Porte"
+msgstr "Recogida"
+
+msgctxt "asset transaction"
+msgid "Load Porte"
+msgstr "Carga"
+
+msgctxt "asset transaction"
+msgid "Delivery Porte"
+msgstr "Entrega"
 
 #, python-format
 msgid "Interval %(n)d start"

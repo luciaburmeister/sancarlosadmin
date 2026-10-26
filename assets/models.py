@@ -193,10 +193,26 @@ class AssetFaultStatus(models.TextChoices):
     FIXED   = "fixed",   pgettext_lazy("asset_fault_status", "Fixed")
 
 
+class AssetIdentifierLabel:
+    PLATE = "MATRICULA"
+
+
 class CubaTransactionKey:
     ESTADO = "cubaEstado"
+    MATERIAL = "tipo_cuba"
     VAS_A_VERTER = "vasAVerter"
     LANDFILL = "vertedero"
+    M3 = "m3"
+    WORK = "trabajo"
+    ALBARAN = "nro_albaran"
+    MATERIAL_DUMPED = "material_vertido"
+    NET_WEIGHT = "peso_neto"
+    CLIENT_NAME = "cliente"
+    ZONE_TYPE = "zone_type"
+    SITE = "obra"
+    TRUCK_TYPE = "tipo_camion"
+    IMPLEMENT = "implemento"
+    OBSERVATIONS = "observaciones"
 
 
 class AssetDataKey:
@@ -206,6 +222,11 @@ class AssetDataKey:
 class CubaFillState(models.TextChoices):
     FULL = "Cuba llena", _("Full container")
     EMPTY = "Cuba vacía", _("Empty container")
+
+
+class CubaWorkType(models.TextChoices):
+    PICKUP = "Recogida", _("Pickup")
+    DROPOFF = "Dejada", _("Drop-off")
 
 
 class FormAffirmative(models.TextChoices):
@@ -555,8 +576,12 @@ class Asset(CompanyOwnedModel):
 
     @property
     def matricula(self):
-        identifier = self.identifiers.filter(label__iexact="MATRICULA").first()
-        return identifier.value if identifier else None
+        # .all() uses a prefetch when the caller already loaded identifiers.
+        plate_label = AssetIdentifierLabel.PLATE
+        for identifier in self.identifiers.all():
+            if identifier.label.upper() == plate_label:
+                return identifier.value
+        return None
 
     class Meta:
         verbose_name = _("Asset")
@@ -650,13 +675,13 @@ class AssetMap(CompanyOwnedModel, Timestampable):
 
 
 class TransactionTypeChoices(models.TextChoices):
-    DELIVERY = "delivery", _("Delivery")
+    DELIVERY = "delivery", pgettext_lazy("asset transaction", "Delivery")
     RETURN = "return", _("Return")
-    MOVEMENT = "movement", _("Movement")
-    RECEIPT = "receipt", _("Receipt")
-    PORTE_MOVEMENT = "porte_movement", _("Movement Porte")
-    PORTE_LOAD = "porte_load", _("Load Porte")
-    PORTE_DELIVERY = "porte_delivery", _("Delivery Porte")
+    MOVEMENT = "movement", pgettext_lazy("asset transaction", "Movement")
+    RECEIPT = "receipt", pgettext_lazy("asset transaction", "Receipt")
+    PORTE_MOVEMENT = "porte_movement", pgettext_lazy("asset transaction", "Movement Porte")
+    PORTE_LOAD = "porte_load", pgettext_lazy("asset transaction", "Load Porte")
+    PORTE_DELIVERY = "porte_delivery", pgettext_lazy("asset transaction", "Delivery Porte")
     MACHINE_HOURS = "machine_hours", _("Machine Hours")
     LABORER_HOURS = "laborer_hours", _("Laborer Hours")
 
@@ -983,6 +1008,21 @@ class CubaSize(models.TextChoices):
     BANERA = "banera", _("Bathtub")
 
 
+# What the mobile albarán stores for each requested size. Numeric sizes drop
+# the "m3" suffix ("7", not "7m3"); the two specials keep the wording the
+# San Carlos app writes on the document.
+CUBA_SIZE_ALBARAN_M3 = {
+    CubaSize.M3_3: "3",
+    CubaSize.M3_7: "7",
+    CubaSize.M3_10: "10",
+    CubaSize.M3_12: "12",
+    CubaSize.M3_20: "20",
+    CubaSize.M3_30: "30",
+    CubaSize.AGUA: "Agua",
+    CubaSize.BANERA: "Bañera",
+}
+
+
 class PlanningUrgency(models.TextChoices):
     LOW = "low", _("Low")
     MEDIUM = "medium", _("Medium")
@@ -1209,6 +1249,21 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         if not capacidad:
             return False
         return self.normalize_cuba_size(capacidad) == self.normalize_cuba_size(self.cuba_size)
+
+    def transport_plate(self) -> str:
+        truck = self.transport_asset
+        if truck is None:
+            return ""
+        return truck.matricula or ""
+
+    def recorded_capacity(self, asset=None) -> str:
+        """m³ the albarán should show. The container's own capacity wins —
+        that is the value the mobile app writes — and the plan's requested
+        size is only a fallback, in that same form ("7", not "7m3")."""
+        candidate = asset or self.asset
+        if candidate is not None and candidate.capacidad:
+            return candidate.capacidad
+        return CUBA_SIZE_ALBARAN_M3.get(self.cuba_size, "")
 
     @classmethod
     def locked_cuba_ids(cls, company, exclude_planning_id=None) -> set[int]:

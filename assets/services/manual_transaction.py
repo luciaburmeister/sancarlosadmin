@@ -12,11 +12,15 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from assets.models import (
+    Asset,
+    AssetIdentifierLabel,
     AssetTransaction,
     AssetTransactionReceipt,
     CubaFillState,
     CubaTransactionKey,
+    CubaWorkType,
     PlanningStatus,
+    PorteTransactionDataKey,
     TransactionTypeChoices,
 )
 
@@ -57,6 +61,56 @@ class BaseManualTransactionStrategy:
             data=self.data,
         )
 
+    def _set_if_blank(self, key, value):
+        if value and not (self.data.get(key) or ""):
+            self.data[key] = value
+
+    def _stamp_planning_id(self):
+        self.data[PorteTransactionDataKey.PLANNING_ID] = self.planning.pk
+
+    def _stamp_zone(self, zone):
+        client_name = ""
+        zone_type = ""
+        if zone is not None:
+            client_name = zone.client.name if zone.client_id else ""
+            zone_type = zone.zone_type or ""
+        self.data[CubaTransactionKey.CLIENT_NAME] = client_name
+        self.data[CubaTransactionKey.ZONE_TYPE] = zone_type
+        # The emailed albarán prints data.obra with no fallback.
+        site = ""
+        if zone is not None:
+            site = zone.full_address or zone.name
+        self._set_if_blank(CubaTransactionKey.SITE, site)
+
+    def _stamp_observations(self):
+        self._set_if_blank(CubaTransactionKey.OBSERVATIONS, (self.notes or "").strip())
+
+    def _stamp_truck(self):
+        """Plate, truck type and implement, the same three the app copies off
+        the truck when the driver confirms a pickup or drop-off."""
+        planning_plate = self.planning.transport_plate()
+        self._set_if_blank(PorteTransactionDataKey.MATRICULA, planning_plate)
+        plate = (self.data.get(PorteTransactionDataKey.MATRICULA) or "").strip()
+        truck = self._truck_for_plate(plate) if plate else None
+        if truck is None and (not plate or plate == planning_plate):
+            truck = self.planning.transport_asset
+        if truck is None:
+            return
+        truck_data = truck.data or {}
+        self._set_if_blank(CubaTransactionKey.TRUCK_TYPE, truck_data.get(CubaTransactionKey.TRUCK_TYPE) or "")
+        self._set_if_blank(CubaTransactionKey.IMPLEMENT, truck_data.get(CubaTransactionKey.IMPLEMENT) or "")
+
+    def _truck_for_plate(self, plate):
+        return (
+            Asset.objects.filter(
+                company_id=self.planning.company_id,
+                identifiers__label__iexact=AssetIdentifierLabel.PLATE,
+                identifiers__value__iexact=plate,
+            )
+            .order_by("pk")
+            .first()
+        )
+
     def _require_asset(self):
         asset = self.asset_override or self.planning.asset
         if asset is None:
@@ -67,7 +121,14 @@ class BaseManualTransactionStrategy:
 class MovementStrategy(BaseManualTransactionStrategy):
     def execute(self):
         asset = self._require_asset()
+        self.data = dict(self.data)
+        self.data[CubaTransactionKey.WORK] = CubaWorkType.PICKUP
+        self._set_if_blank(CubaTransactionKey.M3, self.planning.recorded_capacity(asset))
+        self._stamp_truck()
+        self._stamp_observations()
         from_zone = asset.current_working_zone
+        self._stamp_planning_id()
+        self._stamp_zone(from_zone)
         project_file = from_zone.project_file if from_zone else None
         transaction = self._create_transaction(
             asset=asset, from_zone=from_zone, to_zone=None, project_file=project_file,
@@ -80,9 +141,16 @@ class MovementStrategy(BaseManualTransactionStrategy):
 class DeliveryStrategy(BaseManualTransactionStrategy):
     def execute(self):
         asset = self._require_asset()
+        self.data = dict(self.data)
+        self.data[CubaTransactionKey.WORK] = CubaWorkType.DROPOFF
+        self._set_if_blank(CubaTransactionKey.M3, self.planning.recorded_capacity(asset))
+        self._stamp_truck()
+        self._stamp_observations()
         to_zone = self.zone or self.planning.destination
         if to_zone is None:
             raise ValueError(_("No destination zone: choose one, or set a destination on the planning."))
+        self._stamp_planning_id()
+        self._stamp_zone(to_zone)
         transaction = self._create_transaction(
             asset=asset, from_zone=asset.current_working_zone, to_zone=to_zone,
             project_file=to_zone.project_file,
@@ -96,9 +164,11 @@ class DeliveryStrategy(BaseManualTransactionStrategy):
 class ReceiptStrategy(BaseManualTransactionStrategy):
     def execute(self):
         asset = self._require_asset()
-        nro_albaran = (self.data.get("nro_albaran") or "").strip()
+        nro_albaran = (self.data.get(CubaTransactionKey.ALBARAN) or "").strip()
         if not nro_albaran:
             raise ValueError(_("An albaran number is required to register a receipt (verteo)."))
+        self.data = dict(self.data)
+        self._stamp_planning_id()
 
         # Same lookup the mobile ReceiptStrategy uses: the most recent pickup,
         # to link the receipt and inherit its project_file.
@@ -115,10 +185,14 @@ class ReceiptStrategy(BaseManualTransactionStrategy):
         return transaction
 
     def _create_receipt(self, asset, transaction, movement_tx):
+        receipt_data = {CubaTransactionKey.MATERIAL_DUMPED: self.data.get(CubaTransactionKey.MATERIAL_DUMPED, "")}
+        peso_neto = (self.data.get(CubaTransactionKey.NET_WEIGHT) or "").strip()
+        if peso_neto:
+            receipt_data[CubaTransactionKey.NET_WEIGHT] = peso_neto
         AssetTransactionReceipt.objects.create(
             transaction=transaction,
-            nro_albaran=self.data.get("nro_albaran", ""),
-            data={"material_vertido": self.data.get("material_vertido", "")},
+            nro_albaran=self.data.get(CubaTransactionKey.ALBARAN, ""),
+            data=receipt_data,
             movement_transaction=movement_tx,
         )
         self._maybe_repickup(asset, transaction, movement_tx)
@@ -142,7 +216,10 @@ class ReceiptStrategy(BaseManualTransactionStrategy):
             project_file=transaction.project_file,
             planning=self.planning,
             notes=_("Manual correction: implicit pickup registered at verteo (was already delivered)."),
-            data={CubaTransactionKey.ESTADO: CubaFillState.EMPTY},
+            data={
+                CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
+                PorteTransactionDataKey.PLANNING_ID: self.planning.pk,
+            },
         )
 
 
@@ -153,6 +230,12 @@ class PorteStrategy(BaseManualTransactionStrategy):
 
     def execute(self):
         asset = self._resolve_asset()
+        self.data = dict(self.data)
+        self.data.setdefault(PorteTransactionDataKey.LOAD_DESCRIPTION, self.planning.load_description or "")
+        self.data.setdefault(PorteTransactionDataKey.MACHINE_ID, self.planning.machine_id)
+        self.data.setdefault(PorteTransactionDataKey.CLIENT_ID, None)
+        self._set_if_blank(PorteTransactionDataKey.MATRICULA, self.planning.transport_plate())
+        self._stamp_planning_id()
         transaction = self._create_transaction(
             asset=asset, from_zone=self.planning.origin, to_zone=self.planning.destination,
             project_file=self._project_file(),

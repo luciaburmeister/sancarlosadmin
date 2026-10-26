@@ -9,6 +9,7 @@ from django.utils.html import format_html
 from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect
 from company.models import Employee, EmployeeType, EmployeeDocument, EmployeeDocumentType
+from company.views.employee_autocomplete import EmployeeAutocompleteView
 from django.utils.translation import gettext_lazy as _
 from datetime import date
 
@@ -184,6 +185,9 @@ class EmployeePayrollHistoryInline(TabularInline):
 
 @admin.register(Employee)
 class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
+    custom_urls = (
+        ("autocomplete/", "employee_autocomplete", EmployeeAutocompleteView.as_view()),
+    )
     import_form_class = ImportForm
     export_form_class = ExportForm
     export_form_class = SelectableFieldsExportForm

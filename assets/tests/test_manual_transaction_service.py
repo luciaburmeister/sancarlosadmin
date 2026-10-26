@@ -10,7 +10,18 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_employee, make_planning, make_user, make_zone
-from assets.models import AssetTransaction, CubaFillState, CubaTransactionKey, PlanningStatus, PlanningType, TransactionTypeChoices
+from assets.models import (
+    AssetIdentifier,
+    AssetIdentifierLabel,
+    AssetTransaction,
+    CubaFillState,
+    CubaTransactionKey,
+    CubaWorkType,
+    PlanningStatus,
+    PorteTransactionDataKey,
+    PlanningType,
+    TransactionTypeChoices,
+)
 from assets.services.manual_transaction import create_manual_transaction
 from company.models import WorkingZone
 from management.models import ProjectFile
@@ -18,19 +29,22 @@ from sales.models import Client
 
 
 class CreateManualTransactionMovementTests(TestCase):
-    def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.asset_type = make_asset_type(self.company)
-        self.client_obj = Client.objects.create(company=self.company, name="Test Client")
-        self.project_file = ProjectFile.objects.create(
-            company=self.company, client=self.client_obj, name="Test Expediente",
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company()
+        cls.user = make_user()
+        cls.employee = make_employee(cls.company, cls.user)
+        cls.asset_type = make_asset_type(cls.company)
+        cls.client_obj = Client.objects.create(company=cls.company, name="Test Client")
+        cls.project_file = ProjectFile.objects.create(
+            company=cls.company, client=cls.client_obj, name="Test Expediente",
         )
-        self.zone = make_zone(self.company, name="Obra")
-        self.zone.project_file = self.project_file
-        self.zone.save()
-        self.asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.zone)
+        cls.zone = make_zone(cls.company, name="Obra")
+        cls.zone.project_file = cls.project_file
+        cls.zone.save()
+        cls.asset = make_asset(cls.company, cls.asset_type, employee=cls.employee, zone=cls.zone)
+
+    def setUp(self):
         self.planning = make_planning(
             self.company, asset=self.asset, assigned_to=self.employee,
             status=PlanningStatus.PENDING,
@@ -103,13 +117,80 @@ class CreateManualTransactionMovementTests(TestCase):
             transaction_type=TransactionTypeChoices.MOVEMENT,
             data={"tipo_cuba": "Tierras", "cubaEstado": "Cuba llena"},
         )
-        self.assertEqual(transaction.data, {"tipo_cuba": "Tierras", "cubaEstado": "Cuba llena"})
+        self.assertEqual(transaction.data["tipo_cuba"], "Tierras")
+        self.assertEqual(transaction.data["cubaEstado"], "Cuba llena")
+        self.assertEqual(transaction.data[CubaTransactionKey.WORK], CubaWorkType.PICKUP)
+
+    def test_movement_copies_m3_and_plate_already_on_the_planning(self):
+        truck = make_asset(self.company, self.asset_type, name="Truck-001")
+        AssetIdentifier.objects.create(asset=truck, label=AssetIdentifierLabel.PLATE, value="0709CBB")
+        self.planning.cuba_size = "7m3"
+        self.planning.transport_asset = truck
+        self.planning.save(update_fields=["cuba_size", "transport_asset"])
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+        )
+        self.assertEqual(transaction.data[CubaTransactionKey.M3], "7")
+        self.assertEqual(transaction.data[PorteTransactionDataKey.MATRICULA], "0709CBB")
+
+    def test_movement_m3_uses_the_container_not_the_size_the_plan_asked_for(self):
+        # The app writes the cuba's own capacity ("12"). The plan's requested
+        # size ("7m3") is often a different container and must not win.
+        self.asset.data = {"capacidad": "12"}
+        self.asset.save(update_fields=["data"])
+        self.planning.cuba_size = "7m3"
+        self.planning.save(update_fields=["cuba_size"])
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+        )
+        self.assertEqual(transaction.data[CubaTransactionKey.M3], "12")
+
+    def test_movement_copies_truck_type_and_the_site_address(self):
+        truck = make_asset(self.company, self.asset_type, name="Truck-002")
+        truck.data = {"tipo_camion": "Volquete", "implemento": "Gancho"}
+        truck.save(update_fields=["data"])
+        AssetIdentifier.objects.create(asset=truck, label=AssetIdentifierLabel.PLATE, value="5193CHM")
+        self.planning.transport_asset = truck
+        self.planning.save(update_fields=["transport_asset"])
+        self.zone.street_address = "CALLE Torre de san telmo"
+        self.zone.city = "MALAGA"
+        self.zone.postal_code = "29008"
+        self.zone.save(update_fields=["street_address", "city", "postal_code"])
+        transaction = create_manual_transaction(
+            planning=self.planning,
+            transaction_type=TransactionTypeChoices.MOVEMENT,
+            notes="Dejar en la puerta",
+        )
+        self.assertEqual(transaction.data[CubaTransactionKey.TRUCK_TYPE], "Volquete")
+        self.assertEqual(transaction.data[CubaTransactionKey.IMPLEMENT], "Gancho")
+        self.assertEqual(transaction.data[CubaTransactionKey.SITE], "CALLE Torre de san telmo, MALAGA, 29008")
+        self.assertEqual(transaction.data[CubaTransactionKey.OBSERVATIONS], "Dejar en la puerta")
+
+    def test_movement_copies_the_zone_client_and_type(self):
+        self.zone.client = self.client_obj
+        self.zone.save(update_fields=["client"])
+        try:
+            transaction = create_manual_transaction(
+                planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+            )
+        finally:
+            self.zone.client = None
+            self.zone.save(update_fields=["client"])
+        self.assertEqual(transaction.data[CubaTransactionKey.CLIENT_NAME], "Test Client")
+        self.assertEqual(transaction.data[CubaTransactionKey.ZONE_TYPE], WorkingZone.ZoneType.OBRA)
+        self.assertEqual(transaction.data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk)
 
     def test_movement_defaults_to_empty_data(self):
         transaction = create_manual_transaction(
             planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
         )
-        self.assertEqual(transaction.data, {})
+        self.assertEqual(transaction.data, {
+            CubaTransactionKey.WORK: CubaWorkType.PICKUP,
+            PorteTransactionDataKey.PLANNING_ID: self.planning.pk,
+            CubaTransactionKey.CLIENT_NAME: "",
+            CubaTransactionKey.ZONE_TYPE: WorkingZone.ZoneType.OBRA,
+            CubaTransactionKey.SITE: "Calle Test 1, Madrid, 28001",
+        })
 
     def test_reference_number_is_stored_on_the_model_field_not_data(self):
         transaction = create_manual_transaction(
@@ -127,24 +208,27 @@ class CreateManualTransactionMovementTests(TestCase):
 
 
 class CreateManualTransactionDeliveryTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company()
+        cls.user = make_user()
+        cls.employee = make_employee(cls.company, cls.user)
+        cls.asset_type = make_asset_type(cls.company)
+        cls.client_obj = Client.objects.create(company=cls.company, name="Test Client")
+        cls.project_file_a = ProjectFile.objects.create(
+            company=cls.company, client=cls.client_obj, name="Origin Expediente",
+        )
+        cls.project_file_b = ProjectFile.objects.create(
+            company=cls.company, client=cls.client_obj, name="Destination Expediente",
+        )
+        cls.origin_zone = make_zone(cls.company, name="Origin")
+        cls.origin_zone.project_file = cls.project_file_a
+        cls.origin_zone.save()
+        cls.dest_zone = make_zone(cls.company, name="Destination")
+        cls.dest_zone.project_file = cls.project_file_b
+        cls.dest_zone.save()
+
     def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.asset_type = make_asset_type(self.company)
-        self.client_obj = Client.objects.create(company=self.company, name="Test Client")
-        self.project_file_a = ProjectFile.objects.create(
-            company=self.company, client=self.client_obj, name="Origin Expediente",
-        )
-        self.project_file_b = ProjectFile.objects.create(
-            company=self.company, client=self.client_obj, name="Destination Expediente",
-        )
-        self.origin_zone = make_zone(self.company, name="Origin")
-        self.origin_zone.project_file = self.project_file_a
-        self.origin_zone.save()
-        self.dest_zone = make_zone(self.company, name="Destination")
-        self.dest_zone.project_file = self.project_file_b
-        self.dest_zone.save()
         self.asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.origin_zone)
         self.planning = make_planning(
             self.company, asset=self.asset, assigned_to=self.employee,
@@ -161,6 +245,10 @@ class CreateManualTransactionDeliveryTests(TestCase):
         self.assertEqual(transaction.to_zone_id, self.dest_zone.pk)
         self.assertEqual(transaction.project_file_id, self.project_file_b.pk)
         self.assertEqual(self.asset.current_working_zone_id, self.dest_zone.pk)
+        self.assertEqual(transaction.data[CubaTransactionKey.CLIENT_NAME], "")
+        self.assertEqual(transaction.data[CubaTransactionKey.ZONE_TYPE], WorkingZone.ZoneType.OBRA)
+        self.assertEqual(transaction.data[CubaTransactionKey.SITE], self.dest_zone.full_address)
+        self.assertEqual(transaction.data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk)
 
     def test_delivery_with_explicit_zone_overrides_planning_destination(self):
         other_zone = make_zone(self.company, name="Other")
@@ -179,18 +267,21 @@ class CreateManualTransactionDeliveryTests(TestCase):
 
 
 class CreateManualTransactionReceiptTests(TestCase):
-    def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.asset_type = make_asset_type(self.company)
-        self.client_obj = Client.objects.create(company=self.company, name="Test Client")
-        self.project_file = ProjectFile.objects.create(
-            company=self.company, client=self.client_obj, name="Test Expediente",
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company()
+        cls.user = make_user()
+        cls.employee = make_employee(cls.company, cls.user)
+        cls.asset_type = make_asset_type(cls.company)
+        cls.client_obj = Client.objects.create(company=cls.company, name="Test Client")
+        cls.project_file = ProjectFile.objects.create(
+            company=cls.company, client=cls.client_obj, name="Test Expediente",
         )
-        self.zone = make_zone(self.company, name="Obra")
-        self.zone.project_file = self.project_file
-        self.zone.save()
+        cls.zone = make_zone(cls.company, name="Obra")
+        cls.zone.project_file = cls.project_file
+        cls.zone.save()
+
+    def setUp(self):
         self.asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.zone)
         self.planning = make_planning(
             self.company, asset=self.asset, assigned_to=self.employee, status=PlanningStatus.IN_TRANSIT,
@@ -219,6 +310,15 @@ class CreateManualTransactionReceiptTests(TestCase):
         self.assertEqual(receipt.data, {"material_vertido": "Tierras"})
         self.assertEqual(receipt.movement_transaction_id, self.movement_tx.pk)
         self.assertEqual(transaction.project_file_id, self.project_file.pk)
+        self.assertEqual(transaction.data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk)
+
+    def test_receipt_saves_net_weight_when_given(self):
+        transaction = create_manual_transaction(
+            planning=self.planning,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            data={"nro_albaran": "01083485", "material_vertido": "Tierras", "peso_neto": "500"},
+        )
+        self.assertEqual(transaction.receipts.get().data["peso_neto"], "500")
 
     def test_receipt_after_delivery_creates_implicit_repickup(self):
         AssetTransaction.objects.create(
@@ -234,6 +334,9 @@ class CreateManualTransactionReceiptTests(TestCase):
             asset=self.asset, transaction_type=TransactionTypeChoices.MOVEMENT,
         ).exclude(pk=self.movement_tx.pk)
         self.assertEqual(implicit_pickups.count(), 1)
+        self.assertEqual(
+            implicit_pickups.get().data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk,
+        )
 
     def test_receipt_without_prior_delivery_has_no_implicit_repickup(self):
         create_manual_transaction(
@@ -254,20 +357,23 @@ class CreateManualTransactionPorteTests(TestCase):
     the planning's own origin/destination) and status update, without its
     mobile-only QR-scan gating."""
 
-    def setUp(self):
-        self.company = make_company()
-        self.user = make_user()
-        self.employee = make_employee(self.company, self.user)
-        self.asset_type = make_asset_type(self.company)
-        self.client_obj = Client.objects.create(company=self.company, name="Test Client")
-        self.origin_zone = make_zone(self.company, name="Origen")
-        self.dest_zone = make_zone(self.company, name="Destino")
-        self.dest_project_file = ProjectFile.objects.create(
-            company=self.company, client=self.client_obj, name="Destination Expediente",
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company()
+        cls.user = make_user()
+        cls.employee = make_employee(cls.company, cls.user)
+        cls.asset_type = make_asset_type(cls.company)
+        cls.client_obj = Client.objects.create(company=cls.company, name="Test Client")
+        cls.origin_zone = make_zone(cls.company, name="Origen")
+        cls.dest_zone = make_zone(cls.company, name="Destino")
+        cls.dest_project_file = ProjectFile.objects.create(
+            company=cls.company, client=cls.client_obj, name="Destination Expediente",
         )
-        self.dest_zone.project_file = self.dest_project_file
-        self.dest_zone.save()
-        self.truck = make_asset(self.company, self.asset_type, name="Truck-001")
+        cls.dest_zone.project_file = cls.dest_project_file
+        cls.dest_zone.save()
+        cls.truck = make_asset(cls.company, cls.asset_type, name="Truck-001")
+
+    def setUp(self):
         self.planning = make_planning(
             self.company, assigned_to=self.employee, planning_type=PlanningType.PORTE,
             status=PlanningStatus.PENDING, origin=self.origin_zone, destination=self.dest_zone,
@@ -275,11 +381,6 @@ class CreateManualTransactionPorteTests(TestCase):
         )
 
     def test_porte_movement_uses_planning_zones_and_transport_asset(self):
-        # The service persists whatever `data` it's handed as-is -- deriving
-        # action/movement_type from transaction_type is build_data_from_cleaned's
-        # job (assets.transaction_data_schema, exercised in PorteFamilySchemaTests),
-        # not the service's. Passing an already-built dict here, as
-        # ManualTransactionForm.build_data() would produce it.
         transaction = create_manual_transaction(
             planning=self.planning,
             transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
@@ -292,6 +393,19 @@ class CreateManualTransactionPorteTests(TestCase):
         self.assertEqual(transaction.project_file_id, self.dest_project_file.pk)
         self.assertEqual(transaction.data["action"], "recogida")
         self.assertEqual(transaction.data["movement_type"], "porte")
+        self.assertEqual(transaction.data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk)
+        self.assertIsNone(transaction.data[PorteTransactionDataKey.CLIENT_ID])
+
+    def test_porte_copies_load_and_machine_from_the_planning(self):
+        machine = make_asset(self.company, self.asset_type, name="Machine-001")
+        self.planning.load_description = "zahorra"
+        self.planning.machine = machine
+        self.planning.save(update_fields=["load_description", "machine"])
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_LOAD,
+        )
+        self.assertEqual(transaction.data["load_description"], "zahorra")
+        self.assertEqual(transaction.data["machine_id"], machine.pk)
 
     def test_porte_load_marks_planning_in_transit(self):
         create_manual_transaction(planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_LOAD)

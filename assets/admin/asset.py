@@ -15,6 +15,10 @@ from django.urls import resolve, path, reverse
 from django.utils.html import format_html
 from django.http import HttpResponse, HttpResponseRedirect
 from assets.utils import generate_asset_qr_grid
+from assets.views.asset_autocomplete import (
+    ContainerAutocompleteView,
+    TruckPlateAutocompleteView,
+)
 from company.forms import BaseDocumentForm
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from django.forms import Textarea
@@ -162,6 +166,10 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
     form = AssetForm
     list_editable = ("is_active",)
     list_filter_submit = True
+    custom_urls = (
+        ("autocomplete/container/", "container_autocomplete", ContainerAutocompleteView.as_view()),
+        ("autocomplete/truck-plate/", "truck_plate_autocomplete", TruckPlateAutocompleteView.as_view()),
+    )
     autocomplete_fields = [
         "asset_type",
         "client",

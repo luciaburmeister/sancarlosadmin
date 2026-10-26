@@ -1500,15 +1500,11 @@ msgstr "Imagen"
 msgid "Firma"
 msgstr "Firma"
 
-#, fuzzy
-#| msgid "Asset Documents"
 msgid "Document QR"
-msgstr "Documentos de Activos"
+msgstr "QR del Documento"
 
-#, fuzzy
-#| msgid "Machine Document"
 msgid "View document"
-msgstr "Documento de la máquina"
+msgstr "Ver documento"
 
 msgid "Export"
 msgstr "Exportar"
@@ -3178,10 +3174,8 @@ msgstr "Acción inválida"
 msgid "Schedule capture"
 msgstr "Captura de horario"
 
-#, fuzzy
-#| msgid "Asset transaction"
 msgid "Asset transaction document is not available."
-msgstr "Transacción de activos"
+msgstr "El documento de la transacción de activos no está disponible."
 
 #, fuzzy
 #| msgid "Asset transaction"
@@ -19854,6 +19848,104 @@ msgstr "Idioma de los documentos de este cliente (facturas, presupuestos, albara
 
 msgid "Language this template is written in. Clients with this language get it; a template without one serves every client and prints in the client's language."
 msgstr "Idioma en que está escrita esta plantilla. La usan los clientes con este idioma; una plantilla sin idioma sirve a todos los clientes y se imprime en el idioma del cliente."
+
+msgid "DI"
+msgstr "DI"
+
+msgid "DI Part"
+msgstr "Parte DI"
+
+msgid "DI Part Number"
+msgstr "Número de Parte del DI"
+
+msgid "DI Total Parts"
+msgstr "Total de Partes del DI"
+
+msgid "Which part this DI is, e.g. 2 for 2/4. Only correct this by hand to fix a mistake."
+msgstr "Qué parte es este DI, p. ej. 2 para 2/4. Corrígelo a mano solo para arreglar un error."
+
+msgid "Total DI parts for this load, e.g. 4 for 2/4. Only correct this by hand to fix a mistake."
+msgstr "Total de partes DI de esta carga, p. ej. 4 para 2/4. Corrígelo a mano solo para arreglar un error."
+
+msgid "Net Weight (kg)"
+msgstr "Peso Neto (kg)"
+
+msgid "Split into Multiple DIs"
+msgstr "Dividir en Varios DI"
+
+#, python-format
+msgid "Add more DI parts (currently %(n)d)"
+msgstr "Añadir más partes de DI (actualmente %(n)d)"
+
+msgid "How many DI parts should this load have in total?"
+msgstr "¿Cuántas partes de DI debe tener esta carga en total?"
+
+msgid "Existing parts keep their data; the new ones are created blank for you to fill in one residue type each."
+msgstr "Las partes existentes conservan sus datos; las nuevas se crean en blanco para que rellenes un tipo de residuo en cada una."
+
+#, python-format
+msgid "Enter a total greater than the current %(n)d parts."
+msgstr "Introduce un total mayor que las %(n)d partes actuales."
+
+#, python-format
+msgid "Choose %(max)d parts or fewer."
+msgstr "Elige %(max)d partes o menos."
+
+msgid "Use this when the container came back mixed with more than one residue — each residue needs its own DI."
+msgstr "Usa esto cuando el contenedor vuelva con más de un residuo mezclado — cada residuo necesita su propio DI."
+
+#, python-format
+msgid "This DI is already split into %(n)s parts. Choose a higher total below to add more — the existing parts keep their data."
+msgstr "Este DI ya está dividido en %(n)s partes. Elige un total mayor abajo para añadir más — las partes existentes conservan sus datos."
+
+msgid "Add parts"
+msgstr "Añadir partes"
+
+msgid "Split"
+msgstr "Dividir"
+
+#, python-format
+msgid "DI split into %(n)d parts."
+msgstr "DI dividido en %(n)d partes."
+
+msgid "Regenerate document"
+msgstr "Regenerar documento"
+
+msgid "There is no document template for this company."
+msgstr "No hay una plantilla de documento para esta empresa."
+
+msgid "The document is being regenerated; the link serves the new one in a few seconds."
+msgstr "El documento se está regenerando; el enlace servirá el nuevo en unos segundos."
+
+msgid "Document generated at"
+msgstr "Documento generado el"
+
+msgid "DI document is not available."
+msgstr "El documento del DI no está disponible."
+
+msgid "Document is not available."
+msgstr "El documento no está disponible."
+
+msgid "Preparing document"
+msgstr "Preparando documento"
+
+msgid "Preparing document…"
+msgstr "Preparando documento…"
+
+msgid "It will open automatically when ready."
+msgstr "Se abrirá automáticamente cuando esté listo."
+
+msgid "Document ready"
+msgstr "Documento listo"
+
+msgid "Open document"
+msgstr "Abrir documento"
+
+msgid "The document could not be prepared."
+msgstr "No se pudo preparar el documento."
+
+msgid "Try again"
+msgstr "Intentar de nuevo"
 
 #, python-format
 msgid "%(count)d period(s)"

@@ -165,3 +165,41 @@ def generate_asset_transaction_document(transaction_id: int, force: bool = False
 
     stored = generate_document(transaction_id, force=force)
     return {"status": "ok" if stored else "empty", "transaction_id": transaction_id}
+
+
+@shared_task(
+    name="assets.tasks.generate_asset_transaction_receipt_document",
+    soft_time_limit=120,
+    time_limit=150,
+)
+def generate_asset_transaction_receipt_document(receipt_id: int, force: bool = False):
+    """Store the public document of one DI (see assets.documents)."""
+    from assets.documents import generate_receipt_document
+
+    stored = generate_receipt_document(receipt_id, force=force)
+    return {"status": "ok" if stored else "empty", "receipt_id": receipt_id}
+
+
+@shared_task(
+    name="assets.tasks.generate_asset_transaction_pause_document",
+    soft_time_limit=120,
+    time_limit=150,
+)
+def generate_asset_transaction_pause_document(pause_id: int, force: bool = False):
+    """Store the public document of one transaction pause (see assets.documents)."""
+    from assets.documents import generate_pause_document
+
+    stored = generate_pause_document(pause_id, force=force)
+    return {"status": "ok" if stored else "empty", "pause_id": pause_id}
+
+
+@shared_task(name="assets.tasks.detect_transaction_pauses")
+def detect_transaction_pauses():
+    """Daily Beat task (see CELERY_BEAT_SCHEDULE) -- gives a second DI to any
+    full-cuba movement that sat paused across a day boundary, whether
+    already resolved on a later day or still pending (see
+    assets.services.transaction_pause)."""
+    from assets.services.transaction_pause import TransactionPauseService
+
+    created = TransactionPauseService.generate_due_pauses()
+    return {"status": "ok", "created": len(created)}

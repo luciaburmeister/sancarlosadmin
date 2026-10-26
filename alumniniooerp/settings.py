@@ -395,6 +395,8 @@ CACHES = {
 
 # Periodic tasks live only in the admin (django-celery-beat > Periodic Tasks);
 # nothing is scheduled from settings, so admin edits are never overwritten.
+# detect-transaction-pauses (assets.tasks.detect_transaction_pauses, daily at
+# 00:30) needs to be created there too, same as the other periodic tasks.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 
@@ -411,6 +413,8 @@ CELERY_PDF_TASKS = (
     "configurator.tasks.render_export_template_preview",
     "core.tasks.render_document_task",
     "assets.tasks.generate_asset_transaction_document",
+    "assets.tasks.generate_asset_transaction_receipt_document",
+    "assets.tasks.generate_asset_transaction_pause_document",
     "invoices.tasks.attach_intercompany_debit_note_pdf",
 )
 CELERY_TASK_ROUTES = {name: {"queue": CELERY_PDF_QUEUE} for name in CELERY_PDF_TASKS}

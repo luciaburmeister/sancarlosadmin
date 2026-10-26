@@ -204,6 +204,15 @@ class ReceiptFamilySchemaTests(TestCase):
         self.assertEqual(initial["nro_albaran"], "01083485")
         self.assertEqual(initial["material_vertido"], "Hormigón")
 
+    def test_m3_round_trips_and_overrides_the_cuba_value_per_di(self):
+        data = build_data_from_cleaned(
+            TransactionTypeChoices.RECEIPT,
+            {"nro_albaran": "01083485", "m3": "5"},
+        )
+        self.assertEqual(data["m3"], "5")
+        initial = initial_from_data(TransactionTypeChoices.RECEIPT, data)
+        self.assertEqual(initial["m3"], "5")
+
 
 class HoursFamilySchemaTests(TestCase):
     def test_build_data_from_cleaned_assembles_intervals_and_start_end(self):

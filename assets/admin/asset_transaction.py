@@ -12,9 +12,15 @@ from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpRequest
-from assets.models import AssetTransaction, AssetTransactionReceipt, AssetTransactionPhoto
+from assets.models import (
+    AssetTransaction,
+    AssetTransactionPause,
+    AssetTransactionPhoto,
+    AssetTransactionReceipt,
+)
 from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
+from assets.constants import MAX_RECEIPT_SPLIT_PARTS
 from assets.resources import AssetTransactionResource
 from assets.transaction_data_schema import (
     SCHEMAS,
@@ -28,6 +34,7 @@ from configurator.templatetags.formatting import qr
 from import_export.admin import ExportMixin
 from unfold.admin import ModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
+from unfold.widgets import UnfoldAdminIntegerFieldWidget, UnfoldAdminSplitDateTimeWidget
 from unfold.admin import GenericTabularInline as _GenericTabularInline, TabularInline
 from unfold.decorators import action, display
 from django_json_widget.widgets import JSONEditorWidget
@@ -39,6 +46,85 @@ import logging
 from import_export.admin import ImportExportModelAdmin
 
 logger = logging.getLogger(__name__)
+
+
+def _document_status_text(obj):
+    generated_at = obj.document_generated_at
+    if not obj.document_file:
+        return _("Not generated yet: it is created the first time the link is opened.")
+    if generated_at and generated_at >= obj.updated_at:
+        return _("Generated on %(date)s.") % {"date": date_format(localtime(generated_at), "DATETIME_FORMAT")}
+    return _("Updating after the last change; the previous version is served meanwhile.")
+
+
+def _document_qr_html(obj, document_url_name, regenerate_url_name):
+    """Shared "QR + View/Regenerate document" block for AssetTransaction and
+    AssetTransactionReceipt's document_qr_preview -- same mechanics, only the
+    URL names (and so which object's document_file/public_token) differ."""
+    uri = qr(obj.document_url)
+    if not uri:
+        return "—"
+    return format_html(
+        '<div style="display:flex;align-items:center;gap:16px;">'
+        '<img src="{}" alt="" width="120" height="120" style="background:white;" />'
+        '<div>'
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;">'
+        '<a href="{}" target="_blank" rel="noopener" '
+        'class="bg-primary-600 font-medium px-3 py-2 rounded-md text-white whitespace-nowrap">{}</a>'
+        '<a href="{}" '
+        'class="border border-base-200 dark:border-base-700 font-medium px-3 py-2 rounded-md whitespace-nowrap">{}</a>'
+        '</div>'
+        '<p class="text-sm text-font-subtle-light dark:text-font-subtle-dark" style="margin-top:12px;">{}</p>'
+        '</div>'
+        '</div>',
+        uri,
+        reverse(document_url_name, args=[obj.public_token]),
+        _("View document"),
+        reverse(regenerate_url_name, args=[obj.pk]),
+        _("Regenerate document"),
+        _document_status_text(obj),
+    )
+
+
+class RegenerateDocumentAdminMixin:
+    """Shared "Regenerate document" button behind document_qr_preview, for
+    AssetTransactionAdmin and AssetTransactionReceiptAdmin -- only the task,
+    the object whose company template applies, and the change-page redirect
+    differ between an AssetTransaction and one of its DI receipts."""
+
+    regenerate_document_url_name = ""
+    change_url_name = ""
+
+    def _regenerate_document_task(self, obj):
+        raise NotImplementedError
+
+    def _document_template_lookup(self, obj):
+        """The object whose company export template renders `obj`."""
+        return obj
+
+    def regenerate_document_view(self, request, object_id):
+        """The "Regenerate document" button of document_qr_preview."""
+        from assets.documents import get_document_template
+
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            raise Http404
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
+        if get_document_template(self._document_template_lookup(obj)) is None:
+            messages.error(request, _("There is no document template for this company."))
+        else:
+            self._regenerate_document_task(obj).delay(obj.pk, force=True)
+            messages.success(request, _("The document is being regenerated; the link serves the new one in a few seconds."))
+        return redirect(reverse(self.change_url_name, args=[object_id]))
+
+    def regenerate_document_url(self):
+        """The "<pk>/regenerate-document/" path for this admin's get_urls()."""
+        return path(
+            "<path:object_id>/regenerate-document/",
+            self.admin_site.admin_view(self.regenerate_document_view),
+            name=self.regenerate_document_url_name,
+        )
 
 
 class AssetTransactionEmailLogInline(_GenericTabularInline):
@@ -63,8 +149,8 @@ class AssetTransactionReceiptInline(TabularInline):
     model = AssetTransactionReceipt
     fk_name = "transaction"
     extra = 0
-    fields = ("nro_albaran", "data", "movement_transaction", "foto_preview", "created_at")
-    readonly_fields = ("foto_preview", "created_at", "movement_transaction", "nro_albaran", "data")
+    fields = ("nro_albaran", "part_display", "document_link", "data", "movement_transaction", "foto_preview", "created_at")
+    readonly_fields = ("foto_preview", "created_at", "movement_transaction", "nro_albaran", "data", "part_display", "document_link")
     can_delete = False
     show_change_link = True
     verbose_name = "Albaran"
@@ -87,6 +173,20 @@ class AssetTransactionReceiptInline(TabularInline):
                 obj.foto.url
             )
         return "Sin foto"
+
+    @admin.display(description=_("DI Part"))
+    def part_display(self, obj):
+        return f"{obj.part_number}/{obj.total_parts}"
+
+    @admin.display(description=_("Document"))
+    def document_link(self, obj):
+        if obj.pk is None:
+            return "—"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener">{}</a>',
+            reverse("asset_transaction_receipt_document", args=[obj.public_token]),
+            _("View document"),
+        )
 
 
 class AssetTransactionPhotoInline(TabularInline):
@@ -144,10 +244,15 @@ class RelatedMovementReceiptInline(TabularInline):
 
 
 class AssetTransactionReceiptAdminForm(forms.ModelForm):
-    """Promotes material_vertido to a typed field (built by ReceiptSchema,
-    shared with the AssetTransaction admin/wizard), synced into `data` on save."""
+    """Promotes material_vertido/peso_neto/m3 to typed fields (built by
+    ReceiptSchema, shared with the AssetTransaction admin/wizard), synced
+    into `data` on save -- each split DI gets its own material, weight and
+    volume. m3 is the same key CubaSchema stores on the pickup/movement
+    transaction; a DI's own value here overrides it on that DI's document."""
 
     material_vertido = forms.CharField(required=False)  # replaced in __init__ once company is known
+    peso_neto = forms.CharField(required=False)  # replaced in __init__
+    m3 = forms.CharField(required=False)  # replaced in __init__
 
     class Meta:
         model = AssetTransactionReceipt
@@ -156,6 +261,23 @@ class AssetTransactionReceiptAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["nro_albaran"].widget.attrs.setdefault("placeholder", _("Type the albaran number, e.g. 01083485"))
+        self.fields["part_number"] = forms.IntegerField(
+            label=self.fields["part_number"].label,
+            min_value=1,
+            widget=UnfoldAdminIntegerFieldWidget,
+            help_text=_("Which part this DI is, e.g. 2 for 2/4. Only correct this by hand to fix a mistake."),
+        )
+        self.fields["total_parts"] = forms.IntegerField(
+            label=self.fields["total_parts"].label,
+            min_value=1,
+            max_value=MAX_RECEIPT_SPLIT_PARTS,
+            widget=UnfoldAdminIntegerFieldWidget,
+            help_text=_("Total DI parts for this load, e.g. 4 for 2/4. Only correct this by hand to fix a mistake."),
+        )
+        if "di_number" in self.fields:
+            self.fields["di_number"] = forms.IntegerField(
+                label=self.fields["di_number"].label, required=False, min_value=1, widget=UnfoldAdminIntegerFieldWidget,
+            )
         transaction = self.instance.transaction if self.instance and self.instance.transaction_id else None
         if transaction is None:
             transaction_id = self.data.get("transaction") if self.is_bound else self.initial.get("transaction")
@@ -163,14 +285,20 @@ class AssetTransactionReceiptAdminForm(forms.ModelForm):
                 transaction = AssetTransaction.objects.filter(pk=transaction_id).select_related("company").first()
         company = transaction.company if transaction is not None else None
         self.fields["material_vertido"] = ReceiptSchema.material_vertido_field(company)
+        self.fields["peso_neto"] = ReceiptSchema.peso_neto_field()
+        self.fields["m3"] = ReceiptSchema.m3_field()
         if self.instance and self.instance.pk:
             data = self.instance.data or {}
             self.initial.setdefault("material_vertido", data.get("material_vertido", ""))
+            self.initial.setdefault("peso_neto", data.get("peso_neto", ""))
+            self.initial.setdefault("m3", data.get("m3", ""))
 
     def save(self, commit=True):
         obj = super().save(commit=False)
         data = dict(obj.data or {})
         data["material_vertido"] = self.cleaned_data.get("material_vertido") or ""
+        data["peso_neto"] = self.cleaned_data.get("peso_neto") or ""
+        data["m3"] = self.cleaned_data.get("m3") or ""
         obj.data = data
         if commit:
             obj.save()
@@ -178,16 +306,17 @@ class AssetTransactionReceiptAdminForm(forms.ModelForm):
 
 
 @admin.register(AssetTransactionReceipt)
-class AssetTransactionReceiptAdmin(ModelAdmin):
+class AssetTransactionReceiptAdmin(RegenerateDocumentAdminMixin, ModelAdmin):
     form = AssetTransactionReceiptAdminForm
-    list_display = ("nro_albaran", "transaction", "movement_transaction", "foto_thumbnail", "created_at")
+    regenerate_document_url_name = "assets_assettransactionreceipt_regenerate_document"
+    change_url_name = "admin:assets_assettransactionreceipt_change"
+    list_display = ("nro_albaran", "di_number", "part_display", "transaction", "movement_transaction", "foto_thumbnail", "created_at")
     list_filter = (
         ("transaction__asset", AutocompleteSelectMultipleFilter),
         ("created_at", RangeDateTimeFilter),
     )
-    search_fields = ("nro_albaran", "transaction__asset__name", "movement_transaction__asset__name")
+    search_fields = ("nro_albaran", "=di_number", "transaction__asset__name", "movement_transaction__asset__name")
     autocomplete_fields = ["transaction", "movement_transaction"]
-    readonly_fields = ["foto_preview", "created_at"]
     list_select_related = ["transaction__asset", "movement_transaction__asset"]
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
@@ -199,9 +328,14 @@ class AssetTransactionReceiptAdmin(ModelAdmin):
                 "transaction",
                 "movement_transaction",
                 "nro_albaran",
+                ("part_number", "total_parts"),
+                "di_number",
                 "material_vertido",
+                "peso_neto",
+                "m3",
                 "foto",
                 "foto_preview",
+                "document_qr_preview",
                 "created_at",
             )
         }),
@@ -211,6 +345,15 @@ class AssetTransactionReceiptAdmin(ModelAdmin):
             "description": _("material_vertido above is the recommended way to edit this. Raw JSON is kept as a fallback for anything else stored here."),
         }),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        """di_number is only hand-editable by a superuser, to correct a
+        genuine mistake -- everyone else gets it read-only, same as every
+        other DI-worthy model."""
+        fields = ["foto_preview", "created_at", "document_qr_preview"]
+        if not request.user.is_superuser:
+            fields.append("di_number")
+        return fields
 
     @admin.display(description="Foto")
     def foto_thumbnail(self, obj):
@@ -230,6 +373,134 @@ class AssetTransactionReceiptAdmin(ModelAdmin):
             )
         return "Sin foto"
 
+    @admin.display(description=_("DI Part"))
+    def part_display(self, obj):
+        return f"{obj.part_number}/{obj.total_parts}"
+
+    @admin.display(description=_("Document QR"))
+    def document_qr_preview(self, obj):
+        return _document_qr_html(obj, "asset_transaction_receipt_document", "admin:assets_assettransactionreceipt_regenerate_document")
+
+    def _regenerate_document_task(self, obj):
+        from assets.tasks import generate_asset_transaction_receipt_document
+
+        return generate_asset_transaction_receipt_document
+
+    def _document_template_lookup(self, obj):
+        return obj.transaction
+
+    def get_urls(self):
+        from assets.views.asset_transaction_wizard import ReceiptSplitWizardView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:receipt_id>/split/",
+                self.admin_site.admin_view(
+                    ReceiptSplitWizardView.as_view(model_admin=self)
+                ),
+                name="assets_assettransactionreceipt_split",
+            ),
+            self.regenerate_document_url(),
+        ]
+        return custom + urls
+
+
+class AssetTransactionPauseInline(TabularInline):
+    """Read-only on the movement's change page -- these are only ever
+    created by assets.services.transaction_pause (daily task or the
+    historical backfill), never by hand."""
+    model = AssetTransactionPause
+    fk_name = "movement"
+    extra = 0
+    fields = ("di_number", "date", "document_link", "created_at")
+    readonly_fields = ("di_number", "date", "document_link", "created_at")
+    can_delete = False
+    show_change_link = True
+    tab = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description=_("Document"))
+    def document_link(self, obj):
+        if obj.pk is None:
+            return "—"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener">{}</a>',
+            reverse("asset_transaction_pause_document", args=[obj.public_token]),
+            _("View document"),
+        )
+
+
+class AssetTransactionPauseAdminForm(forms.ModelForm):
+    class Meta:
+        model = AssetTransactionPause
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "date" in self.fields:
+            self.fields["date"] = forms.SplitDateTimeField(
+                label=self.fields["date"].label, required=False, widget=UnfoldAdminSplitDateTimeWidget,
+            )
+
+
+@admin.register(AssetTransactionPause)
+class AssetTransactionPauseAdmin(RegenerateDocumentAdminMixin, ModelAdmin):
+    form = AssetTransactionPauseAdminForm
+    regenerate_document_url_name = "assets_assettransactionpause_regenerate_document"
+    change_url_name = "admin:assets_assettransactionpause_change"
+    list_display = ("di_number", "movement", "date", "created_at")
+    search_fields = ("=di_number", "movement__asset__name")
+    autocomplete_fields = ["movement"]
+    list_select_related = ["movement__asset"]
+
+    fieldsets = (
+        (None, {
+            "fields": ("movement", "di_number", "date", "document_qr_preview", "created_at"),
+        }),
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        """date is only hand-editable by a superuser, to correct it -- same
+        rule as di_number everywhere else, just not locked forever since a
+        pause's date isn't a sequence number."""
+        fields = ["di_number", "document_qr_preview", "created_at"]
+        if not request.user.is_superuser:
+            fields.append("date")
+        return fields
+
+    def save_model(self, request, obj, form, change):
+        """A superuser hand-editing date here is the only way it can ever
+        change away from what the resolving receipt says -- flag it so
+        AssetTransactionPause.save() stops auto-tracking that receipt."""
+        if change and "date" in form.changed_data:
+            obj.date_overridden = True
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description=_("Document QR"))
+    def document_qr_preview(self, obj):
+        return _document_qr_html(
+            obj, "asset_transaction_pause_document",
+            "admin:assets_assettransactionpause_regenerate_document",
+        )
+
+    def _regenerate_document_task(self, obj):
+        from assets.tasks import generate_asset_transaction_pause_document
+
+        return generate_asset_transaction_pause_document
+
+    def _document_template_lookup(self, obj):
+        return obj.movement
+
+    def get_urls(self):
+        urls = super().get_urls()
+        return [self.regenerate_document_url()] + urls
+
+    def has_add_permission(self, request):
+        return False
+
 
 class AssetTransactionAdminForm(forms.ModelForm):
     """Replaces the raw `data` JSON textarea with typed fields, shown/hidden
@@ -244,6 +515,10 @@ class AssetTransactionAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if "di_number" in self.fields:
+            self.fields["di_number"] = forms.IntegerField(
+                label=self.fields["di_number"].label, required=False, min_value=1, widget=UnfoldAdminIntegerFieldWidget,
+            )
         instance = self.instance
         if instance and instance.pk:
             initial = initial_from_data(instance.transaction_type, instance.data, instance.company)
@@ -262,16 +537,47 @@ class AssetTransactionAdminForm(forms.ModelForm):
         return obj
 
 
+class HasDiNumberFilter(admin.SimpleListFilter):
+    """Filters on whether a DI number was assigned (see AssetTransaction.requires_di_number) --
+    lets staff hide every non-DI transaction type (DELIVERY, PORTE_MOVEMENT/DELIVERY, *_HOURS).
+
+    A RECEIPT transaction never carries its own `di_number` -- that lives on
+    the linked AssetTransactionReceipt row instead (see
+    AssetTransactionReceipt.di_number), so it's checked too. Without this, a
+    RECEIPT row always looked like it had no DI here, even though its own
+    receipt document always has one."""
+    title = _("Has DI")
+    parameter_name = "has_di"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("yes", _("Yes")),
+            ("no", _("No")),
+        ]
+
+    def queryset(self, request, queryset):
+        value = self.value()
+        has_di = models.Q(di_number__isnull=False) | models.Q(receipts__di_number__isnull=False)
+        if value == "yes":
+            return queryset.filter(has_di).distinct()
+        if value == "no":
+            return queryset.exclude(has_di).distinct()
+        return queryset
+
+
 @admin.register(AssetTransaction)
-class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
+class AssetTransactionAdmin(RegenerateDocumentAdminMixin, ModelAdmin, ImportExportModelAdmin):
     form = AssetTransactionAdminForm
+    regenerate_document_url_name = "assets_assettransaction_regenerate_document"
+    change_url_name = "admin:assets_assettransaction_change"
     conditional_fields = TRANSACTION_DATA_CONDITIONAL_FIELDS
     resource_classes = [AssetTransactionResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "billing_status_badge", "company", "imagen")
+    list_display = ("asset", "transaction_type", "di_number", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "billing_status_badge", "company", "imagen")
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("transaction_type", MultipleChoicesDropdownFilter),
+        HasDiNumberFilter,
         ("project_file", AutocompleteSelectMultipleFilter),
         ("asset__asset_type", AutocompleteSelectMultipleFilter),
         ("asset__client", AutocompleteSelectMultipleFilter),
@@ -282,16 +588,26 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         ("asset", AutocompleteSelectMultipleFilter),
         ("planning", AutocompleteSelectMultipleFilter)
     )
-    search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes", "reference_number")
+    search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes", "reference_number", "=di_number")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file", "planning"]
     exclude = ["company", "firma"]
-    readonly_fields = [
-        "firma_preview", "imagen_link", "document_qr_preview",
-        "performed_by", "material_vertido_display",
-    ]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type", "project_file__client"]
     list_filter_submit = True
-    inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, AssetTransactionPhotoInline, RelatedMovementReceiptInline]
+    inlines = [
+        AssetTransactionEmailLogInline, AssetTransactionReceiptInline,
+        AssetTransactionPhotoInline, RelatedMovementReceiptInline, AssetTransactionPauseInline,
+    ]
+
+    def get_readonly_fields(self, request, obj=None):
+        """di_number is only hand-editable by a superuser, to correct a
+        genuine mistake -- everyone else gets it read-only."""
+        fields = [
+            "firma_preview", "imagen_link", "document_qr_preview",
+            "performed_by", "material_vertido_display", "split_action",
+        ]
+        if not request.user.is_superuser:
+            fields.append("di_number")
+        return fields
 
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
@@ -312,7 +628,9 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 "date",
                 "performed_by",
                 "reference_number",
+                "di_number",
                 "material_vertido_display",
+                "split_action",
                 "notes",
                 "document_qr_preview",
             )
@@ -391,36 +709,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
 
     @admin.display(description=_("Document QR"))
     def document_qr_preview(self, obj):
-        uri = qr(obj.document_url)
-        if not uri:
-            return "—"
-        generated_at = obj.document_generated_at
-        if not obj.document_file:
-            status = _("Not generated yet: it is created the first time the link is opened.")
-        elif generated_at and generated_at >= obj.updated_at:
-            status = _("Generated on %(date)s.") % {"date": date_format(localtime(generated_at), "DATETIME_FORMAT")}
-        else:
-            status = _("Updating after the last change; the previous version is served meanwhile.")
-        return format_html(
-            '<div style="display:flex;align-items:center;gap:16px;">'
-            '<img src="{}" alt="" width="120" height="120" style="background:white;" />'
-            '<div>'
-            '<div style="display:flex;flex-wrap:wrap;gap:8px;">'
-            '<a href="{}" target="_blank" rel="noopener" '
-            'class="bg-primary-600 font-medium px-3 py-2 rounded-md text-white whitespace-nowrap">{}</a>'
-            '<a href="{}" '
-            'class="border border-base-200 dark:border-base-700 font-medium px-3 py-2 rounded-md whitespace-nowrap">{}</a>'
-            '</div>'
-            '<p class="text-sm text-font-subtle-light dark:text-font-subtle-dark" style="margin-top:12px;">{}</p>'
-            '</div>'
-            '</div>',
-            uri,
-            reverse("asset_transaction_document", args=[obj.public_token]),
-            _("View document"),
-            reverse("admin:assets_assettransaction_regenerate_document", args=[obj.pk]),
-            _("Regenerate document"),
-            status,
-        )
+        return _document_qr_html(obj, "asset_transaction_document", "admin:assets_assettransaction_regenerate_document")
 
     @admin.display(description="Imagen")
     def imagen_link(self, obj):
@@ -485,22 +774,10 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         self._queue_transaction_emails(request, transaction)
         return redirect(reverse("admin:assets_assettransaction_change", args=[object_id]))
 
-    def regenerate_document_view(self, request, object_id):
-        """The "Regenerate document" button of document_qr_preview."""
-        from assets.documents import get_document_template
+    def _regenerate_document_task(self, obj):
         from assets.tasks import generate_asset_transaction_document
 
-        transaction = self.get_object(request, object_id)
-        if transaction is None:
-            raise Http404
-        if not self.has_change_permission(request, transaction):
-            raise PermissionDenied
-        if get_document_template(transaction) is None:
-            messages.error(request, _("There is no document template for this company."))
-        else:
-            generate_asset_transaction_document.delay(transaction.pk, force=True)
-            messages.success(request, _("The document is being regenerated; the link serves the new one in a few seconds."))
-        return redirect(reverse("admin:assets_assettransaction_change", args=[object_id]))
+        return generate_asset_transaction_document
 
     def get_urls(self):
         urls = super().get_urls()
@@ -512,11 +789,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 ),
                 name="assets_assettransaction_export",
             ),
-            path(
-                "<path:object_id>/regenerate-document/",
-                self.admin_site.admin_view(self.regenerate_document_view),
-                name="assets_assettransaction_regenerate_document",
-            ),
+            self.regenerate_document_url(),
         ]
         return custom_urls + urls
 
@@ -526,6 +799,24 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         if receipt and receipt.data:
             return receipt.data.get("material_vertido", "—")
         return "—"
+
+    @admin.display(description=_("Split into Multiple DIs"))
+    def split_action(self, obj):
+        if obj is None or obj.pk is None:
+            return "—"
+        receipt = obj.receipts.order_by("part_number").first()
+        if receipt is None:
+            return "—"
+        url = reverse("admin:assets_assettransactionreceipt_split", args=[receipt.pk])
+        label = (
+            _("Split into Multiple DIs") if receipt.total_parts == 1
+            else _("Add more DI parts (currently %(n)d)") % {"n": receipt.total_parts}
+        )
+        return format_html(
+            '<a href="{}" class="bg-primary-600 font-medium px-4 py-2.5 rounded-default text-white text-sm inline-block '
+            'transition-all hover:bg-primary-700">{}</a>',
+            url, label,
+        )
 
     @display(
         description=_("Billing"),

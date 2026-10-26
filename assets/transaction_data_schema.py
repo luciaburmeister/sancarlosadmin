@@ -147,7 +147,7 @@ class CubaSchema(TransactionFieldSchema):
             "tipo_cuba": config_or_text_field(company, "materiales", _("Container material")),
             "cubaEstado": select_field(_("Container state"), [_EMPTY_CHOICE] + list(CubaFillState.choices)),
             "vasAVerter": select_field(_("Going to be dumped?"), [_EMPTY_CHOICE] + list(FormAffirmative.choices)),
-            "m3": config_or_text_field(company, "m3", _("m³")),
+            "m3": cls.m3_field(company),
             "trabajo": config_or_text_field(company, "trabajos", _("Work type")),
             "matricula": text_field(_("Plate"), placeholder=_("e.g. 0709CBB")),
             "peso_vertido": text_field(_("Weight Dumped (kg)"), placeholder=_("e.g. 500")),
@@ -158,6 +158,14 @@ class CubaSchema(TransactionFieldSchema):
             "implemento": config_or_text_field(company, "implemento", _("Implement")),
             "tipo_camion": config_or_text_field(company, "tipo_camion", _("Truck type")),
         }
+
+    @classmethod
+    def m3_field(cls, company):
+        """Shared with ReceiptSchema, which edits the same "m3" key the
+        document template reads as `data.m3` -- letting a split DI override
+        it here is what makes the "ESTIMADA (m3)" figure correct per part
+        instead of every part showing the whole cuba's volume."""
+        return config_or_text_field(company, "m3", _("m³"))
 
     @classmethod
     def initial(cls, data, company=None):
@@ -239,14 +247,15 @@ class PorteSchema(TransactionFieldSchema):
 
 class ReceiptSchema(TransactionFieldSchema):
     transaction_types = (TransactionTypeChoices.RECEIPT,)
-    # nro_albaran is also a real field on AssetTransactionReceipt (kept in sync).
-    field_names = ("nro_albaran", "material_vertido")
+    field_names = ("nro_albaran", "material_vertido", "peso_neto", "m3")
 
     @classmethod
     def fields(cls, company):
         return {
             "nro_albaran": text_field(_("Albaran Number"), placeholder=_("Type the albaran number, e.g. 01083485")),
             "material_vertido": cls.material_vertido_field(company),
+            "peso_neto": cls.peso_neto_field(),
+            "m3": cls.m3_field(),
         }
 
     @classmethod
@@ -254,6 +263,21 @@ class ReceiptSchema(TransactionFieldSchema):
         """Shared with AssetTransactionReceiptAdminForm, which edits the same
         key on a different model (AssetTransactionReceipt.data)."""
         return config_or_text_field(company, "material_vertido", _("Material Dumped"))
+
+    @classmethod
+    def peso_neto_field(cls):
+        """Shared with AssetTransactionReceiptAdminForm, which edits the same
+        key on a different model (AssetTransactionReceipt.data)."""
+        return text_field(_("Net Weight (kg)"), placeholder=_("e.g. 500"))
+
+    @classmethod
+    def m3_field(cls):
+        """Shared with AssetTransactionReceiptAdminForm, which edits the same
+        "m3" key CubaSchema stores on the pickup/movement transaction -- free
+        text here rather than CubaSchema's config-list dropdown, since a
+        split part's own volume isn't one of the whole container's preset
+        sizes."""
+        return text_field(_("m³"))
 
     @classmethod
     def initial(cls, data, company=None):

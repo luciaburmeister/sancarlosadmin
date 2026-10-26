@@ -41,6 +41,8 @@ class PdfTaskQueueTests(SimpleTestCase):
             "configurator.tasks.render_export_template_preview",
             "core.tasks.render_document_task",
             "assets.tasks.generate_asset_transaction_document",
+            "assets.tasks.generate_asset_transaction_receipt_document",
+            "assets.tasks.generate_asset_transaction_pause_document",
             "invoices.tasks.attach_intercompany_debit_note_pdf",
         }
         self.assertEqual(set(settings.CELERY_PDF_TASKS), expected)

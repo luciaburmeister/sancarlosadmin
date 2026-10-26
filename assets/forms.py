@@ -5,12 +5,15 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from unfold.fields import UnfoldAdminAutocompleteModelChoiceField
 from unfold.widgets import (
+    UnfoldAdminIntegerFieldWidget,
     UnfoldAdminTextInputWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminSelect2MultipleWidget,
     UnfoldAdminTextareaWidget,
     UnfoldBooleanSwitchWidget,
 )
+
+from assets.constants import MAX_RECEIPT_SPLIT_PARTS
 
 
 # Aligns with the schedule's 15-minute slots; covers a normal working day.
@@ -756,4 +759,25 @@ class ManualTransactionForm(forms.Form):
         if transaction_type == TransactionTypeChoices.RECEIPT:
             data[CubaTransactionKey.NET_WEIGHT] = (self.cleaned_data.get(CubaTransactionKey.NET_WEIGHT) or "").strip()
         return data
+
+
+class SplitReceiptForm(forms.Form):
+    """"Split into multiple DIs" / "Add more DI parts" wizard form, launched
+    from an AssetTransactionReceipt's change page -- works whether this DI is
+    still unsplit (1 of 1) or already has several parts. See
+    assets.views.asset_transaction_wizard.ReceiptSplitWizardView."""
+
+    def __init__(self, *args, current_total=1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["total_parts"] = forms.IntegerField(
+            label=_("How many DI parts should this load have in total?"),
+            min_value=current_total + 1,
+            max_value=MAX_RECEIPT_SPLIT_PARTS,
+            initial=min(current_total + 1, MAX_RECEIPT_SPLIT_PARTS),
+            widget=UnfoldAdminIntegerFieldWidget,
+            help_text=_(
+                "Existing parts keep their data; the new ones are created blank for you to "
+                "fill in one residue type each."
+            ),
+        )
 

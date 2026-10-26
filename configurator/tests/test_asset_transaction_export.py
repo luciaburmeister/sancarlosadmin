@@ -1,7 +1,14 @@
 from django.test import TestCase
 from django.utils import timezone
 
-from assets.models import Asset, AssetTransaction, AssetTransactionReceipt, AssetType, TransactionTypeChoices
+from assets.models import (
+    Asset,
+    AssetPlanning,
+    AssetTransaction,
+    AssetTransactionReceipt,
+    AssetType,
+    TransactionTypeChoices,
+)
 from company.models import Company, WorkingZone
 from configurator.services.export.asset_transaction import AssetTransactionExportStrategy
 from management.models import ProjectFile
@@ -390,6 +397,46 @@ class AssetTransactionExportLandfillContextTests(_AssetTransactionExportTestCase
         context = AssetTransactionExportStrategy(transaction).get_context()
 
         self.assertIsNone(context["landfill"])
+
+
+class AssetTransactionExportPlanningOriginContextTests(_AssetTransactionExportTestCase):
+    """planning_origin/planning_destination come from the plan, not from
+    from_zone/to_zone (this transaction's own, which for a receipt is
+    wherever the driver actually was/went -- not necessarily where the job
+    started/was headed per the plan)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.plan_origin = WorkingZone.objects.create(company=cls.company, name="Obra Origen")
+        cls.plan_destination = WorkingZone.objects.create(company=cls.company, name="Vertedero Destino")
+        cls.planning = AssetPlanning.objects.create(
+            company=cls.company, origin=cls.plan_origin, destination=cls.plan_destination,
+            scheduled_date=timezone.localdate(),
+        )
+
+    def test_planning_origin_and_destination_are_in_the_context(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(),
+            planning=self.planning,
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["planning_origin"], str(self.plan_origin))
+        self.assertEqual(context["planning_destination"], str(self.plan_destination))
+
+    def test_no_planning_means_no_origin_or_destination(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company, asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(),
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertIsNone(context["planning_origin"])
+        self.assertIsNone(context["planning_destination"])
 
 
 class AssetTransactionExportReceiptMatriculaContextTests(_AssetTransactionExportTestCase):

@@ -1,4 +1,12 @@
+import datetime
+
 MAX_ZONE_RADIUS_M = 1_000
+
+# Caps how many DIs an office/plant user can split one AssetTransactionReceipt into.
+MAX_RECEIPT_SPLIT_PARTS = 10
+
+# Nothing dated before this gets a di_number (see assets.services.di_numbering).
+DI_NUMBERING_START_DATE = datetime.date(2026, 10, 5)
 
 SERVICE_TYPE_MAQUINA_PROPIA = "porte_maquina"
 SERVICE_TYPE_MATERIAL_EXTERNO = "porte_material"

@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -6,8 +7,8 @@ from django.views.generic import FormView
 
 from unfold.views import UnfoldModelAdminViewMixin
 
-from assets.forms import ManualTransactionForm
-from assets.models import AssetPlanning, PlanningType
+from assets.forms import ManualTransactionForm, SplitReceiptForm
+from assets.models import AssetPlanning, AssetTransactionReceipt, PlanningType
 from assets.services.manual_transaction import create_manual_transaction
 
 
@@ -67,3 +68,45 @@ class AssetTransactionFromPlanningWizardView(UnfoldModelAdminViewMixin, FormView
 
         messages.success(self.request, _("Transaction created."))
         return redirect(reverse("admin:assets_assettransaction_change", args=[transaction.pk]))
+
+
+class ReceiptSplitWizardView(UnfoldModelAdminViewMixin, FormView):
+    """"Split into multiple DIs" / "Add more DI parts" form, launched from
+    the receipt's AssetTransaction change page (where plant/office staff
+    actually look up a verteo) -- lets them turn one DI into several when a
+    cuba arrives mixed with more than one residue, or grow an already-split
+    load with more parts later (e.g. a part was missed the first time). See
+    AssetTransactionReceipt.split_into_parts for what actually gets created.
+    """
+    template_name = "assets/split_receipt_wizard.html"
+    permission_required = ("assets.add_assettransactionreceipt",)
+    title = _("Split into Multiple DIs")
+    form_class = SplitReceiptForm
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        self.receipt = get_object_or_404(AssetTransactionReceipt, pk=kwargs.get("receipt_id"))
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["current_total"] = self.receipt.total_parts
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["receipt"] = self.receipt
+        context["already_split"] = self.receipt.total_parts > 1
+        return context
+
+    def _back_to_transaction(self):
+        return redirect(reverse("admin:assets_assettransaction_change", args=[self.receipt.transaction_id]))
+
+    def form_valid(self, form):
+        try:
+            self.receipt.split_into_parts(form.cleaned_data["total_parts"])
+        except ValidationError as e:
+            messages.error(self.request, str(e.message) if hasattr(e, "message") else str(e))
+            return self.form_invalid(form)
+
+        messages.success(self.request, _("DI split into %(n)d parts.") % {"n": form.cleaned_data["total_parts"]})
+        return self._back_to_transaction()

@@ -29,6 +29,7 @@ from assets.constants import (
     SERVICE_TYPE_PLANNING_TYPE,
     SERVICE_TYPE_FIELDS,
     SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES,
+    MAX_RECEIPT_SPLIT_PARTS,
 )
 User = get_user_model()
 
@@ -700,7 +701,27 @@ class BillingStatus(models.TextChoices):
     FAILED = "failed", _("Failed")
 
 
-class AssetTransaction(CompanyOwnedModel, Timestampable):
+class PublicDocumentTokenMixin:
+    """Shared document_url for AssetTransaction and AssetTransactionReceipt,
+    both of which expose a public_token-keyed document behind a QR code --
+    only the URL name differs."""
+
+    document_url_name = ""
+
+    @property
+    def document_url(self) -> str:
+        if not self.public_token:
+            return ""
+        from django.conf import settings
+        from django.urls import reverse
+
+        base = settings.BACKEND_URL.rstrip("/")
+        path = reverse(self.document_url_name, args=[self.public_token])
+        return f"{base}{path}"
+
+
+class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampable):
+    document_url_name = "asset_transaction_document"
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, null=True, blank=True, related_name="transactions", verbose_name=_("Asset"))
     from_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions_from", verbose_name=_("From Zone"))
     to_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions_to", verbose_name=_("To Zone"))
@@ -738,6 +759,13 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     document_generated_at = models.DateTimeField(
         null=True, blank=True, editable=False, verbose_name=_("Document generated at"),
     )
+    di_number = models.PositiveIntegerField(
+        null=True, blank=True, db_index=True, verbose_name=_("DI Number"),
+        help_text=_(
+            "Sequential number printed on the document for a full-cuba pickup or a porte pickup. "
+            "Assigned once, never reassigned. Hand-editable by a superuser only, to fix a mistake."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Asset transaction")
@@ -766,32 +794,52 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     # not part of the albarán (billing_status changes in bulk admin actions).
     DOCUMENT_IRRELEVANT_FIELDS = frozenset({"billing_status", "document_file", "document_generated_at"})
 
+    @property
+    def requires_di_number(self) -> bool:
+        """Whether this transaction is one of the two DI-worthy events (see
+        assets.services.di_numbering): a full-cuba MOVEMENT, or a porte
+        PORTE_LOAD -- the driver flow is "pickup empty cuba (PORTE_MOVEMENT)
+        -> load (PORTE_LOAD) -> deliver (PORTE_DELIVERY)", and loading is
+        where material custody actually starts, same role as a full-cuba
+        MOVEMENT. Everything else (DELIVERY, PORTE_MOVEMENT/DELIVERY,
+        *_HOURS) never carries one."""
+        if self.transaction_type == TransactionTypeChoices.PORTE_LOAD:
+            return True
+        if self.transaction_type == TransactionTypeChoices.MOVEMENT:
+            return self.is_full_cuba
+        return False
+
+    def clean(self):
+        super().clean()
+        from assets.services.di_numbering import DiNumberingService
+
+        DiNumberingService.validate_di_number_unique(self, self.di_number, self.company)
+
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         update_fields = kwargs.get("update_fields")
+        needs_di_number = self.di_number is None and self.requires_di_number
         affects_document = update_fields is None or not set(update_fields) <= self.DOCUMENT_IRRELEVANT_FIELDS
         if update_fields is not None and affects_document:
             # auto_now only applies to fields being saved; the stored
             # document is checked against updated_at, so keep it current.
             kwargs["update_fields"] = {*update_fields, "updated_at"}
-        super().save(*args, **kwargs)
+        if needs_di_number and kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "di_number"}
+        if needs_di_number:
+            from assets.services.di_numbering import DiNumberingService
+
+            with transaction.atomic():
+                self.di_number = DiNumberingService.allocate_di_number(self.company)
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
         if is_new:
             self._sync_zones_on_porte_delivery()
         elif self.document_file and affects_document:
             from assets.documents import schedule_regeneration
 
             schedule_regeneration(self.pk)
-
-    @property
-    def document_url(self) -> str:
-        if not self.public_token:
-            return ""
-        from django.conf import settings
-        from django.urls import reverse
-
-        base = settings.BACKEND_URL.rstrip("/")
-        path = reverse("asset_transaction_document", args=[self.public_token])
-        return f"{base}{path}"
 
     @classmethod
     def payload_is_full(cls, data) -> bool:
@@ -912,21 +960,253 @@ class MachinePermission(CompanyOwnedModel):
         return f"{self.employee} → {self.asset}"
 
 
-class AssetTransactionReceipt(models.Model):
+class AssetTransactionReceipt(PublicDocumentTokenMixin, models.Model):
+    document_url_name = "asset_transaction_receipt_document"
     transaction = models.ForeignKey(AssetTransaction, on_delete=models.CASCADE, related_name="receipts", verbose_name=_("Transaction"))
     foto = models.ImageField(upload_to="transaction_receipts/", blank=True, null=True, verbose_name=_("Foto del Albaran"))
     nro_albaran = models.CharField(max_length=100, verbose_name=_("Nro de Albaran"))
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     movement_transaction = models.ForeignKey(AssetTransaction, on_delete=models.SET_NULL, null=True, blank=True, related_name="receipt_links", verbose_name=_("Original Movement"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
+    part_number = models.PositiveSmallIntegerField(default=1, verbose_name=_("DI Part Number"))
+    total_parts = models.PositiveSmallIntegerField(default=1, verbose_name=_("DI Total Parts"))
+    public_token = models.CharField(
+        max_length=64,
+        unique=True,
+        editable=False,
+        default=secrets.token_urlsafe,
+        verbose_name=_("Public token"),
+        help_text=_("Unguessable key for the public document link encoded in the QR."),
+    )
+    document_file = models.FileField(
+        upload_to="asset_transaction_receipts/documents/",
+        blank=True,
+        editable=False,
+        verbose_name=_("Document"),
+    )
+    document_generated_at = models.DateTimeField(
+        null=True, blank=True, editable=False, verbose_name=_("Document generated at"),
+    )
+    di_number = models.PositiveIntegerField(
+        null=True, blank=True, db_index=True, verbose_name=_("DI Number"),
+        help_text=_(
+            "Sequential number printed on this DI's document -- every receipt gets one, including "
+            "each split part. Assigned once, never reassigned. Hand-editable by a superuser only, to fix a mistake."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Asset Transaction Receipt")
         verbose_name_plural = _("Asset Transaction Receipts")
+        ordering = ["-created_at", "part_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transaction", "total_parts", "part_number"],
+                condition=Q(total_parts__gt=1),
+                name="unique_receipt_part_per_split_transaction",
+            ),
+        ]
+
+    DOCUMENT_IRRELEVANT_FIELDS = frozenset({"document_file", "document_generated_at"})
+
+    def __str__(self):
+        label = f"Albaran {self.nro_albaran} - {self.transaction.asset}"
+        if self.total_parts > 1:
+            label += f" ({self.part_number}/{self.total_parts})"
+        return label
+
+    def clean(self):
+        super().clean()
+        if self.transaction_id:
+            from assets.services.di_numbering import DiNumberingService
+
+            DiNumberingService.validate_di_number_unique(self, self.di_number, self.transaction.company)
+        if self.total_parts <= 1:
+            return
+        if self.part_number > self.total_parts:
+            raise ValidationError({
+                "part_number": _("Part number can't be greater than the total parts (%(n)d).") % {"n": self.total_parts},
+            })
+        if self.transaction_id and AssetTransactionReceipt.objects.filter(
+            transaction_id=self.transaction_id, total_parts=self.total_parts, part_number=self.part_number,
+        ).exclude(pk=self.pk).exists():
+            raise ValidationError({
+                "part_number": _("Another DI on this transaction already uses part %(n)d of %(t)d.")
+                % {"n": self.part_number, "t": self.total_parts},
+            })
+
+    def _resolve_di_number(self) -> int:
+        """A DI is tied to the plan: the movement that picked up a full cuba
+        and the verteo that empties it are the same document, so the first
+        receipt linked to a movement inherits that movement's number instead
+        of consuming a new one. A split's extra parts (sharing that same
+        movement_transaction with the receipt they were split from) are
+        genuinely separate DIs, so they still get their own number -- as
+        does any receipt with no movement_transaction, or whose movement
+        doesn't have a number yet.
+
+        Must run inside the save() below's atomic block: select_for_update
+        on the movement row serializes two receipts racing to be "the
+        first" one filed against it (e.g. a double-submitted verteo), the
+        same way DiNumberingService.allocate_di_number serializes a brand
+        new number."""
+        if self.movement_transaction_id:
+            movement = AssetTransaction.objects.select_for_update().filter(
+                pk=self.movement_transaction_id,
+            ).first()
+            if movement is not None and movement.di_number is not None:
+                already_has_one = AssetTransactionReceipt.objects.filter(
+                    movement_transaction_id=self.movement_transaction_id,
+                ).exclude(pk=self.pk).exists()
+                if not already_has_one:
+                    return movement.di_number
+        from assets.services.di_numbering import DiNumberingService
+
+        return DiNumberingService.allocate_di_number(self.transaction.company)
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        needs_di_number = self.di_number is None
+        affects_document = update_fields is None or not set(update_fields) <= self.DOCUMENT_IRRELEVANT_FIELDS
+        if update_fields is not None and affects_document:
+            kwargs["update_fields"] = {*update_fields, "updated_at"}
+        if needs_di_number and kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "di_number"}
+        is_new = self.pk is None
+        with transaction.atomic():
+            if needs_di_number:
+                self.di_number = self._resolve_di_number()
+            super().save(*args, **kwargs)
+        if not is_new and self.document_file and affects_document:
+            from assets.documents import schedule_receipt_regeneration
+
+            schedule_receipt_regeneration(self.pk)
+        if is_new and self.movement_transaction_id:
+            pause = AssetTransactionPause.objects.filter(
+                movement_id=self.movement_transaction_id, date_overridden=False,
+            ).first()
+            if pause is not None:
+                pause.save()
+
+    def split_into_parts(self, total_parts):
+        """Grows this receipt's DI family to `total_parts` parts in total,
+        on the same transaction, for a plant/office user (see
+        ReceiptSplitWizardView) to fill in one residue type each. The new
+        parts inherit nro_albaran from the receipt being split -- they're
+        the same physical load/document, so there's only one albaran number
+        to go around. material_vertido and peso_neto are NOT inherited --
+        both genuinely differ per part (one load split by residue type
+        rarely weighs the same in each part), so they're left for staff to
+        fill in per part. Works both for the first split (1 of 1 -> N) and
+        for adding more parts later to an already-split family -- it only
+        ever adds parts, so existing ones keep their data and part
+        numbers."""
+        old_total = self.total_parts
+        if total_parts <= old_total:
+            raise ValidationError(
+                _("Enter a total greater than the current %(n)d parts.") % {"n": old_total}
+            )
+        if total_parts > MAX_RECEIPT_SPLIT_PARTS:
+            raise ValidationError(_("Choose %(max)d parts or fewer.") % {"max": MAX_RECEIPT_SPLIT_PARTS})
+        for sibling in AssetTransactionReceipt.objects.filter(transaction_id=self.transaction_id).exclude(pk=self.pk):
+            sibling.total_parts = total_parts
+            sibling.save(update_fields=["total_parts"])
+        self.total_parts = total_parts
+        self.save(update_fields=["total_parts"])
+        # bulk_create would skip save(), and with it DI numbering.
+        siblings = []
+        for part_number in range(old_total + 1, total_parts + 1):
+            sibling = AssetTransactionReceipt(
+                transaction=self.transaction,
+                movement_transaction=self.movement_transaction,
+                nro_albaran=self.nro_albaran,
+                part_number=part_number,
+                total_parts=total_parts,
+            )
+            sibling.save()
+            siblings.append(sibling)
+        return siblings
+
+
+class AssetTransactionPause(PublicDocumentTokenMixin, models.Model):
+    """A second DI for a full-cuba MOVEMENT that sat paused (parked,
+    typically) across a day boundary before its verteo -- or, if still
+    unresolved, before today. The driver flow never logs a pause anywhere,
+    so this exists purely to give that leg its own real, printable document
+    instead of silently pretending the whole trip happened in one day. The
+    verteo's own DI still always matches the pickup's original di_number
+    (see AssetTransactionReceipt._resolve_di_number) -- this is a second
+    document for the pickup side only, not a second receipt.
+
+    One per movement, created once and never again (see
+    assets.services.transaction_pause) -- a cuba parked for a week still
+    only ever gets one of these, not one per night."""
+    movement = models.OneToOneField(
+        AssetTransaction, on_delete=models.CASCADE, related_name="pause",
+        verbose_name=_("Movement"),
+    )
+    document_url_name = "asset_transaction_pause_document"
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
+    public_token = models.CharField(
+        max_length=64, unique=True, editable=False, default=secrets.token_urlsafe,
+        verbose_name=_("Public token"),
+        help_text=_("Unguessable key for the public document link encoded in the QR."),
+    )
+    document_file = models.FileField(
+        upload_to="asset_transaction_pauses/documents/",
+        blank=True, editable=False, verbose_name=_("Document"),
+    )
+    document_generated_at = models.DateTimeField(
+        null=True, blank=True, editable=False, verbose_name=_("Document generated at"),
+    )
+    di_number = models.PositiveIntegerField(
+        null=True, blank=True, editable=False, db_index=True, verbose_name=_("DI Number"),
+        help_text=_("Sequential number printed on this pause's document. Assigned once, never reassigned."),
+    )
+    date = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Date"),
+        help_text=_("Date printed on this pause's document. Tracks the movement's resolving receipt (verteo/dejada) once it's filed, or the movement's own date while still pending; hand-editable by a superuser only, to correct it."),
+    )
+    date_overridden = models.BooleanField(
+        default=False, editable=False, verbose_name=_("Date overridden"),
+        help_text=_("Set once a superuser hand-edits date; from then on it stops auto-tracking the resolving receipt."),
+    )
+
+    class Meta:
+        verbose_name = _("Transaction Pause")
+        verbose_name_plural = _("Transaction Pauses")
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Albaran {self.nro_albaran} - {self.transaction.asset}"
+        return f"Pausa - {self.movement}"
+
+    def clean(self):
+        super().clean()
+        if self.movement_id:
+            from assets.services.di_numbering import DiNumberingService
+
+            DiNumberingService.validate_di_number_unique(self, self.di_number, self.movement.company_id)
+
+    def _resolution_date(self):
+        """The date of this movement's first receipt (the verteo/dejada that
+        actually resolved it) -- the date its document should show, instead
+        of the pickup day it was parked on. None while still pending."""
+        receipt = self.movement.receipt_links.order_by("created_at").first()
+        return receipt.transaction.date if receipt else None
+
+    def save(self, *args, **kwargs):
+        if not self.date_overridden:
+            self.date = self._resolution_date() or self.date or self.movement.date
+        if self.di_number is None:
+            from assets.services.di_numbering import DiNumberingService
+
+            with transaction.atomic():
+                self.di_number = DiNumberingService.allocate_di_number(self.movement.company_id)
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
 
 class ServiceType(models.TextChoices):

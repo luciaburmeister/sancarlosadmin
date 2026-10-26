@@ -1,0 +1,64 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+{{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto p-6">
+
+    <div class="mb-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-1">
+            <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">
+                {% trans "DI" %} {{ receipt.nro_albaran|default:"—" }} — {{ receipt.transaction.asset|default:"—" }}
+            </h2>
+            <span class="text-sm text-gray-500 dark:text-gray-400">{{ receipt.part_number }}/{{ receipt.total_parts }}</span>
+        </div>
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+            {% trans "Use this when the container came back mixed with more than one residue — each residue needs its own DI." %}
+        </p>
+    </div>
+
+    {% if already_split %}
+    <div class="mb-6 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-300">
+        {% blocktrans with n=receipt.total_parts %}This DI is already split into {{ n }} parts. Choose a higher total below to add more — the existing parts keep their data.{% endblocktrans %}
+    </div>
+    {% endif %}
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 mb-6">
+            {% if form.non_field_errors %}
+            <div class="text-sm text-red-600 dark:text-red-400 mb-4">{{ form.non_field_errors }}</div>
+            {% endif %}
+            {% for field in form %}
+            <div>
+                <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    {{ field.label }}
+                </label>
+                {{ field }}
+                {% if field.help_text %}
+                <p class="text-xs text-gray-400 mt-1.5">{{ field.help_text }}</p>
+                {% endif %}
+                {% if field.errors %}
+                <p class="text-xs text-red-600 dark:text-red-400 mt-1.5">{{ field.errors }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="flex justify-between items-center">
+            <a href="{% url 'admin:assets_assettransaction_change' receipt.transaction_id %}"
+                class="border border-base-200 font-medium px-5 py-2.5 rounded-default transition-all hover:bg-base-50 text-sm dark:border-base-700 dark:hover:text-base-200 dark:hover:bg-base-900">
+                {% trans "Cancel" %}
+            </a>
+            <button type="submit"
+                class="bg-primary-600 font-medium px-6 py-2.5 rounded-default text-white text-sm transition-all hover:bg-primary-700 focus:ring-4 focus:ring-primary-100">
+                {% if already_split %}{% trans "Add parts" %}{% else %}{% trans "Split" %}{% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

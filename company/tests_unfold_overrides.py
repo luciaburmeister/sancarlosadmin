@@ -52,12 +52,12 @@ PROJECT_TEMPLATES = pathlib.Path(settings.BASE_DIR) / "templates"
 # project depends on their markup: navigation_header.html toggles the flag
 # site_dropdown.html shows on; fieldset_row_field.html and
 # related_widget_wrapper.html carry the classes unfold-overrides.css targets.
-PINNED_UNFOLD_VERSION = "0.106.0"
+PINNED_UNFOLD_VERSION = "0.110.0"
 PINNED_VENDOR_HASHES = {
     "unfold/helpers/fieldset_row.html": "2eb8a8acf2d7538566aacb635f5a017374f8f47f026e10ab471c10ed87d44a42",
     "unfold/helpers/site_dropdown.html": "d2df866c72627d4a1b16bc5ac00684247bd3b35dbc3e1da515548d36b5c1d619",
-    "unfold/helpers/site_logo.html": "4bf409a13daa874c70d1c89a2b1a13e0627a4081f97aa811482d1a6db59690e2",
-    "unfold/helpers/navigation_header.html": "b2b4cec8f441ffa8c52ae57a8b336f146d87291abda89e8945364355da0c1111",
+    "unfold/helpers/site_logo.html": "3730b52667dbe622e0c103548204515721232a86d83d523b4be9a1eec0e27da7",
+    "unfold/helpers/navigation_header.html": "ebf1a6c9aa1994aa31ec464739ea1420275167da904daf0f6a118d6ce06813c6",
     "unfold/helpers/fieldset_row_field.html": "cb3e7c4cf0ead894265c977742a136da5985d4b98664079a69f7e1337903fcf8",
     "unfold/widgets/related_widget_wrapper.html": "4ffda1235520379d0f06630ae8b950d862726a53095c2b53ebb6e58a4865ddb3",
 }

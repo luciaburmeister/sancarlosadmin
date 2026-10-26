@@ -133,8 +133,10 @@ class TransactionMatcher:
     def auto_confirm_if_referenced(reconciliation: BankReconciliation) -> bool:
         """
         Confirm a suggestion with no human when the payer named the invoices
-        by payment reference and the amount settles them exactly. Partial and
-        over payments stay as suggestions. Returns whether it confirmed.
+        by payment reference, whatever the amount: less than owed pays them
+        partially (in the order written); more settles them and leaves the
+        excess on the payment as the client's/provider's credit. Returns
+        whether it confirmed.
         """
         selected = next(
             (combo for combo in reconciliation.suggested_allocations if combo.get("is_selected")),
@@ -150,15 +152,15 @@ class TransactionMatcher:
             return True
         if not selected or selected.get("confidence") != "reference":
             return False
-
-        remaining = Decimal("0")
-        for allocation in selected["allocations"]:
-            ct = ContentType.objects.get(model=allocation["content_type"])
-            remaining += ct.get_object_for_this_type(pk=allocation["object_id"]).amount_remaining_decimal
-        if remaining != abs(reconciliation.bank_transaction.amount.amount):
+        # Paid off since the suggestion was made: nothing left for the money to go to
+        if not any(
+            ContentType.objects.get(model=allocation["content_type"])
+            .get_object_for_this_type(pk=allocation["object_id"]).amount_remaining_decimal > 0
+            for allocation in selected["allocations"]
+        ):
             return False
 
-        TransactionMatcher.confirm(reconciliation, selected["allocations"], user=None)
+        TransactionMatcher.confirm(reconciliation, selected["allocations"], user=None, excess_as_credit=True)
         return True
 
     @staticmethod
@@ -187,9 +189,15 @@ class TransactionMatcher:
         confirmed_allocations: list,
         user,
         category: BankTransactionCategory | None = None,
+        excess_as_credit: bool = False,
     ) -> BankReconciliation:
         """
         Confirm (or modify) a matcher suggestion and create the Payment.
+
+        With `excess_as_credit`, money left over after the documents are paid
+        is not "unmatched": it stays on the payment, which took the documents'
+        client/provider, as their credit (saldo a favor), so the movement is
+        fully reconciled.
 
         confirmed_allocations is a list of dicts:
             [{"content_type": "invoice", "object_id": 5}, ...]
@@ -264,6 +272,10 @@ class TransactionMatcher:
 
         # Step 4 — Update the BankReconciliation
         actual_unmatched = max(Decimal("0"), txn_amount - total_allocated)
+        if excess_as_credit and total_allocated > 0:
+            payment.refresh_from_db(fields=["client", "provider"])
+            if payment.client_id or payment.provider_id:
+                actual_unmatched = Decimal("0")
         reconciliation.payment = payment
         reconciliation.is_confirmed = True
         reconciliation.method = method
@@ -273,7 +285,7 @@ class TransactionMatcher:
         reconciliation.save()
 
         # Step 5 — Update BankTransaction reconciliation status (+ category)
-        is_partial = confirmed_allocations and total_allocated < txn_amount
+        is_partial = confirmed_allocations and actual_unmatched > 0
         txn.reconciliation_status = (
             ReconciliationStatus.PARTIAL if is_partial else ReconciliationStatus.RECONCILED
         )

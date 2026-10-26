@@ -49,7 +49,9 @@ class ProjectFileListCreateView(CompanyAPIView):
                 pass
         if search:
             base_qs = base_qs.filter(
-                Q(name__icontains=search) | Q(client__name__icontains=search)
+                Q(name__icontains=search)
+                | Q(client__name__icontains=search)
+                | Q(client__tax_identifier__icontains=search)
             )
 
         open_qs = base_qs.exclude(status__in=["completed", "cancelled"])

@@ -153,9 +153,14 @@ class MyTasksView(CompanyAPIView):
                 continue
 
             if search and project_file:
-                name_match = search.lower() in (project_file.name or "").lower()
-                client_name = project_file.client.name if project_file.client else ""
-                client_match = search.lower() in client_name.lower()
+                needle = search.lower()
+                name_match = needle in (project_file.name or "").lower()
+                client = project_file.client
+                client_name = client.name if client else ""
+                tax_identifier = client.tax_identifier if client else ""
+                client_match = needle in client_name.lower() or needle in (
+                    tax_identifier or ""
+                ).lower()
                 if not name_match and not client_match:
                     continue
 

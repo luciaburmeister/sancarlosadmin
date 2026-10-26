@@ -215,7 +215,11 @@ class BulkEmitCandidatesView(CompanyAPIView):
             .order_by("-created_at")
         )
         if search:
-            qs = qs.filter(Q(name__icontains=search) | Q(client__name__icontains=search))
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(client__name__icontains=search)
+                | Q(client__tax_identifier__icontains=search)
+            )
 
         paginator = Paginator(qs, 30)
         page = paginator.get_page(page_num)
@@ -300,6 +304,7 @@ class SalesInvoiceListView(CompanyAPIView):
                 Q(invoice_number__icontains=search)
                 | Q(proforma_number__icontains=search)
                 | Q(client__name__icontains=search)
+                | Q(client__tax_identifier__icontains=search)
             )
 
         try:

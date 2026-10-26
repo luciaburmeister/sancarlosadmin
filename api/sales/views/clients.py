@@ -41,7 +41,9 @@ class ClientListCreateView(CompanyAPIView):
 
         if search:
             clients = clients.filter(
-                models.Q(name__icontains=search) | models.Q(commercial_name__icontains=search)
+                models.Q(name__icontains=search)
+                | models.Q(commercial_name__icontains=search)
+                | models.Q(tax_identifier__icontains=search)
             )
         clients = clients.distinct().order_by("name")
 

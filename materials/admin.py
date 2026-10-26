@@ -42,6 +42,7 @@ class ComponentPriceRuleInline(TabularInline):
         "condition",
         "unit_price_expression",
         "unit_price",
+        "priority",
         "is_fallback",
     )
 

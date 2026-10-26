@@ -242,6 +242,24 @@ class ChatViewsPermissionTests(TestCase):
         self.assertEqual(response.context["selected_claude_company_id"], with_key.pk)
         self.assertContains(response, "Zulu Co")
 
+    def test_chat_page_claude_company_dropdown_is_independent_of_active_selection(self):
+        """The Claude-key selector lists every company the user has access
+        to that has a key, regardless of which companies are toggled on in
+        the session's active-company switcher."""
+        active = self._company_with_key("Active Co", "CC6", key="sk-active")
+        inactive = self._company_with_key("Inactive Co", "CC7", key="sk-inactive")
+        self.client.force_login(self.permitted_user)
+        self._activate(active)
+
+        response = self.client.get(reverse("admin:ai_agent_chat"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted(company.name for company in response.context["claude_companies"]),
+            ["Active Co", "Inactive Co"],
+        )
+        self.assertContains(response, "Inactive Co")
+
     def test_send_message_denies_another_users_conversation(self):
         other = User.objects.create_user(username="other", password="pass", is_staff=True)
         conversation = AIConversation.objects.create(owner=other)

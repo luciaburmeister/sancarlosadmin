@@ -456,6 +456,7 @@ class ComponentPriceRule(models.Model):
 
     priority = models.PositiveIntegerField(
         default=0,
+        verbose_name=_("Priority"),
         help_text=_("Lower values are evaluated first"),
         db_index=True
     )

@@ -318,12 +318,17 @@ def _serialize_blocks(content) -> list[dict]:
 
 
 def companies_with_claude_key(user):
-    """Active companies that have a Claude API key, ordered by name."""
-    from core.admin.company_access import get_user_companies
+    """Companies the user has access to that have a Claude API key, ordered by name.
+
+    Independent of the active-company session selection: a user can pay with
+    any company's key regardless of which companies they currently have
+    toggled on in the company switcher.
+    """
+    from core.admin.company_access import get_user_allowed_companies
 
     return [
         company
-        for company in get_user_companies(user).order_by("name", "pk")
+        for company in get_user_allowed_companies(user).order_by("name", "pk")
         if company.get_claude_api_key()
     ]
 
@@ -332,9 +337,9 @@ def resolve_claude_company(user, company_id=None, preferred=None):
     """Company whose key pays for this turn.
 
     An explicit choice wins. Otherwise the conversation's saved company,
-    then the first active company that has a key.
+    then the first company (of all the user has access to) that has a key.
     """
-    from core.admin.company_access import get_user_companies
+    from core.admin.company_access import get_user_allowed_companies
 
     available = companies_with_claude_key(user)
     by_id = {company.pk: company for company in available}
@@ -346,7 +351,7 @@ def resolve_claude_company(user, company_id=None, preferred=None):
         company = by_id.get(chosen_id)
         if company is not None:
             return company
-        owned = get_user_companies(user).filter(pk=chosen_id).first()
+        owned = get_user_allowed_companies(user).filter(pk=chosen_id).first()
         if owned is not None:
             raise RuntimeError(
                 _("Set a Claude API key on %(company)s.") % {"company": owned.name}
@@ -356,10 +361,10 @@ def resolve_claude_company(user, company_id=None, preferred=None):
         return by_id[preferred.pk]
     if available:
         return available[0]
-    active = list(get_user_companies(user).order_by("name", "pk")[:2])
-    if len(active) == 1:
+    allowed = list(get_user_allowed_companies(user).order_by("name", "pk")[:2])
+    if len(allowed) == 1:
         raise RuntimeError(
-            _("Set a Claude API key on %(company)s.") % {"company": active[0].name}
+            _("Set a Claude API key on %(company)s.") % {"company": allowed[0].name}
         )
     raise RuntimeError(_("Set a Claude API key on the company."))
 

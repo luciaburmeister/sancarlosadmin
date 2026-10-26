@@ -381,7 +381,7 @@ def _provider_id_for_document(content_type, object_id):
 def _recalculate_invoice_payment_status(content_type, object_id):
     """
     If the allocated object is a SalesInvoice, Invoice, LoanInstallment,
-    ExpenseClaim, FixedCostInstallment, or PlannedTaxPayment, trigger its
+    ExpenseClaim, FixedCostInstallment, or TaxInstallment, trigger its
     recalculation method. Uses apps.get_model to avoid circular imports.
     """
     from django.apps import apps
@@ -391,7 +391,7 @@ def _recalculate_invoice_payment_status(content_type, object_id):
     LoanInstallment = apps.get_model("loans", "LoanInstallment")
     ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
     FixedCostInstallment = apps.get_model("expenses", "FixedCostInstallment")
-    PlannedTaxPayment = apps.get_model("finance", "PlannedTaxPayment")
+    TaxInstallment = apps.get_model("finance", "TaxInstallment")
     model_class = content_type.model_class()
 
     if model_class is SalesInvoice:
@@ -427,11 +427,11 @@ def _recalculate_invoice_payment_status(content_type, object_id):
             installment.recalculate_payment_status()
         except FixedCostInstallment.DoesNotExist:
             pass
-    elif model_class is PlannedTaxPayment:
+    elif model_class is TaxInstallment:
         try:
-            planned_payment = PlannedTaxPayment.objects.get(pk=object_id)
-            planned_payment.recalculate_payment_status()
-        except PlannedTaxPayment.DoesNotExist:
+            installment = TaxInstallment.objects.get(pk=object_id)
+            installment.recalculate_payment_status()
+        except TaxInstallment.DoesNotExist:
             pass
 
 

@@ -1,22 +1,19 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
-from django.shortcuts import redirect
-from django.urls import reverse
-from django.utils.html import format_html_join
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import path, reverse
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
-from unfold.admin import ModelAdmin
-from unfold.decorators import action
-from unfold.contrib.filters.admin import (
-    RangeDateFilter,
-    ChoicesDropdownFilter,
-    AutocompleteSelectMultipleFilter,
-)
+from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
+from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
-from payments.admin_inlines import DocumentPaymentsInline
+from payments.models import PaymentAllocation
 
 from .models import TaxPeriod, TaxPeriodStatus
-from .models_planned_tax_payment import PlannedTaxPayment
+from .models_planned_tax_payment import PlannedTaxPayment, TaxInstallment, TaxInstallmentPaymentStatus
 
 
 def tax_period_links(tax_periods) -> str:
@@ -69,51 +66,131 @@ class PlannedTaxPaymentForm(forms.ModelForm):
         return cleaned_data
 
 
+class TaxInstallmentInline(TabularInline):
+    """
+    Editable installment rows, shown as part of the main form. A plan
+    always has at least one installment - a single-row plan is just a
+    lump-sum payment entered as one installment.
+    """
+    model = TaxInstallment
+    verbose_name = _("Installment")
+    verbose_name_plural = _("Installments")
+    prefix = "installments_edit"
+    extra = 1
+    tab = False
+    fields = ("due_date", "amount")
+
+
+PAYMENT_STATUS_LABELS = {
+    TaxInstallmentPaymentStatus.PAID: "success",
+    TaxInstallmentPaymentStatus.PARTIAL: "warning",
+    TaxInstallmentPaymentStatus.UNPAID: "danger",
+}
+
+
+class TaxInstallmentReadOnlyInline(TabularInline):
+    """Read-only view of the same installments, for reviewing payment status."""
+    model = TaxInstallment
+    verbose_name = _("Tax Installment")
+    verbose_name_plural = _("Tax Installments")
+    prefix = "installments_view"
+    extra = 0
+    tab = True
+    fields = ("due_date", "amount", "get_payment_status", "amount_paid", "get_bank_transaction_link", "mark_paid_button")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @display(description=_("Payment Status"), label=PAYMENT_STATUS_LABELS)
+    def get_payment_status(self, obj):
+        return obj.payment_status
+
+    def get_bank_transaction_link(self, obj):
+        from banking.models import BankReconciliation
+
+        if not obj.pk:
+            return "—"
+        ct = ContentType.objects.get_for_model(TaxInstallment)
+        allocations = PaymentAllocation.objects.filter(
+            content_type=ct, object_id=obj.pk
+        ).select_related("payment")
+
+        links = []
+        for allocation in allocations:
+            try:
+                recon = allocation.payment.reconciliation
+            except BankReconciliation.DoesNotExist:
+                continue
+            if not recon.bank_transaction_id:
+                continue
+            url = reverse("admin:banking_banktransaction_change", args=[recon.bank_transaction_id])
+            links.append(format_html('<a href="{}" class="text-primary-600 underline">{}</a>', url, str(recon.bank_transaction)))
+
+        if not links:
+            return "—"
+        return format_html_join(", ", "{}", ((link,) for link in links))
+    get_bank_transaction_link.short_description = _("Bank Transaction")
+
+    @admin.display(description=_("Actions"))
+    def mark_paid_button(self, obj):
+        if not obj.pk or obj.payment_status == TaxInstallmentPaymentStatus.PAID:
+            return "—"
+        url = reverse("admin:finance_plannedtaxpayment_mark_installment_paid", args=[obj.pk])
+        return format_html(
+            '<a href="{}" class="font-medium text-primary-600 dark:text-primary-400 hover:underline" '
+            'onclick="return confirm(\'{}\');">'
+            '<span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">price_check</span>'
+            ' {}</a>',
+            url,
+            _("Mark this installment as paid without a bank transaction?"),
+            _("Mark as paid"),
+        )
+
+
 @admin.register(PlannedTaxPayment)
 class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
     form = PlannedTaxPaymentForm
-    list_display = ["description", "tax_type", "amount", "payment_date", "is_paid", "paid_via", "get_tax_periods_count", "company"]
+    list_display = ["description", "tax_type", "get_installments_count", "get_installments_total", "get_payment_status", "company"]
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("tax_type", AutocompleteSelectMultipleFilter),
-        ("payment_date", RangeDateFilter),
-        "is_paid",
-        ("paid_via", ChoicesDropdownFilter),
     )
     search_fields = ["description", "tax_type__tax_name"]
     list_filter_submit = True
     autocomplete_fields = ["company", "tax_type", "tax_schedule_rule"]
     filter_horizontal = ["tax_periods"]
-    readonly_fields = ["is_paid", "paid_via", "paid_at", "paid_by", "get_calculated_reference"]
-    actions = ["mark_selected_as_paid", "mark_selected_as_unpaid"]
-    actions_row = ["mark_paid_action", "mark_unpaid_action"]
-    actions_detail = [
-        {
-            "title": _("Payment"),
-            "items": ["mark_paid_action", "mark_unpaid_action"],
-        },
-    ]
-    inlines = [DocumentPaymentsInline]
+    readonly_fields = ["get_payment_status", "get_calculated_reference"]
+    inlines = [TaxInstallmentInline, TaxInstallmentReadOnlyInline]
 
     fieldsets = (
         (_("Planned Payment"), {
             "fields": (
                 "tax_schedule_rule",
                 ("company", "tax_type"),
-                "tax_periods",
-                "get_calculated_reference",
                 "description",
-                ("amount", "payment_date"),
-                "notes",
+                "tax_periods",
             ),
         }),
         (_("Status"), {
             "fields": (
-                ("is_paid", "paid_via"),
-                ("paid_at", "paid_by"),
+                "get_payment_status",
+                "get_calculated_reference",
+                "notes",
+                "drag_forward_if_unpaid",
             ),
         }),
     )
+
+    @display(description=_("Payment Status"), label=PAYMENT_STATUS_LABELS)
+    def get_payment_status(self, obj):
+        return obj.payment_status
 
     def get_readonly_fields(self, request, obj=None):
         fields = list(self.readonly_fields)
@@ -139,6 +216,9 @@ class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ).order_by("-date_from")
             else:
                 kwargs["queryset"] = TaxPeriod.objects.none()
+            formfield = super().formfield_for_manytomany(db_field, request, **kwargs)
+            formfield.help_text = db_field.help_text
+            return formfield
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
     def get_tax_periods_link(self, obj):
@@ -152,14 +232,28 @@ class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return _("%(count)d period(s)") % {"count": count}
     get_tax_periods_count.short_description = _("Tax Periods")
 
+    def get_installments_count(self, obj):
+        count = obj.installments.count()
+        if not count:
+            return "—"
+        return _("%(count)d installment(s)") % {"count": count}
+    get_installments_count.short_description = _("Installments")
+
+    def get_installments_total(self, obj):
+        installments = list(obj.installments.all())
+        if not installments:
+            return "—"
+        total = sum(installment.amount.amount for installment in installments)
+        return f"{total} {installments[0].amount.currency}"
+    get_installments_total.short_description = _("Total")
+
     def get_calculated_reference(self, obj):
         if not obj or not obj.pk:
             return "—"
         from .models import TaxPeriod
 
         amount = TaxPeriod.suggested_settlement_amount(obj.tax_periods.all())
-        currency = obj.amount.currency if obj.amount else "EUR"
-        return f"{amount} {currency}"
+        return f"{amount} EUR"
     get_calculated_reference.short_description = _("Calculated reference for linked periods")
 
     def save_related(self, request, form, formsets, change):
@@ -168,53 +262,65 @@ class PlannedTaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
         new_period_ids = set(form.instance.tax_periods.values_list("pk", flat=True))
         TaxPeriod.recalculate_status_for(old_period_ids | new_period_ids)
 
-    @action(description=_("Mark as paid"), icon="paid", permissions=["mark_paid"])
-    def mark_paid_action(self, request, object_id: int):
-        planned = PlannedTaxPayment.objects.get(pk=object_id)
-        planned.mark_as_paid(request.user)
-        self.message_user(request, _("Payment marked as paid."))
-        return redirect(reverse("admin:finance_plannedtaxpayment_change", args=[object_id]))
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "installment/<int:installment_id>/mark-paid/",
+                self.admin_site.admin_view(self.mark_installment_paid),
+                name="finance_plannedtaxpayment_mark_installment_paid",
+            ),
+        ]
+        return custom_urls + super().get_urls()
 
-    def has_mark_paid_permission(self, request, object_id=None):
-        return request.user.has_perm("finance.change_plannedtaxpayment")
-
-    @action(description=_("Mark as unpaid"), icon="money_off", permissions=["mark_unpaid"])
-    def mark_unpaid_action(self, request, object_id: int):
-        planned = PlannedTaxPayment.objects.get(pk=object_id)
-        if planned.amount_remaining <= 0:
-            self.message_user(
-                request,
-                _("Cannot mark as unpaid: bank reconciliation still covers this amount."),
-                level="warning",
-            )
-        else:
-            planned.mark_as_unpaid()
-            self.message_user(request, _("Payment marked as unpaid."))
-        return redirect(reverse("admin:finance_plannedtaxpayment_change", args=[object_id]))
-
-    def has_mark_unpaid_permission(self, request, object_id=None):
-        return request.user.has_perm("finance.change_plannedtaxpayment")
-
-    @admin.action(description=_("Mark selected payments as paid"))
-    def mark_selected_as_paid(self, request, queryset):
-        updated = 0
-        for planned in queryset.filter(is_paid=False):
-            planned.mark_as_paid(request.user)
-            updated += 1
-        self.message_user(request, _("%(n)d payment(s) marked as paid.") % {"n": updated})
-
-    @admin.action(description=_("Mark selected payments as unpaid"))
-    def mark_selected_as_unpaid(self, request, queryset):
-        updated = 0
-        skipped = 0
-        for planned in queryset.filter(is_paid=True):
-            if planned.amount_remaining <= 0:
-                skipped += 1
-                continue
-            planned.mark_as_unpaid()
-            updated += 1
-        self.message_user(
-            request,
-            _("%(n)d marked as unpaid, %(s)d skipped (still covered by reconciliation).")
-            % {"n": updated, "s": skipped},
+    def mark_installment_paid(self, request, installment_id):
+        installment = get_object_or_404(
+            TaxInstallment.objects.select_related("planned_tax_payment__company"),
+            pk=installment_id,
         )
+        planned = installment.planned_tax_payment
+        redirect_url = reverse("admin:finance_plannedtaxpayment_change", args=[planned.pk]) + "#installments"
+
+        if not self.has_change_permission(request, planned):
+            messages.error(request, _("You do not have permission to modify this payment."))
+            return redirect(redirect_url)
+
+        remaining = installment.amount_remaining
+        if installment.payment_status == TaxInstallmentPaymentStatus.PAID or remaining.amount <= 0:
+            messages.info(request, _("Installment due %(date)s is already paid.") % {
+                "date": installment.due_date,
+            })
+            return redirect(redirect_url)
+
+        from django.db import transaction as db_transaction
+        from payments.models import Payment, PaymentCreatedBy, PaymentDirection, PaymentMethod, PaymentStatus
+
+        with db_transaction.atomic():
+            payment = Payment.objects.create(
+                company=planned.company,
+                payment_date=installment.due_date,
+                amount=remaining.amount,
+                amount_currency=str(remaining.currency),
+                direction=PaymentDirection.OUTBOUND,
+                method=PaymentMethod.CASH,
+                status=PaymentStatus.CONFIRMED,
+                created_by=PaymentCreatedBy.MANUAL,
+                notes=_("Marked as paid manually from admin (no bank transaction). %(installment)s") % {
+                    "installment": str(installment),
+                },
+            )
+            PaymentAllocation.objects.create(
+                payment=payment,
+                amount_applied=remaining.amount,
+                amount_applied_currency=str(remaining.currency),
+                content_type=ContentType.objects.get_for_model(TaxInstallment),
+                object_id=installment.pk,
+            )
+
+        messages.success(
+            request,
+            _("Installment due %(date)s marked as paid (%(amount)s).") % {
+                "date": installment.due_date,
+                "amount": remaining,
+            },
+        )
+        return redirect(redirect_url)

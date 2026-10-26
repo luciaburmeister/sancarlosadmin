@@ -66,16 +66,18 @@ class TransactionMatcher:
         reference in the concept) goes before them all: the movement is that
         payment, so confirming links it instead of creating one.
         """
-        referenced = reference.find_referenced_documents(self.transaction, self.direction)
-        self.counterparty = (
-            referenced and reference.counterparty_of(referenced)
-        ) or find_counterparty(self.transaction, self.direction)
-        candidates = self._get_candidate_documents()
+        self.counterparty = find_counterparty(self.transaction, self.direction)
+        candidate_documents = self._get_candidate_documents()
         self.result = match_amount(
             self.transaction,
-            candidates,
+            candidate_documents,
             has_counterparty=self.counterparty is not None or self.employee_counterparty is not None,
         )
+
+        if not self.result.has_match:
+            oldest_first_match = self._tax_installment_oldest_first_match(candidate_documents)
+            if oldest_first_match:
+                self.result = MatchResult(documents=oldest_first_match, confidence="oldest_first")
 
         # Build the combined suggested_allocations structure:
         # [{"allocations": [...], "confidence": "exact", "is_selected": bool}, ...]
@@ -458,20 +460,47 @@ class TransactionMatcher:
 
             payroll_qs = candidates.employee_payroll_candidates(self.transaction.company, cutoff_date)
 
-            tax_payment_qs = candidates.planned_tax_payment_candidates(self.transaction.company, cutoff_date)
-            tax_payments = [p for p in tax_payment_qs if not p.is_refund]
+            tax_installment_qs = candidates.tax_installment_candidates(
+                self.transaction.company, cutoff_date
+            ).select_related("planned_tax_payment")
 
             return (
                 list(qs) + list(installment_qs) + list(event_qs)
-                + list(claim_qs) + list(payroll_qs) + tax_payments
+                + list(claim_qs) + list(payroll_qs) + list(tax_installment_qs)
             )
 
         qs = candidates.sales_invoice_candidates(self.transaction.company, cutoff_date, self.counterparty)
 
-        tax_payment_qs = candidates.planned_tax_payment_candidates(self.transaction.company, cutoff_date)
-        tax_refunds = [p for p in tax_payment_qs if p.is_refund]
+        return list(annotate_amount_remaining(qs, SalesInvoice))
 
-        return list(annotate_amount_remaining(qs, SalesInvoice)) + tax_refunds
+    def _tax_installment_oldest_first_match(self, candidate_documents: list) -> list | None:
+        """
+        Fallback for a lump payment that doesn't line up exactly with any
+        combination of tax installments: pay the oldest due installment in
+        full, then apply whatever is left to the next oldest, and so on.
+        Only proposed when it fully accounts for the transaction amount —
+        confirm() later applies this same oldest-first capping per document.
+        """
+        TaxInstallment = apps.get_model("finance", "TaxInstallment")
+        installments = sorted(
+            (doc for doc in candidate_documents if isinstance(doc, TaxInstallment)),
+            key=lambda installment: installment.due_date,
+        )
+        if not installments:
+            return None
+
+        budget = abs(self.transaction.amount.amount)
+        matched = []
+        for installment in installments:
+            if budget <= 0:
+                break
+            remaining = installment.amount_remaining_decimal
+            if remaining <= 0:
+                continue
+            matched.append(installment)
+            budget -= remaining
+
+        return matched if matched and budget <= 0 else None
 
     @staticmethod
     def _determine_method(

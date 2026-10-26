@@ -6,7 +6,7 @@ from djmoney.models.fields import MoneyField
 from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
 
-from .models_planned_tax_payment import PlannedTaxPayment  # noqa: F401
+from .models_planned_tax_payment import PlannedTaxPayment, TaxInstallment  # noqa: F401
 
 
 class PeriodUnit(models.TextChoices):

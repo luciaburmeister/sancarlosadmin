@@ -1,13 +1,21 @@
-from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
-from django.utils import timezone
+from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from simple_history.models import HistoricalRecords
 from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
-from payments.mixins import Payable, PaidVia
+from payments.mixins import Payable
+
+
+class TaxInstallmentPaymentStatus(models.TextChoices):
+    UNPAID = "unpaid", _("Unpaid")
+    PARTIAL = "partial", _("Partial")
+    PAID = "paid", _("Paid")
 
 
 class PlannedTaxPaymentQuerySet(models.QuerySet):
@@ -21,7 +29,7 @@ class PlannedTaxPaymentQuerySet(models.QuerySet):
         return deleted
 
 
-class PlannedTaxPayment(Timestampable, CompanyOwnedModel, Payable):
+class PlannedTaxPayment(Timestampable, CompanyOwnedModel):
     objects = PlannedTaxPaymentQuerySet.as_manager()
 
     tax_schedule_rule = models.ForeignKey(
@@ -48,38 +56,22 @@ class PlannedTaxPayment(Timestampable, CompanyOwnedModel, Payable):
         related_name="planned_payments",
         verbose_name=_("Tax Periods"),
         help_text=_(
-            "Optional reference periods this payment covers. Leave blank for "
-            "payments with no calculated period (deferrals, IBI, penalties). "
-            "Link several when one payment settles multiple periods together "
-            "(e.g. a year-end VAT settlement netting quarters that came out "
-            "positive and negative)."
+            "Periods covered by this payment. Leave blank for deferrals, IBI, "
+            "or penalties with no calculated period."
         ),
     )
     description = models.CharField(
         max_length=200,
         verbose_name=_("Description"),
     )
-    amount = MoneyField(
-        max_digits=14, decimal_places=2, default_currency="EUR",
-        verbose_name=_("Amount"),
-        help_text=_("Positive = payment to the tax authority. Negative = refund expected back."),
-    )
-    payment_date = models.DateField(verbose_name=_("Payment Date"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
-
-    is_paid = models.BooleanField(default=False, verbose_name=_("Paid"))
-    paid_via = models.CharField(
-        max_length=20, choices=PaidVia.choices, blank=True, default="",
-        verbose_name=_("Paid Via"),
-        help_text=_("Empty until the payment is actually paid."),
-    )
-    paid_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Paid At"))
-    paid_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name="+",
-        verbose_name=_("Paid By"),
+    drag_forward_if_unpaid = models.BooleanField(
+        default=True,
+        verbose_name=_("Drag Forward If Unpaid"),
+        help_text=_(
+            "If yes, an unpaid installment keeps reappearing on today's date "
+            "in the cashflow calendar until paid or reconciled."
+        ),
     )
 
     history = HistoricalRecords()
@@ -87,10 +79,10 @@ class PlannedTaxPayment(Timestampable, CompanyOwnedModel, Payable):
     class Meta:
         verbose_name = _("Planned Tax Payment")
         verbose_name_plural = _("Planned Tax Payments")
-        ordering = ["-payment_date"]
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.description} — {self.amount} ({self.payment_date})"
+        return f"{self.description} — {self.tax_type}"
 
     def clean(self):
         super().clean()
@@ -108,64 +100,13 @@ class PlannedTaxPayment(Timestampable, CompanyOwnedModel, Payable):
                     )
 
     @property
-    def is_refund(self) -> bool:
-        return bool(self.amount) and self.amount.amount < 0
-
-    @property
-    def amount_paid(self):
-        from django.contrib.contenttypes.models import ContentType
-        from django.db.models import Sum
-        from djmoney.money import Money
-        from payments.models import PaymentAllocation
-
-        ct = ContentType.objects.get_for_model(self)
-        total = (
-            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
-            .aggregate(total=Sum("amount_applied"))["total"]
-            or 0
-        )
-        return Money(total, self.amount.currency)
-
-    @property
-    def amount_remaining(self):
-        target = abs(self.amount.amount) if self.amount else 0
-        return target - self.amount_paid.amount
-
-    def recalculate_payment_status(self):
-        from .models import TaxPeriod
-
-        total_applied = self.amount_paid.amount
-        target = abs(self.amount.amount) if self.amount else 0
-        fully_covered = target > 0 and total_applied >= target
-
-        if fully_covered and not self.is_paid:
-            self.is_paid = True
-            self.paid_via = PaidVia.RECONCILIATION
-            self.paid_at = timezone.now()
-            self.paid_by = None
-            self.save(update_fields=["is_paid", "paid_via", "paid_at", "paid_by", "updated_at"])
-        elif not fully_covered and self.is_paid and self.paid_via == PaidVia.RECONCILIATION:
-            self.is_paid = False
-            self.paid_via = ""
-            self.paid_at = None
-            self.paid_by = None
-            self.save(update_fields=["is_paid", "paid_via", "paid_at", "paid_by", "updated_at"])
-
-        TaxPeriod.recalculate_status_for(self.tax_periods.values_list("pk", flat=True))
-
-    def mark_as_paid(self, user):
-        self.is_paid = True
-        self.paid_at = timezone.now()
-        self.paid_by = user
-        self.paid_via = PaidVia.MANUAL
-        self.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
-
-    def mark_as_unpaid(self):
-        self.is_paid = False
-        self.paid_at = None
-        self.paid_by = None
-        self.paid_via = ""
-        self.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+    def payment_status(self) -> str:
+        statuses = set(self.installments.values_list("payment_status", flat=True))
+        if not statuses or statuses == {TaxInstallmentPaymentStatus.UNPAID}:
+            return TaxInstallmentPaymentStatus.UNPAID
+        if statuses == {TaxInstallmentPaymentStatus.PAID}:
+            return TaxInstallmentPaymentStatus.PAID
+        return TaxInstallmentPaymentStatus.PARTIAL
 
     def save(self, *args, **kwargs):
         if self.tax_schedule_rule_id:
@@ -184,3 +125,81 @@ class PlannedTaxPayment(Timestampable, CompanyOwnedModel, Payable):
         if period_ids:
             transaction.on_commit(lambda: TaxPeriod.recalculate_status_for(period_ids))
         return result
+
+
+class TaxInstallment(Payable, models.Model):
+    planned_tax_payment = models.ForeignKey(
+        PlannedTaxPayment,
+        on_delete=models.CASCADE,
+        related_name="installments",
+        verbose_name=_("Planned Tax Payment"),
+    )
+    due_date = models.DateField(verbose_name=_("Due Date"))
+    amount = MoneyField(
+        max_digits=14, decimal_places=2, default_currency="EUR",
+        verbose_name=_("Amount"),
+        validators=[MinValueValidator(Money(0, "EUR"))],
+        help_text=_(
+            "Always positive - the amount owed, like Invoice or LoanInstallment. "
+            "Not a bank movement: the matching BankTransaction is negative "
+            "(money leaving the account) when this installment gets paid."
+        ),
+    )
+    amount_paid = MoneyField(
+        max_digits=14, decimal_places=2, default=0, default_currency="EUR",
+        verbose_name=_("Amount Paid"),
+        help_text=_("Maintained automatically from PaymentAllocation. Not manually editable."),
+    )
+    payment_status = models.CharField(
+        max_length=10,
+        choices=TaxInstallmentPaymentStatus.choices,
+        default=TaxInstallmentPaymentStatus.UNPAID,
+        verbose_name=_("Payment Status"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("Tax Installment")
+        verbose_name_plural = _("Tax Installments")
+        ordering = ["planned_tax_payment", "due_date"]
+        unique_together = ["planned_tax_payment", "due_date"]
+
+    def __str__(self):
+        return f"{self.planned_tax_payment} — {self.due_date}"
+
+    @property
+    def amount_remaining(self):
+        return self.amount - self.amount_paid
+
+    @property
+    def counterparty_key(self) -> tuple:
+        return ("tax_type", self.planned_tax_payment.tax_type_id)
+
+    def recalculate_payment_status(self):
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(TaxInstallment)
+        allocated = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"] or 0
+        )
+        total = self.amount.amount if self.amount else 0
+
+        self.amount_paid = Money(allocated, self.amount_currency)
+
+        if allocated <= 0:
+            new_status = TaxInstallmentPaymentStatus.UNPAID
+        elif allocated >= total:
+            new_status = TaxInstallmentPaymentStatus.PAID
+        else:
+            new_status = TaxInstallmentPaymentStatus.PARTIAL
+
+        self.payment_status = new_status
+        self.save(update_fields=["amount_paid", "amount_paid_currency", "payment_status"])
+
+    def save(self, *args, **kwargs):
+        if not kwargs.get("update_fields") and self.pk:
+            self.recalculate_payment_status()
+            return
+        super().save(*args, **kwargs)

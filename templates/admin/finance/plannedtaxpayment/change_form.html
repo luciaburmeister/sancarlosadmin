@@ -1,0 +1,18 @@
+{% extends "admin/change_form.html" %}
+
+{% block field_sets %}
+    {% for fieldset in adminform %}
+        {% if "tab" not in fieldset.classes and forloop.first %}
+            {% include 'admin/includes/fieldset.html' %}
+        {% endif %}
+    {% endfor %}
+{% endblock %}
+
+{% block after_related_objects %}
+    {% for fieldset in adminform %}
+        {% if "tab" not in fieldset.classes and not forloop.first %}
+            {% include 'admin/includes/fieldset.html' %}
+        {% endif %}
+    {% endfor %}
+    {% include "unfold/helpers/fieldsets_tabs.html" %}
+{% endblock %}

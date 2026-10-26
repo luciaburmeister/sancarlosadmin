@@ -87,10 +87,10 @@ def employee_payroll_candidates(company, cutoff_date):
     )
 
 
-def planned_tax_payment_candidates(company, cutoff_date):
-    PlannedTaxPayment = apps.get_model("finance", "PlannedTaxPayment")
-    return PlannedTaxPayment.objects.filter(
-        company=company,
-        is_paid=False,
-        payment_date__lte=cutoff_date,
+def tax_installment_candidates(company, cutoff_date):
+    TaxInstallment = apps.get_model("finance", "TaxInstallment")
+    return TaxInstallment.objects.filter(
+        planned_tax_payment__company=company,
+        payment_status__in=["unpaid", "partial"],
+        due_date__lte=cutoff_date,
     )

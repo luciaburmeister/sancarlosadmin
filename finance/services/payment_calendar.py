@@ -14,7 +14,7 @@ from banking.models import BankTransaction
 from company.models import BankAccount, Company
 from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 from loans.models import LoanInstallment, LoanInstallmentPaymentStatus
-from finance.models_planned_tax_payment import PlannedTaxPayment
+from finance.models_planned_tax_payment import TaxInstallment, TaxInstallmentPaymentStatus
 from payroll.models import EmployeePayroll, PayrollPeriod
 from payroll.services.payment_projection import get_projected_payment_date
 from apps.expenses.models import FixedCostInstallment
@@ -200,46 +200,49 @@ def _proforma_entries(company: Company, date_from: datetime.date, date_to: datet
     return entries
 
 
-def _planned_tax_payment_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
+def _tax_installment_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
     """
-    Unpaid PlannedTaxPayments, by payment_date, rolled forward to today if
-    overdue (same as payroll/fixed costs). Positive amount is an expense
-    (payment to the tax authority), negative is income (refund expected).
-    Description uses the tax type and the linked periods' date range when
-    any are linked, falling back to the payment's own description otherwise.
+    Unpaid/partially paid TaxInstallments, by due_date, rolled forward to
+    today if overdue and the plan's drag_forward_if_unpaid is set (same as
+    payroll/fixed costs). Description uses the tax type and the linked
+    periods' date range when any are linked, falling back to the plan's
+    own description otherwise.
     """
-    payments = (
-        PlannedTaxPayment.objects
-        .filter(company=company, is_paid=False)
-        .select_related("tax_type")
-        .prefetch_related("tax_periods")
+    installments = (
+        TaxInstallment.objects
+        .filter(planned_tax_payment__company=company)
+        .exclude(payment_status=TaxInstallmentPaymentStatus.PAID)
+        .select_related("planned_tax_payment__tax_type")
+        .prefetch_related("planned_tax_payment__tax_periods")
     )
 
     entries = []
-    for payment in payments:
-        raw_amount = payment.amount.amount if payment.amount else Decimal("0.00")
-        if raw_amount == 0:
-            continue
-        effective_date = _roll_forward_to_today(payment.payment_date)
+    for installment in installments:
+        plan = installment.planned_tax_payment
+        effective_date = (
+            _roll_forward_to_today(installment.due_date)
+            if plan.drag_forward_if_unpaid
+            else installment.due_date
+        )
         if not (date_from <= effective_date <= date_to):
             continue
 
-        periods = sorted(payment.tax_periods.all(), key=lambda p: p.date_from)
+        periods = sorted(plan.tax_periods.all(), key=lambda p: p.date_from)
         if periods:
-            description = f"{payment.tax_type} — {periods[0].date_from} a {periods[-1].date_to}"
+            description = f"{plan.tax_type} — {periods[0].date_from} a {periods[-1].date_to}"
         else:
-            description = payment.description
+            description = plan.description
 
         entries.append(
             CalendarEntry(
                 date=effective_date,
-                amount=abs(raw_amount),
-                direction=CalendarDirection.INCOME if payment.is_refund else CalendarDirection.EXPENSE,
+                amount=installment.amount_remaining.amount,
+                direction=CalendarDirection.EXPENSE,
                 category="Taxes",
                 description=description,
                 source_model="finance.PlannedTaxPayment",
-                source_id=payment.pk,
-                admin_url=_admin_change_url("finance.PlannedTaxPayment", payment.pk),
+                source_id=plan.pk,
+                admin_url=_admin_change_url("finance.PlannedTaxPayment", plan.pk),
             )
         )
     return entries
@@ -410,7 +413,7 @@ def build_payment_calendar(company: Company, bank_accounts, date_from: datetime.
         + _purchase_invoice_entries(company, date_from, date_to)
         + _sales_invoice_entries(company, date_from, date_to)
         + _proforma_entries(company, date_from, date_to)
-        + _planned_tax_payment_entries(company, date_from, date_to)
+        + _tax_installment_entries(company, date_from, date_to)
         + FixedCostCalendarSource(company, date_from, date_to).entries()
         + _payroll_salary_entries(company, date_from, date_to)
         + _payroll_ss_entries(company, date_from, date_to)

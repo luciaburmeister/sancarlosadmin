@@ -479,9 +479,23 @@ class PorteSubmitView(APIView):
                 leg_from_zone = machine_link.effective_from_zone
                 leg_to_zone = machine_link.effective_to_zone
             elif links:
-                # Exactly one tracked machine -- no scan required, same as
-                # a single-machine plan always worked.
+                # Exactly one tracked machine -- no scan required (same as a
+                # single-machine plan always worked), but if the app sends
+                # asset_id anyway (it scanned something), validate it really
+                # is this planning's machine -- catches a driver scanning the
+                # wrong physical QR, which silently using links[0] regardless
+                # would otherwise mask.
                 machine_link = links[0]
+                scanned_id = raw.get("asset_id")
+                if scanned_id:
+                    try:
+                        scanned_id = int(scanned_id)
+                    except (TypeError, ValueError):
+                        return JsonResponse({"error": "Máquina inválida."}, status=400)
+                    if scanned_id != machine_link.machine_id:
+                        return JsonResponse(
+                            {"error": "La máquina escaneada no pertenece a este plan."}, status=400,
+                        )
                 if machine_link.status == AssetPlanningMachineStatus.PENDING:
                     return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
                 if machine_link.status == AssetPlanningMachineStatus.DELIVERED:

@@ -365,6 +365,27 @@ class PorteCargaAndMachineTests(PorteTestCase):
         planning.refresh_from_db()
         self.assertEqual(planning.status, "delivered")
 
+    def test_entrega_with_a_matching_asset_id_still_works_for_a_single_machine(self):
+        """asset_id stays optional for one machine, but if the app sends it
+        anyway (it scanned something) and it's the right one, nothing changes."""
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+
+    def test_entrega_rejects_a_mismatched_scan_even_for_a_single_machine(self):
+        """Catches a driver scanning the wrong physical QR -- without this,
+        a single-machine plan would silently deliver its one known machine
+        regardless of what was actually scanned, masking the mistake."""
+        other_machine = Asset.objects.create(
+            company=self.company, asset_type=self.machine_type, name="MAQUINA-WRONG",
+        )
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega", extra={"asset_id": other_machine.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("pertenece", response.json()["error"])
+
     def test_entrega_does_not_change_cuba_status_for_machine_porte(self):
         planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
         self._submit(planning, "recogida")

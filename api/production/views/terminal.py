@@ -7,9 +7,11 @@ Mutations require the target employee's 4-digit work_pin in the request body.
 
 import json
 import unicodedata as _uc
+from collections import defaultdict
 from dataclasses import dataclass
 
 from django.contrib.auth.hashers import check_password
+from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django.db.models import F, JSONField, Value
 from django.db.models.expressions import CombinedExpression
 from django.http import JsonResponse
@@ -27,7 +29,7 @@ from api._serializers import (
 from api._utils import SharedTerminalAPIView, invalid_data_response
 from api.production.serializers import ReorderItemsSerializer
 from company.models import Employee
-from configurator.models import Configuration, ConfigurationStatus
+from configurator.models import Configuration, ConfigurationItem, ConfigurationStatus
 from management.models import ProjectFileStatus
 from production.exceptions import StageHasActiveWorkersError
 from production.models import (
@@ -40,6 +42,17 @@ from production.models import (
 )
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.services.ticket_labels import build_ticket_labels
+
+
+def _bulk_config_item_ids(config_ids: list[int]) -> dict[int, set[int]]:
+    """configuration_id -> {ConfigurationItem id, ...} for every id in *config_ids*,
+    in one query — avoids active_ticket_items() re-deriving this per ticket."""
+    result: dict[int, set[int]] = defaultdict(set)
+    for config_id, item_id in ConfigurationItem.objects.filter(
+        configuration_id__in=config_ids
+    ).values_list("configuration_id", "id"):
+        result[config_id].add(item_id)
+    return result
 
 
 def _sort_entries_by_priority(entries: list[dict], stage_key: str) -> None:
@@ -145,8 +158,25 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
             object_id__in=active_config_ids,
         )
         .select_related("project_file__client")
-        .prefetch_related("items__assigned_employees", "items__component")
+        .prefetch_related(
+            GenericPrefetch(
+                "source_object",
+                [Configuration.objects.select_related("product", "quote__project_file")],
+            ),
+            "items__assigned_employees",
+            "items__component",
+        )
     )
+
+    config_item_ids_by_config = _bulk_config_item_ids(active_config_ids)
+    items_by_ticket: dict[int, list] = {
+        ticket.id: active_ticket_items(
+            ticket,
+            config_item_ids=config_item_ids_by_config.get(ticket.object_id),
+            items=list(ticket.items.all()),
+        )
+        for ticket in tickets
+    }
 
     # IDs of items explicitly assigned to this employee by a manager.
     assigned_item_ids: set[int] = set(
@@ -178,7 +208,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
     # Includes comments from all employees (not just this one) so coworker notes are visible.
     employee_item_ids: set[int] = set()
     for ticket in tickets:
-        for item in active_ticket_items(ticket):
+        for item in items_by_ticket[ticket.id]:
             employee_item_ids.add(item.id)
 
     # Session comments: each entry carries its own timestamp ("at" is null for legacy notes).
@@ -203,7 +233,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
         if config is None:
             continue
 
-        items = active_ticket_items(ticket)
+        items = items_by_ticket[ticket.id]
 
         project_file = ticket.resolved_project_file
 
@@ -545,8 +575,25 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
             object_id__in=active_config_ids,
         )
         .select_related("project_file__client")
-        .prefetch_related("items__component")
+        .prefetch_related(
+            GenericPrefetch(
+                "source_object",
+                [Configuration.objects.select_related("product", "quote__project_file")],
+            ),
+            "items__assigned_employees",
+            "items__component",
+        )
     )
+
+    config_item_ids_by_config = _bulk_config_item_ids(active_config_ids)
+    items_by_ticket: dict[int, list] = {
+        ticket.id: active_ticket_items(
+            ticket,
+            config_item_ids=config_item_ids_by_config.get(ticket.object_id),
+            items=list(ticket.items.all()),
+        )
+        for ticket in tickets
+    }
 
     open_sessions = (
         ProductionItemSession.objects.filter(
@@ -568,7 +615,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
     active_item_ids = [
         item.id
         for ticket in tickets
-        for item in active_ticket_items(ticket)
+        for item in items_by_ticket[ticket.id]
     ]
     comments_index, sessions_index = _build_stage_history_indexes(active_item_ids)
 
@@ -586,7 +633,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
         if config is None:
             continue
 
-        items = active_ticket_items(ticket)
+        items = items_by_ticket[ticket.id]
 
         project_file = ticket.resolved_project_file
 
@@ -722,7 +769,10 @@ def _build_production_hours_results(company) -> list[dict]:
             object_id__in=active_config_ids,
         )
         .select_related("project_file__client")
-        .prefetch_related("items")
+        .prefetch_related(
+            GenericPrefetch("source_object", [Configuration.objects.select_related("product")]),
+            "items",
+        )
     )
 
     config_ids = [t.object_id for t in tickets if t.object_id]
@@ -730,6 +780,7 @@ def _build_production_hours_results(company) -> list[dict]:
         c.id: c
         for c in Configuration.objects.filter(pk__in=config_ids).select_related("quote")
     }
+    config_item_ids_by_config = _bulk_config_item_ids(config_ids)
 
     ticket_by_config: dict[int, ProductionTicket] = {}
     item_ids: list[int] = []
@@ -738,7 +789,11 @@ def _build_production_hours_results(company) -> list[dict]:
             continue
         if ticket.object_id:
             ticket_by_config[ticket.object_id] = ticket
-        for item in active_ticket_items(ticket):
+        for item in active_ticket_items(
+            ticket,
+            config_item_ids=config_item_ids_by_config.get(ticket.object_id),
+            items=list(ticket.items.all()),
+        ):
             item_ids.append(item.id)
 
     sessions = (

@@ -1,10 +1,20 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.test import TestCase
+from django.utils import timezone
 
 from production.models import ProductionItem, ProductionItemSessionStatus
 from production.services.board_activity import build_week_activity
-from production.tests.factories import make_company, make_employee, make_item, make_item_session, make_product, make_ticket
+from production.tests.factories import (
+    make_company,
+    make_employee,
+    make_item,
+    make_item_session,
+    make_product,
+    make_session,
+    make_ticket,
+    resource_for,
+)
 
 STAGE = "corte"
 
@@ -225,6 +235,70 @@ class BuildWeekActivityTest(TestCase):
 
         activity = build_week_activity(self.company, self.range_start, self.range_end)
         self.assertEqual(activity, [])
+
+    def test_active_entry_links_its_planned_session_and_is_not_late_before_planned_end(self):
+        item = self._item("in_progress")
+        resource = resource_for(self.jose)
+        future_end = timezone.now() + timedelta(hours=2)
+        plan = make_session(
+            self.ticket, stage=STAGE,
+            start=future_end - timedelta(hours=1), end=future_end, resources=[resource],
+        )
+        self._session(item, self.jose, datetime(2026, 9, 15, 9, 0, tzinfo=dt_timezone.utc))
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 1)
+        entry = activity[0]
+        self.assertEqual(entry["planned_session_id"], plan.id)
+        self.assertEqual(entry["planned_end"], plan.planned_end.isoformat())
+        self.assertFalse(entry["is_late"])
+
+    def test_active_entry_is_late_once_past_its_planned_end(self):
+        item = self._item("in_progress")
+        resource = resource_for(self.jose)
+        past_end = timezone.now() - timedelta(hours=1)
+        make_session(
+            self.ticket, stage=STAGE,
+            start=past_end - timedelta(hours=1), end=past_end, resources=[resource],
+        )
+        self._session(item, self.jose, datetime(2026, 9, 15, 9, 0, tzinfo=dt_timezone.utc))
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 1)
+        self.assertTrue(activity[0]["is_late"])
+
+    def test_done_entry_is_never_late_even_past_its_planned_end(self):
+        item = self._item("done")
+        resource = resource_for(self.jose)
+        past_end = timezone.now() - timedelta(hours=1)
+        make_session(
+            self.ticket, stage=STAGE,
+            start=past_end - timedelta(hours=1), end=past_end, resources=[resource],
+        )
+        end = datetime(2026, 9, 16, 12, 0, tzinfo=dt_timezone.utc)
+        self._session(
+            item, self.jose, datetime(2026, 9, 16, 9, 0, tzinfo=dt_timezone.utc),
+            end=end, status=ProductionItemSessionStatus.DONE,
+        )
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 1)
+        self.assertFalse(activity[0]["is_late"])
+
+    def test_entry_without_a_plan_is_not_late_and_has_no_planned_session_id(self):
+        item = self._item("in_progress")
+        self._session(item, self.jose, datetime(2026, 9, 15, 9, 0, tzinfo=dt_timezone.utc))
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 1)
+        entry = activity[0]
+        self.assertIsNone(entry["planned_session_id"])
+        self.assertIsNone(entry["planned_end"])
+        self.assertFalse(entry["is_late"])
 
     def test_comments_are_collected(self):
         item = self._item("in_progress")

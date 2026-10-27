@@ -10,10 +10,12 @@ from datetime import datetime, timedelta
 
 from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django.db.models import Q, TextChoices
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from api._serializers import _stage_events
 from production.models import (
+    PlannedProductionSession,
     ProductionItem,
     ProductionItemSession,
     ProductionItemSessionStatus,
@@ -56,11 +58,15 @@ class WeekActivityBuilder:
             return []
 
         groups = self._group_sessions(sessions)
-        tickets = self._load_tickets({ticket_id for ticket_id, _stage in groups})
+        ticket_ids = {ticket_id for ticket_id, _stage in groups}
+        tickets = self._load_tickets(ticket_ids)
+        planned_index = self._load_planned_sessions(ticket_ids)
 
         entries: list[dict] = []
         for (ticket_id, stage), group_sessions in groups.items():
-            entries.extend(self._build_entries(ticket_id, stage, group_sessions, tickets))
+            entries.extend(
+                self._build_entries(ticket_id, stage, group_sessions, tickets, planned_index)
+            )
         return entries
 
     def _relevant_items(self):
@@ -111,6 +117,22 @@ class WeekActivityBuilder:
         return groups
 
     @staticmethod
+    def _load_planned_sessions(ticket_ids: set[int]) -> dict[tuple[int, str], PlannedProductionSession]:
+        """(ticket_id, normalized stage) -> its current plan, if any — lets an
+        activity entry compare real progress against the original estimate
+        (see `is_late`/`planned_session_id` on the built entry). A stage is
+        only ever planned into one slot at a time, so the latest by
+        planned_start wins if, unexpectedly, more than one is found."""
+        index: dict[tuple[int, str], PlannedProductionSession] = {}
+        sessions = PlannedProductionSession.objects.filter(
+            production_ticket_id__in=ticket_ids
+        ).order_by("planned_start")
+        for session in sessions:
+            key = (session.production_ticket_id, unicodedata.normalize("NFC", session.production_stage))
+            index[key] = session
+        return index
+
+    @staticmethod
     def _load_tickets(ticket_ids: set[int]) -> dict[int, ProductionTicket]:
         from configurator.models import Configuration
 
@@ -140,7 +162,9 @@ class WeekActivityBuilder:
                 cluster_end = sess.end_time
         return clusters
 
-    def _build_entries(self, ticket_id: int, stage: str, group_sessions: list, tickets: dict) -> list[dict]:
+    def _build_entries(
+        self, ticket_id: int, stage: str, group_sessions: list, tickets: dict, planned_index: dict,
+    ) -> list[dict]:
         item_statuses: dict[int, str] = {}
         for sess in group_sessions:
             item = sess.production_item
@@ -162,13 +186,19 @@ class WeekActivityBuilder:
             ticket=ticket, config=ticket.source_object, project_file=ticket.resolved_project_file,
         )
 
+        stage_key = (ticket_id, unicodedata.normalize("NFC", stage))
+        planned_session = planned_index.get(stage_key)
+
         return [
-            self._build_cluster_entry(cluster, item_statuses, all_done, ticket_id, stage, labels)
+            self._build_cluster_entry(
+                cluster, item_statuses, all_done, ticket_id, stage, labels, planned_session,
+            )
             for cluster in self._cluster_sessions(group_sessions)
         ]
 
     def _build_cluster_entry(
         self, cluster: list, item_statuses: dict, all_done: bool, ticket_id: int, stage: str, labels,
+        planned_session,
     ) -> dict:
         open_sessions = [s for s in cluster if s.end_time is None]
 
@@ -211,6 +241,12 @@ class WeekActivityBuilder:
 
         item_ids = sorted({s.production_item_id for s in cluster})
 
+        is_late = (
+            planned_session is not None
+            and kind != BoardActivityKind.DONE
+            and planned_session.planned_end < timezone.now()
+        )
+
         return {
             "kind": kind,
             "production_ticket_id": ticket_id,
@@ -224,6 +260,10 @@ class WeekActivityBuilder:
             "active_workers": active_workers,
             "session_comments": comments,
             "session_events": _stage_events(cluster, kind),
+            "planned_session_id": planned_session.id if planned_session else None,
+            "planned_start": planned_session.planned_start.isoformat() if planned_session else None,
+            "planned_end": planned_session.planned_end.isoformat() if planned_session else None,
+            "is_late": is_late,
             "config_id": labels.config_id,
             "config_name": labels.config_name,
             "config_notes": labels.config_notes,

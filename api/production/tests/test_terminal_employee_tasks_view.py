@@ -2,10 +2,13 @@ from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from api.production.views.terminal import _build_task_results
 from company.models import Company, CompanyUser, Employee
 from configurator.models import Configuration, ConfigurationItem, ConfigurationStatus, ProductTemplate
 from production.models import PlannedProductionSession, ProductionItem, ProductionTicket
@@ -138,3 +141,50 @@ class TerminalEmployeeTasksViewPlannedInfoTest(TestCase):
         stages = self._get()
         self.assertEqual(stages[self.item_a.id]["planned_date"], past_day.isoformat())
         self.assertEqual(stages[self.item_a.id]["planned_order"], 1)
+
+
+class TerminalEmployeeTasksViewQueryCountTest(TestCase):
+    """_build_task_results() used to re-derive each ticket's source config,
+    BOM item ids and items from scratch per ticket (several queries each) —
+    the terminal's main perceived slowness. The query count must stay flat
+    as the number of tickets grows, not scale with it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = Company.objects.create(name="Query Count Co")
+        cls.worker = Employee.objects.create(
+            company=cls.company, first_name="Jose", last_name="Murillo",
+            hired_at=date(2020, 1, 1), can_work_on_production=True, is_active=True,
+        )
+        cls.product = ProductTemplate.objects.create(
+            name="Ventana", company=cls.company, production_stages=["corte"],
+        )
+
+    def _add_tickets(self, n):
+        ct = ContentType.objects.get_for_model(Configuration)
+        for _ in range(n):
+            config = Configuration.objects.create(
+                company=self.company, product=self.product, status=ConfigurationStatus.CONVERTED,
+            )
+            ConfigurationItem.objects.create(configuration=config, unit_price=0)
+            ticket = ProductionTicket.objects.create(
+                company=self.company, content_type=ct, object_id=config.id,
+            )
+            item = ProductionItem.objects.create(
+                ticket=ticket, company=self.company,
+                planning={"corte": {"status": "pending"}},
+            )
+            item.assigned_employees.add(self.worker)
+
+    def test_query_count_does_not_scale_with_ticket_count(self):
+        self._add_tickets(5)
+        with CaptureQueriesContext(connection) as small:
+            results_small = _build_task_results(self.worker, self.company)
+
+        self._add_tickets(15)
+        with CaptureQueriesContext(connection) as big:
+            results_big = _build_task_results(self.worker, self.company)
+
+        self.assertEqual(len(results_small), 5)
+        self.assertEqual(len(results_big), 20)
+        self.assertLessEqual(len(big.captured_queries), len(small.captured_queries) + 2)

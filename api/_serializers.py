@@ -369,16 +369,19 @@ def _sort_production_items_stable(items):
     return sorted(items, key=sort_key)
 
 
-def active_ticket_items(ticket, config_item_ids: set[int] | None = None):
+def active_ticket_items(ticket, config_item_ids: set[int] | None = None, items=None):
     """Return ProductionItems that still belong to the current configuration BOM.
 
     If the ticket source is not a Configuration (or cannot be resolved), return all
     ticket items to preserve backward-compatible behavior.
 
-    Pass *config_item_ids* when you already loaded BOM ids for the source configuration
-    (avoids one query per ticket in bulk endpoints).
+    Pass *config_item_ids* when you already loaded BOM ids for the source configuration,
+    and *items* when the ticket's items (with assigned_employees) are already prefetched
+    on the ticket instance (e.g. `ticket.items.all()` after an outer
+    `.prefetch_related("items__assigned_employees")`) — both avoid one query per ticket
+    in bulk endpoints.
     """
-    items = list(
+    items = list(items) if items is not None else list(
         ticket.items.prefetch_related("assigned_employees").order_by("id")
     )
     source = getattr(ticket, "source_object", None)

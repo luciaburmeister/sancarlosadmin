@@ -170,7 +170,6 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "project_file",
         "asset",
         "reserved_asset",
-        "machine",
         "origin",
         "destination",
         "assigned_to",
@@ -179,6 +178,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "moved_employees",
     ]
     readonly_fields = [
+        "machine",  # legacy single-machine mirror -- use the Planning Machines table below to add/edit machines.
         "assignment_origin", "computed_end_time_display",
         "abandoned_stage", "abandoned_at", "abandoned_reason", "abandoned_by",
     ]

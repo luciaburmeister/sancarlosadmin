@@ -1421,7 +1421,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         Asset, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="machine_plannings", verbose_name=_("Machine"),
         limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
-        help_text=_("Own-machine transport only — the machine being carried, separate from the cuba used to transport it."),
+        help_text=_(
+            "Own-machine transport only — the first/primary machine, kept in sync automatically. "
+            "To add or edit machines, use the Planning Machines table below, not this field."
+        ),
     )
     origin = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_origin", verbose_name=_("From Zone"))
     destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))

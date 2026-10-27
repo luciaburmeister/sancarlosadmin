@@ -351,7 +351,9 @@ class PorteSubmitView(APIView):
 
     def post(self, request, planning_id):
         from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
-        from assets.models import AssetPlanning, AssetTypeCategory, PlanningType
+        from assets.models import (
+            AssetPlanning, AssetPlanningMachine, AssetPlanningMachineStatus, AssetTypeCategory, PlanningType,
+        )
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
@@ -385,6 +387,13 @@ class PorteSubmitView(APIView):
         transaction_type = PORTE_ACTION_TRANSACTION_TYPES[action]
 
         tx_asset = planning.asset or planning.transport_asset
+        # Default route for this action's transaction -- the planning's own
+        # origin/destination, exactly as before. A machine-porte CARGA/ENTREGA
+        # overrides these to that specific machine's own route below, when it
+        # has one set.
+        machine_link = None
+        leg_from_zone = planning.origin
+        leg_to_zone = planning.destination
         if action == PorteAction.RECOGIDA:
             asset_id_from_scan = raw.get("asset_id")
             if asset_id_from_scan:
@@ -408,29 +417,80 @@ class PorteSubmitView(APIView):
                 )
             except (Asset.DoesNotExist, ValueError):
                 return JsonResponse({"error": "El activo escaneado no es una máquina de tu empresa."}, status=400)
-            if planning.machine_id and scanned_machine.id != planning.machine_id:
-                return JsonResponse(
-                    {"error": "La máquina escaneada no coincide con la asignada al plan."},
-                    status=400,
+            existing_links = list(planning.planning_machines.all())
+            machine_link = next((link for link in existing_links if link.machine_id == scanned_machine.id), None)
+            if machine_link is None:
+                if any(link.assigned_by_dispatch for link in existing_links):
+                    # Dispatch deliberately set up specific machines for this
+                    # plan -- scanning one that isn't among them is the same
+                    # rejection a single-machine plan always had. A machine
+                    # the app itself auto-added from an earlier open scan
+                    # doesn't close the list this way -- more can still show
+                    # up organically.
+                    return JsonResponse(
+                        {"error": "La máquina escaneada no coincide con la asignada al plan."},
+                        status=400,
+                    )
+                if (
+                    not existing_links and planning.machine_id
+                    and scanned_machine.id != planning.machine_id
+                ):
+                    # Legacy single-machine dispatch assignment with no
+                    # planning_machines row yet (e.g. set directly on the
+                    # planning before this feature existed) -- same check.
+                    return JsonResponse(
+                        {"error": "La máquina escaneada no coincide con la asignada al plan."},
+                        status=400,
+                    )
+                machine_link = planning.planning_machines.create(
+                    machine=scanned_machine, sequence=planning.planning_machines.count() + 1,
+                    assigned_by_dispatch=False,
                 )
+            elif machine_link.status != AssetPlanningMachineStatus.PENDING:
+                return JsonResponse({"success": True, "message": "Máquina ya cargada", "already_done": True})
+            leg_from_zone = machine_link.effective_from_zone
+            leg_to_zone = machine_link.effective_to_zone
+            # Legacy single-machine mirror, kept in sync for anything still
+            # reading AssetPlanning.machine directly (admin list/search etc.).
             planning.machine = scanned_machine
             planning.save(update_fields=["machine"])
         elif action == PorteAction.ENTREGA and is_machine_porte:
-            if not planning.transactions.filter(
-                transaction_type=TransactionTypeChoices.PORTE_LOAD,
-            ).exists():
+            links = list(planning.planning_machines.all())
+            if len(links) > 1:
+                scanned_id = raw.get("asset_id")
+                if not scanned_id:
+                    return JsonResponse(
+                        {"error": "Debes escanear la máquina que vas a entregar."}, status=400,
+                    )
+                try:
+                    scanned_id = int(scanned_id)
+                except (TypeError, ValueError):
+                    return JsonResponse({"error": "Máquina inválida."}, status=400)
+                machine_link = next((link for link in links if link.machine_id == scanned_id), None)
+                if machine_link is None:
+                    return JsonResponse(
+                        {"error": "La máquina escaneada no pertenece a este plan."}, status=400,
+                    )
+            else:
+                # Single machine (or legacy data with no tracked rows yet):
+                # no scan required, same as before.
+                machine_link = links[0] if links else None
+            if machine_link is None or machine_link.status == AssetPlanningMachineStatus.PENDING:
                 return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
-            if planning.machine_id:
-                tx_asset = planning.machine
+            if machine_link.status == AssetPlanningMachineStatus.DELIVERED:
+                return JsonResponse({"success": True, "message": "Máquina ya entregada", "already_done": True})
+            tx_asset = machine_link.machine
+            leg_from_zone = machine_link.effective_from_zone
+            leg_to_zone = machine_link.effective_to_zone
 
-        destination, origin = planning.destination, planning.origin
         zone_project_file = (
-            (destination.project_file if destination else None)
-            or (origin.project_file if origin else None)
+            (leg_to_zone.project_file if leg_to_zone else None)
+            or (leg_from_zone.project_file if leg_from_zone else None)
         )
+        action_machine_id = machine_link.machine_id if machine_link is not None else planning.machine_id
         transaction = AssetTransaction.objects.create(
             asset=tx_asset, company=planning.company,
-            from_zone=planning.origin, to_zone=planning.destination,
+            from_zone=leg_from_zone, to_zone=leg_to_zone,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
             project_file=AssetTransaction.resolve_project_file(planning, zone_project_file),
             planning=planning, reference_number=reference_number,
@@ -442,7 +502,7 @@ class PorteSubmitView(APIView):
                 PorteTransactionDataKey.PLANNING_ID: planning_id,
                 PorteTransactionDataKey.LOAD_DESCRIPTION: planning.load_description,
                 PorteTransactionDataKey.CLIENT_ID: client_id,
-                PorteTransactionDataKey.MACHINE_ID: planning.machine_id,
+                PorteTransactionDataKey.MACHINE_ID: action_machine_id,
                 PorteTransactionDataKey.GOODS_TYPE: goods_type,
                 PorteTransactionDataKey.TONNES_TRANSPORTED: tonnes_transported,
                 PorteTransactionDataKey.PACKAGE_COUNT: package_count,
@@ -452,8 +512,28 @@ class PorteSubmitView(APIView):
             save_image_to_field(transaction, "firma_image", firma_b64, f"firma_porte_{planning_id}_{action}.png")
         if imagen_b64:
             save_image_to_field(transaction, "imagen", imagen_b64, f"porte_{planning_id}_{action}.jpg")
+        if machine_link is not None:
+            if action == PorteAction.CARGA:
+                machine_link.status = AssetPlanningMachineStatus.LOADED
+                machine_link.loaded_at = transaction.date
+                machine_link.load_transaction = transaction
+                machine_link.save(update_fields=["status", "loaded_at", "load_transaction"])
+            elif action == PorteAction.ENTREGA:
+                machine_link.status = AssetPlanningMachineStatus.DELIVERED
+                machine_link.delivered_at = transaction.date
+                machine_link.delivery_transaction = transaction
+                machine_link.save(update_fields=["status", "delivered_at", "delivery_transaction"])
         if action == PorteAction.ENTREGA:
-            planning.status = PlanningStatus.DELIVERED
+            if is_machine_porte:
+                # Several machines: the planning only finishes once every one
+                # of them has been delivered -- it must NOT disappear from
+                # the driver's list while any machine is still pending/loaded.
+                all_delivered = not planning.planning_machines.exclude(
+                    status=AssetPlanningMachineStatus.DELIVERED,
+                ).exists()
+            else:
+                all_delivered = True
+            planning.status = PlanningStatus.DELIVERED if all_delivered else PlanningStatus.IN_TRANSIT
         elif planning.status != PlanningStatus.DELIVERED:
             planning.status = PlanningStatus.IN_TRANSIT
         planning.save()

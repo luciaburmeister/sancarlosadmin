@@ -19,7 +19,7 @@ from django.contrib import messages
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
 from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
-from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
+from assets.models import Asset, AssetPlanning, AssetPlanningMachine, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
 from assets.views.asset_transaction_wizard import AssetTransactionFromPlanningWizardView
 
 
@@ -57,6 +57,19 @@ class AssetPlanningStopInline(TabularInline):
     extra = 1
     fields = ("sequence", "zone", "notes")
     autocomplete_fields = ["zone"]
+    ordering = ["sequence"]
+
+
+class AssetPlanningMachineInline(TabularInline):
+    """One row per machine an own-machine-transport planning carries. Leave
+    from_zone/to_zone blank to use the planning's own origin/destination --
+    only set them when this specific machine needs a different route."""
+
+    model = AssetPlanningMachine
+    extra = 1
+    fields = ("sequence", "machine", "from_zone", "to_zone", "status", "loaded_at", "delivered_at")
+    readonly_fields = ("status", "loaded_at", "delivered_at")
+    autocomplete_fields = ["machine", "from_zone", "to_zone"]
     ordering = ["sequence"]
 
 
@@ -176,7 +189,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "assigned_to", "transport_asset", "transport_asset__asset_type",
         "company",
     ]
-    inlines = [AssetPlanningStopInline, AssetPlanningTransactionInline]
+    inlines = [AssetPlanningStopInline, AssetPlanningMachineInline, AssetPlanningTransactionInline]
 
     def get_changelist(self, request, **kwargs):
         return AssetPlanningChangeList

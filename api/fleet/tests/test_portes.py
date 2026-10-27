@@ -538,28 +538,26 @@ class PorteMultiMachineTests(PorteTestCase):
         other_entry = next(m for m in data["machines"] if m["id"] == self.other_machine.id)
         self.assertEqual(other_entry["to_zone_name"], "Otro Destino")
 
-    def test_checklist_has_one_carga_and_one_entrega_step_per_machine(self):
+    def test_checklist_stays_flat_regardless_of_machine_count(self):
+        """No "do machine 1 then machine 2" ordering is implied anywhere --
+        the checklist is the same 3 generic steps whether there's one
+        machine or several; per-machine status lives in `machines` instead
+        (see test_serializer_exposes_machine_count_and_list), which the app
+        reads per scan, not by working down an ordered list."""
         planning = self._make_planning(service_type="porte_maquina")
         planning.planning_machines.create(machine=self.machine, sequence=1)
         planning.planning_machines.create(machine=self.other_machine, sequence=2)
-        checklist = planning.porte_checklist()
-        keys = [step["key"] for step in checklist]
-        self.assertIn(f"carga_machine_{self.machine.id}", keys)
-        self.assertIn(f"carga_machine_{self.other_machine.id}", keys)
-        self.assertIn(f"entrega_machine_{self.machine.id}", keys)
-        self.assertIn(f"entrega_machine_{self.other_machine.id}", keys)
-        # Not the flat single carga/entrega shape once there's more than one.
-        self.assertNotIn("carga", keys)
-        self.assertNotIn("entrega", keys)
+        keys = [step["key"] for step in planning.porte_checklist()]
+        self.assertEqual(keys, ["recoger", "carga", "entrega"])
 
-    def test_load_done_is_true_only_once_every_machine_has_started(self):
+    def test_load_done_reflects_any_machine_having_started(self):
+        """Matches the single-machine semantics exactly -- "loading has
+        started" for this planning, not "every machine is fully loaded"
+        (that's what each machine's own `status` in `machines` is for)."""
         planning = self._make_planning(service_type="porte_maquina")
         planning.planning_machines.create(machine=self.machine, sequence=1)
         planning.planning_machines.create(machine=self.other_machine, sequence=2)
         self.assertFalse(planning.porte_progress_flags()["load_done"])
         self._submit(planning, "carga", extra={"asset_id": self.machine.id})
-        planning.refresh_from_db()
-        self.assertFalse(planning.porte_progress_flags()["load_done"])
-        self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
         planning.refresh_from_db()
         self.assertTrue(planning.porte_progress_flags()["load_done"])

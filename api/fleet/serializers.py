@@ -100,7 +100,6 @@ class ChecklistStepSerializer(serializers.Serializer):
     key = serializers.CharField()
     label = serializers.CharField()
     status = serializers.CharField()
-    machine_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
 
 class PorteMachineSerializer(serializers.Serializer):

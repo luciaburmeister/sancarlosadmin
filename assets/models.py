@@ -1855,63 +1855,32 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     def porte_checklist(self):
         if self.planning_type != PlanningType.PORTE:
             return []
+        # Deliberately flat/order-agnostic, same 3 steps regardless of how
+        # many machines this planning has -- there's no "finish machine 1
+        # before starting machine 2" requirement, so the checklist doesn't
+        # pretend there is one either. Per-machine status (which is what
+        # actually varies) lives in PortePlanningSerializer's `machines`
+        # list instead, which the app reads to know what a given scanned
+        # machine still needs -- recoger/carga/entrega are resolved per scan,
+        # not by working down an ordered list.
         is_machine = self.service_type == SERVICE_TYPE_MAQUINA_PROPIA
         pickup_done = self.driver_claimed_cuba or self.transactions.filter(
             transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
         ).exists()
-        origin_name = self.origin.name if self.origin_id else "el almacén"
-        destination_name = self.destination.name if self.destination_id else "destino"
-        steps = [self._checklist_step(ChecklistStepKey.RECOGER, "Recoger cuba vacía", pickup_done)]
-
-        # Several machines on this planning -> one scan step and one delivery
-        # step PER machine, instead of the flat 3-step shape below, since
-        # each one is tracked (and can be routed) individually.
-        machine_links = list(self.planning_machines.select_related("machine", "to_zone").all()) if is_machine else []
-        if is_machine and len(machine_links) > 1:
-            n = len(machine_links)
-            for i, link in enumerate(machine_links, start=1):
-                name = link.machine.name if link.machine_id else f"máquina {i}"
-                steps.append({
-                    "key": f"carga_machine_{link.machine_id}",
-                    "machine_id": link.machine_id,
-                    "label": f"Escanear {name} ({i}/{n})",
-                    "status": ChecklistStepStatus.DONE if link.status != AssetPlanningMachineStatus.PENDING else ChecklistStepStatus.PENDING,
-                })
-            for i, link in enumerate(machine_links, start=1):
-                name = link.machine.name if link.machine_id else f"máquina {i}"
-                dest_zone = link.effective_to_zone
-                dest_name = dest_zone.name if dest_zone else destination_name
-                steps.append({
-                    "key": f"entrega_machine_{link.machine_id}",
-                    "machine_id": link.machine_id,
-                    "label": f"Entregar {name} en {dest_name} ({i}/{n})",
-                    "status": ChecklistStepStatus.DONE if link.status == AssetPlanningMachineStatus.DELIVERED else ChecklistStepStatus.PENDING,
-                })
-            return steps
-
-        # 0 or 1 machine (or a non-machine porte) -- identical to the
-        # original flat shape, byte-for-byte.
         load_done = self.transactions.filter(transaction_type=TransactionTypeChoices.PORTE_LOAD).exists()
         dropoff_done = self.transactions.filter(transaction_type=TransactionTypeChoices.PORTE_DELIVERY).exists()
+        origin_name = self.origin.name if self.origin_id else "el almacén"
+        destination_name = self.destination.name if self.destination_id else "destino"
         carga_label = "Escanear máquina" if is_machine else f"Cargar material en {origin_name}"
-        steps.append(self._checklist_step(ChecklistStepKey.CARGA, carga_label, load_done))
-        steps.append(self._checklist_step(ChecklistStepKey.ENTREGA, f"Entrega en {destination_name}", dropoff_done))
-        return steps
+        return [
+            self._checklist_step(ChecklistStepKey.RECOGER, "Recoger cuba vacía", pickup_done),
+            self._checklist_step(ChecklistStepKey.CARGA, carga_label, load_done),
+            self._checklist_step(ChecklistStepKey.ENTREGA, f"Entrega en {destination_name}", dropoff_done),
+        ]
 
     def porte_progress_flags(self):
         by_key = {step["key"]: step["status"] for step in self.porte_checklist()}
         done = ChecklistStepStatus.DONE
-        if self.service_type == SERVICE_TYPE_MAQUINA_PROPIA:
-            machine_count = self.planning_machines.count()
-            if machine_count > 1:
-                # No single "carga"/"entrega" key exists in the per-machine
-                # checklist shape above -- load_done means every machine has
-                # at least started (not still pending).
-                load_done = not self.planning_machines.filter(status=AssetPlanningMachineStatus.PENDING).exists()
-                return {
-                    "pickup_done": by_key.get(ChecklistStepKey.RECOGER) == done,
-                    "load_done": load_done,
-                }
         return {
             "pickup_done": by_key.get(ChecklistStepKey.RECOGER) == done,
             "load_done": by_key.get(ChecklistStepKey.CARGA) == done,

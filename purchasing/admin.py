@@ -36,7 +36,7 @@ from .models import (
 from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
-from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView, PostPurchaseOrderMessageView, PurchaseOrderPdfView, PurchaseOrderPdfDownloadView
+from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, BulkPOMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView, PostPurchaseOrderMessageView, PurchaseOrderPdfView, PurchaseOrderPdfDownloadView
 
 class PurchaseOrderItemInline(StackedInline):
     model = PurchaseOrderItem
@@ -261,6 +261,8 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     
     inlines = [PurchaseOrderItemInline, PurchaseOrderMessageInline]
     change_form_outer_after_template = "admin/purchasing/purchaseorder/message_form.html"
+
+    actions = ["match_selected_pos_to_invoice"]
 
     conditional_fields = {
         "project_file": "typeof po_type === 'undefined' || po_type == 'PROJECT'",
@@ -614,6 +616,28 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     def match_invoice_detail_action(self, request, object_id: int):
         return redirect(reverse("admin:purchasing_purchaseorder_match_invoice", args=[object_id]))
 
+    @admin.action(description=_("Match selected Purchase Orders to an invoice"))
+    def match_selected_pos_to_invoice(self, request, queryset):
+        matchable_statuses = [PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.CLOSED]
+        ids = list(queryset.filter(status__in=matchable_statuses).values_list("id", flat=True))
+        skipped = queryset.exclude(status__in=matchable_statuses).count()
+        if not ids:
+            self.message_user(
+                request,
+                _("Select at least one approved or closed purchase order to match."),
+                level="error",
+            )
+            return
+        if skipped:
+            self.message_user(
+                request,
+                _("%(count)d selected purchase order(s) were skipped (must be approved or closed).")
+                % {"count": skipped},
+                level="warning",
+            )
+        url = reverse("admin:purchasing_purchaseorder_bulk_match_invoice") + "?ids=" + ",".join(str(i) for i in ids)
+        return redirect(url)
+
     @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id: int):
         return redirect(reverse("admin:purchasing_purchaseorder_pdf", args=[object_id]))
@@ -652,6 +676,11 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 "<int:po_id>/match-invoice/",
                 self.admin_site.admin_view(POMatchInvoiceView.as_view(model_admin=self)),
                 name="purchasing_purchaseorder_match_invoice",
+            ),
+            path(
+                "match-invoice/bulk/",
+                self.admin_site.admin_view(BulkPOMatchInvoiceView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_bulk_match_invoice",
             ),
             path(
                 "<int:po_id>/ai-match-invoice/",

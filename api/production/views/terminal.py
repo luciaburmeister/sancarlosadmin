@@ -15,6 +15,7 @@ from django.db.models.expressions import CombinedExpression
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from api._serializers import (
     active_ticket_items,
@@ -248,6 +249,11 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     "is_assigned": is_assigned,
                     "priority": item.priority,
                     "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
+                    StagesToSessionsService.RELEASED_TO_ASSIGNED: (
+                        bool(raw.get(StagesToSessionsService.RELEASED_TO_ASSIGNED))
+                        if isinstance(raw, dict)
+                        else False
+                    ),
                 })
 
         pairs.sort(key=lambda p: p["sort"])
@@ -312,6 +318,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     ),
                     "priority": stage_p["priority"],
                     "pause_reason": stage_p["pause_reason"],
+                    StagesToSessionsService.RELEASED_TO_ASSIGNED: stage_p[StagesToSessionsService.RELEASED_TO_ASSIGNED],
                 },
             })
 
@@ -636,16 +643,21 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                         "priority": item.priority,
                         "billing_pending": fully_invoiced and status != "done",
                         "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
+                        StagesToSessionsService.RELEASED_TO_ASSIGNED: bool(
+                            raw.get(StagesToSessionsService.RELEASED_TO_ASSIGNED)
+                        ) if isinstance(raw, dict) else False,
                     },
                 }
 
+                released = entry["stage"][StagesToSessionsService.RELEASED_TO_ASSIGNED]
                 if status == "done":
                     done.append(entry)
+                elif status == "in_progress" and workers:
+                    active.append(entry)
+                elif status == "in_progress" and released and assigned_emps:
+                    assigned.append(entry)
                 elif status == "in_progress":
-                    if workers:
-                        active.append(entry)
-                    else:
-                        paused.append(entry)
+                    paused.append(entry)
                 elif assigned_emps:
                     assigned.append(entry)
                 else:
@@ -991,6 +1003,36 @@ class SupervisorStartEmployeeStageView(SharedTerminalAPIView):
                 status=400,
             )
         return JsonResponse({"success": True, "count": count})
+
+
+class SupervisorReleasePausedStageView(SharedTerminalAPIView):
+    def post(self, request):
+        body = json.loads(request.body or b"{}")
+        supervisor_id = body.get("supervisor_id")
+        item_id = body.get("item_id")
+        stage_name = body.get("stage_name", "")
+
+        try:
+            Employee.objects.get(
+                id=supervisor_id,
+                company=self.company,
+                is_production_supervisor=True,
+                is_active=True,
+            )
+        except Employee.DoesNotExist:
+            return JsonResponse({"error": _("Invalid supervisor.")}, status=403)
+
+        item = get_object_or_404(ProductionItem, id=item_id, company=self.company)
+        stage_name_n = _uc.normalize("NFC", stage_name)
+        try:
+            StagesToSessionsService.release_paused_to_assigned(
+                stage_name=stage_name_n,
+                item=item,
+            )
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
+        return JsonResponse({"success": True})
 
 
 # ─── Supervisor: close a stage with worker time attribution ───────────────────

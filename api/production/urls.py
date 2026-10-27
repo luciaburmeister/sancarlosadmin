@@ -118,6 +118,11 @@ urlpatterns = [
         name="terminal_supervisor_start_employee_stage",
     ),
     path(
+        "production/supervisor/release-paused-stage/",
+        terminal.SupervisorReleasePausedStageView.as_view(),
+        name="terminal_supervisor_release_paused_stage",
+    ),
+    path(
         "production/supervisor/finish-stage/",
         terminal.SupervisorFinishStageView.as_view(),
         name="terminal_supervisor_finish_stage",

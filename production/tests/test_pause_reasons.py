@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from production.models import ProductionItemStatus
+from production.models import ProductionItemSession, ProductionItemStatus
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.tests.factories import make_company, make_employee, make_item, make_product, make_ticket
 
@@ -115,6 +115,51 @@ class PauseReasonsTest(TestCase):
         self._start(self.maria)
 
         self.assertNotIn("pause_reason", self._stage_info())
+
+    def test_release_paused_keeps_status_and_pause_reason(self):
+        self._start(self.jose)
+        StagesToSessionsService.leave_activity(
+            stage_name=self.STAGE,
+            items=[self.item],
+            employee=self.jose,
+            pause_reason=self.REASON,
+        )
+        sessions_before = ProductionItemSession.objects.filter(production_item=self.item).count()
+
+        StagesToSessionsService.release_paused_to_assigned(
+            stage_name=self.STAGE,
+            item=self.item,
+        )
+
+        info = self._stage_info()
+        self.assertEqual(info["status"], ProductionItemStatus.IN_PROGRESS)
+        self.assertEqual(info["pause_reason"], self.REASON)
+        self.assertTrue(info[StagesToSessionsService.RELEASED_TO_ASSIGNED])
+        self.assertEqual(
+            ProductionItemSession.objects.filter(production_item=self.item).count(),
+            sessions_before,
+        )
+        self.assertFalse(
+            ProductionItemSession.objects.filter(
+                production_item=self.item, end_time__isnull=True
+            ).exists()
+        )
+
+        self._start(self.jose)
+        started = self._stage_info()
+        self.assertEqual(started["status"], ProductionItemStatus.IN_PROGRESS)
+        self.assertNotIn(StagesToSessionsService.RELEASED_TO_ASSIGNED, started)
+
+    def test_release_rejected_while_someone_is_active(self):
+        self._start(self.jose)
+
+        with self.assertRaises(ValidationError):
+            StagesToSessionsService.release_paused_to_assigned(
+                stage_name=self.STAGE,
+                item=self.item,
+            )
+
+        self.assertEqual(self._stage_info()["status"], ProductionItemStatus.IN_PROGRESS)
 
     def test_finish_clears_pause_reason(self):
         self.item.planning = {

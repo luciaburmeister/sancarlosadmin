@@ -20,6 +20,12 @@ import unicodedata
 
 
 class StagesToSessionsService:
+    RELEASED_TO_ASSIGNED = "released_to_assigned"
+
+    @classmethod
+    def _clear_release_flag(cls, stage_info: dict) -> None:
+        stage_info.pop(cls.RELEASED_TO_ASSIGNED, None)
+
     @classmethod
     def _ensure_worker_is_free(cls, employee: Employee) -> None:
         """A worker can only have one active session at a time globally."""
@@ -144,10 +150,13 @@ class StagesToSessionsService:
                 stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
                 stage_info["completed_at"] = None
                 stage_info.pop("pause_reason", None)
+                cls._clear_release_flag(stage_info)
                 cls._save_planning(item, stage_name, stage_info)
-            elif stage_info.pop("pause_reason", None) is not None:
-                # Resuming a paused stage clears its pause reason.
-                cls._save_planning(item, stage_name, stage_info)
+            else:
+                had_pause_reason = stage_info.pop("pause_reason", None) is not None
+                had_release = stage_info.pop(cls.RELEASED_TO_ASSIGNED, None) is not None
+                if had_pause_reason or had_release:
+                    cls._save_planning(item, stage_name, stage_info)
 
             ProductionItemSession.objects.create(
                 production_item=item,
@@ -199,6 +208,7 @@ class StagesToSessionsService:
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = None
             stage_info.pop("pause_reason", None)
+            cls._clear_release_flag(stage_info)
             cls._save_planning(item, stage_name, stage_info)
 
             ProductionItemSession.objects.create(
@@ -414,8 +424,9 @@ class StagesToSessionsService:
             if cls._stage_has_open_session(item, stage_name):
                 raise ValidationError(_("Another worker already has an active session on this stage. Wait for them to pause first."))
 
-            if stage_info.pop("pause_reason", None) is not None:
-                # Resuming a paused stage clears its pause reason.
+            had_pause_reason = stage_info.pop("pause_reason", None) is not None
+            had_release = stage_info.pop(cls.RELEASED_TO_ASSIGNED, None) is not None
+            if had_pause_reason or had_release:
                 cls._save_planning(item, stage_name, stage_info)
 
             ProductionItemSession.objects.create(
@@ -474,6 +485,21 @@ class StagesToSessionsService:
         if count == 0:
             raise ValidationError(_("No tienes una sesión activa en esta etapa."))
         return count
+
+    @classmethod
+    def release_paused_to_assigned(cls, *, stage_name: str, item: ProductionItem) -> None:
+        """Keep a paused stage in progress and flag it for the assigned list."""
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
+        if current_stage != stage_name or stage_info is None:
+            raise ValidationError(_("This stage cannot be returned to assigned."))
+        status = stage_info.get("status") or ProductionItemStatus.PENDING
+        if status != ProductionItemStatus.IN_PROGRESS:
+            raise ValidationError(_("Only a paused stage can be released."))
+        if cls._stage_has_open_session(item, stage_name):
+            raise ValidationError(_("This stage still has an active employee."))
+        stage_info[cls.RELEASED_TO_ASSIGNED] = True
+        cls._save_planning(item, stage_name, stage_info)
 
     @classmethod
     def end_session(

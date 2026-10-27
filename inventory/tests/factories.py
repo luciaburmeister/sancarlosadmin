@@ -1,10 +1,10 @@
-"""Shared inventory test fixtures: items with stock, accepted quote lines, deliveries."""
+"""Shared inventory test fixtures: items with stock, accepted quote lines, deliveries, metadata schemas."""
 from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
 
-from inventory.choices import ItemType, MovementType
-from inventory.models import InventoryItem, ItemTransaction
+from inventory.choices import ItemSchemaKind, ItemType, MovementType
+from inventory.models import InventoryItem, ItemSchema, ItemSchemaField, ItemTransaction
 from invoices.services.delivery_order_service import DeliveryOrderService
 from sales.models import Quote, QuoteInventoryItem, QuoteStatus
 from sales.services.delivery_order_fulfillment_service import DeliveryOrderFulfillmentService
@@ -66,3 +66,17 @@ def deliver(*, quote_line, project_file, quantity=None):
     )
     DeliveryOrderFulfillmentService.dispatch(do)
     return do
+
+
+def make_item_schema(*, company, name, kind=ItemSchemaKind.PRODUCT, includes=(), fields=()):
+    """Create an ItemSchema with ``fields`` (dicts of ItemSchemaField kwargs) and ``includes`` blocks."""
+    schema = ItemSchema.objects.create(company=company, name=name, kind=kind)
+    if includes:
+        schema.includes.set(includes)
+    for order, spec in enumerate(fields):
+        make_schema_field(schema=schema, order=order, **spec)
+    return schema
+
+
+def make_schema_field(*, schema, key, type="text", label=None, **kwargs):
+    return ItemSchemaField.objects.create(schema=schema, key=key, type=type, label=label or key, **kwargs)

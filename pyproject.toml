@@ -58,6 +58,7 @@ dependencies = [
     "djangoql (>=0.19.1,<0.20.0)",
     "psycopg-pool (>=3.2,<4.0)",
     "sepaxml[validation] (>=2.7.0,<3.0.0)",
+    "jsonschema (>=4.23,<5.0)",
 ]
 
 

@@ -4,6 +4,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from unfold.widgets import (
+    UnfoldBooleanSwitchWidget,
     UnfoldAdminSelect2Widget,
     UnfoldAdminDateWidget,
     UnfoldAdminTextareaWidget,
@@ -11,11 +12,63 @@ from unfold.widgets import (
     UnfoldAdminTextInputWidget,
 )
 
+from core.forms.dynamic_fields import DynamicFieldBuilder
 from materials.models import Provider
 from invoices.models import Invoice
 from purchasing.models import PurchaseOrderReceiptItem
 from .models import ItemIdentityCode, Warehouse
 from .services.bulk_stock import build_plan
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item metadata (fields declared by the item's ItemSchema)
+# ─────────────────────────────────────────────────────────────────────────────
+
+METADATA_FIELD_PREFIX = "meta__"
+
+_metadata_field_builder = DynamicFieldBuilder(text_max_length=500, boolean_widget=UnfoldBooleanSwitchWidget)
+
+
+def build_item_metadata_form_fields(schema):
+    """One form field per effective field of ``schema``, keyed with the prefix.
+
+    Each field carries ``metadata_source`` (the schema or block defining it)
+    so the admin can group them.
+    """
+    fields = {}
+    for spec in schema.effective_fields():
+        field = _metadata_field_builder.build(
+            field_type=spec.type,
+            label=spec.display_label,
+            required=spec.required,
+            options=spec.options,
+            min_value=spec.min_value,
+            max_value=spec.max_value,
+            help_text=spec.help_text,
+        )
+        field.metadata_source = spec.source
+        fields[f"{METADATA_FIELD_PREFIX}{spec.key}"] = field
+    return fields
+
+
+def metadata_from_cleaned_data(cleaned_data):
+    """({key: value} to set, {keys to drop}) from the prefixed form values.
+
+    Empty values are dropped rather than stored as null/"" so an optional
+    number left blank does not fail the schema's type check.
+    """
+    values, empty = {}, set()
+    for name, value in cleaned_data.items():
+        if not name.startswith(METADATA_FIELD_PREFIX):
+            continue
+        key = name[len(METADATA_FIELD_PREFIX):]
+        if value in (None, "", []):
+            empty.add(key)
+            continue
+        if isinstance(value, (datetime.date, datetime.datetime)):
+            value = value.isoformat()
+        values[key] = value
+    return values, empty
 
 
 class _BaseMovementForm(forms.Form):

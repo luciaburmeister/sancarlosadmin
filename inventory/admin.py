@@ -1,12 +1,15 @@
 from decimal import Decimal
 
+import json
+
 from django import forms
 from django.contrib import admin, messages
-from django.db import transaction
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from django.db import models, transaction
 from django.db.models import Sum
 from django.contrib.contenttypes.models import ContentType
 from django.utils.formats import date_format
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.timezone import localtime
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
@@ -15,7 +18,7 @@ from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from unfold.decorators import action
 from unfold.enums import ActionVariant
-from unfold.widgets import UnfoldAdminSelect2Widget
+from unfold.widgets import UnfoldAdminSelect2Widget, UnfoldAdminTextareaWidget
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from import_export.admin import ImportExportModelAdmin
 from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
@@ -45,7 +48,11 @@ from .models import (
     ItemTransaction,
     ItemIdentityCode,
     BillOfMaterialsLine,
+    ItemSchema,
+    ItemSchemaField,
 )
+from .forms import METADATA_FIELD_PREFIX, build_item_metadata_form_fields, metadata_from_cleaned_data
+from general.metadata_schema import validate_data
 from inventory.choices import MovementType
 from inventory.services.stock_position import refresh_stock_position
 from invoices.models import AppliedTax
@@ -399,7 +406,9 @@ class InventoryItemForm(forms.ModelForm):
 
     class Meta:
         model = InventoryItem
-        exclude = ("product_object",)
+        # metadata is edited through the meta__<key> fields InventoryItemAdmin
+        # declares from the item's schema (see build_item_metadata_form_fields).
+        exclude = ("product_object", "metadata")
         # Same widget for item_type so it gets the searchable Select2 treatment too
         widgets = {
             "item_type": UnfoldAdminSelect2Widget(),
@@ -421,6 +430,11 @@ class InventoryItemForm(forms.ModelForm):
 
         if "image" in self.fields:
             self.fields["image"].required = False
+
+        metadata = self.instance.metadata or {}
+        for name in self.fields:
+            if name.startswith(METADATA_FIELD_PREFIX):
+                self.initial.setdefault(name, metadata.get(name[len(METADATA_FIELD_PREFIX):]))
 
         if content_type:
             model_class = content_type.model_class()
@@ -451,7 +465,47 @@ class InventoryItemForm(forms.ModelForm):
         resolved_id = product_obj.pk if product_obj else None
         cleaned_data["product_object_id"] = resolved_id
         self.instance.product_object_id = resolved_id
+
+        self._clean_metadata(cleaned_data)
         return cleaned_data
+
+    def _clean_metadata(self, cleaned_data):
+        """Merge the meta__ fields into metadata and validate it here.
+
+        Keys outside the schema are kept untouched. Validating in the form
+        puts each error on its own field; InventoryItem.clean() repeats the
+        check for non-admin saves, and _update_errors drops that duplicate.
+        """
+        values, empty = metadata_from_cleaned_data(cleaned_data)
+        metadata = {k: v for k, v in (self.instance.metadata or {}).items() if k not in empty}
+        metadata.update(values)
+        self.instance.metadata = metadata
+
+        schema = cleaned_data.get("metadata_schema")
+        if schema is None:
+            return
+        self._metadata_validated = True
+        try:
+            validate_data(schema.json_schema(), metadata)
+        except ValidationError as exc:
+            for key, messages in exc.message_dict.items():
+                name = f"{METADATA_FIELD_PREFIX}{key}"
+                if name in self.fields:
+                    if name not in self.errors:
+                        self.add_error(name, messages)
+                else:
+                    self.add_error("metadata_schema", [f"{key}: {m}" for m in messages])
+
+    def _update_errors(self, errors):
+        # "metadata" is not a form field: add_error would raise on it.
+        error_dict = getattr(errors, "error_dict", None)
+        if error_dict and "metadata" in error_dict:
+            messages = error_dict.pop("metadata")
+            if not getattr(self, "_metadata_validated", False):
+                error_dict.setdefault(NON_FIELD_ERRORS, []).extend(messages)
+            if not error_dict:
+                return
+        super()._update_errors(errors)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -614,12 +668,14 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "has_components",
         "exclude_from_commission",
         LowStockFilter,
+        "metadata_schema",
         ["default_warehouse", AutocompleteSelectFilter],
         ["preferred_supplier", AutocompleteSelectFilter],
     )
     list_filter_submit = True
     search_fields = (
         "code",
+        "barcode",
         "name",
         "preferred_supplier__name",
         "default_warehouse__code",
@@ -627,7 +683,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "provider_info__provider_ref",
     )
     ordering = ("-created_at",)
-    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice", "company", "business_unit")
+    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice", "company", "business_unit", "metadata_schema")
     change_form_outer_before_template = "admin/inventory/item_stock_actions.html"
     readonly_fields = (
         "code",
@@ -638,6 +694,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "stock_on_hand_display",
         "incoming_quantity_display",
         "reserved_quantity_display",
+        "metadata_json_display",
     )
 
     fieldsets = (
@@ -645,6 +702,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
             "fields": (
                 ("company"),
                 ("code", "item_type"),
+                "barcode",
                 ("name", "business_unit"),
                 "stock_on_hand_display",
                 ("incoming_quantity_display", "reserved_quantity_display"),
@@ -669,7 +727,62 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
             ),
             "classes": ("tab",),
         }),
+        (_("Metadata"), {
+            "fields": (
+                "metadata_schema",
+                "metadata_json_display",
+            ),
+            "classes": ("tab",),
+        }),
     )
+
+    # ── Metadata (fields declared by the item's schema) ───────────────────
+
+    def _metadata_schema_for(self, request, obj):
+        """The schema whose fields the form shows.
+
+        On a POST that picks another schema, its fields are built straight
+        away so a required one comes back as a field error the user can fill
+        in, instead of a validation error on fields they cannot see.
+        """
+        if request.method == "POST" and "metadata_schema" in request.POST:
+            pk = request.POST.get("metadata_schema")
+            if not pk:
+                return None
+            return (
+                ItemSchema.objects.filter(company__in=get_user_companies(request.user), pk=pk)
+                .prefetch_related("fields")
+                .first()
+            )
+        return obj.metadata_schema if obj else None
+
+    def get_form(self, request, obj=None, **kwargs):
+        schema = self._metadata_schema_for(request, obj)
+        if schema is not None:
+            dynamic_fields = build_item_metadata_form_fields(schema)
+            kwargs["form"] = type(f"Dynamic{self.form.__name__}", (self.form,), dynamic_fields)
+        return super().get_form(request, obj, **kwargs)
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        schema = self._metadata_schema_for(request, obj)
+        if schema is None:
+            return fieldsets
+        meta_fields = [f"{METADATA_FIELD_PREFIX}{spec.key}" for spec in schema.effective_fields()]
+        for index, (name, options) in enumerate(fieldsets):
+            if name == _("Metadata"):
+                fields = ("metadata_schema", *meta_fields, "metadata_json_display")
+                fieldsets[index] = (name, {**options, "fields": fields})
+        return fieldsets
+
+    @admin.display(description=_("Stored metadata"))
+    def metadata_json_display(self, obj):
+        if not obj or not obj.metadata:
+            return _muted_dash()
+        return format_html(
+            '<pre style="white-space:pre-wrap;margin:0;">{}</pre>',
+            json.dumps(obj.metadata, indent=2, ensure_ascii=False, sort_keys=True),
+        )
 
     def get_queryset(self, request):
         # Incoming and reserved are stored columns, so they come along for
@@ -1215,3 +1328,107 @@ class ItemIdentityCodeAdmin(ModelAdmin):
             )
         return format_html('<span style="color:#9ca3af;">—</span>')
     delivered_status.short_description = _("Delivered")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item metadata schemas
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ItemSchemaFieldFormSet(forms.BaseInlineFormSet):
+    """Rejects key collisions with the included blocks before anything is saved.
+
+    ItemSchemaAdmin.save_form stashes the proposed blocks on the instance:
+    the M2M is only written after the formsets, so the DB still holds the
+    old set at this point.
+    """
+
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        includes = getattr(self.instance, "_proposed_includes", None)
+        if includes is None:
+            includes = self.instance.includes.all() if self.instance.pk else []
+        own_keys = [
+            form.cleaned_data["key"].strip().lower().replace(" ", "_").replace("-", "_")
+            for form in self.forms
+            if form.cleaned_data.get("key") and not form.cleaned_data.get("DELETE")
+        ]
+        if len(own_keys) != len(set(own_keys)):
+            raise ValidationError(_("Each key can only be defined once."))
+        self.instance.validate_structure(includes=includes, own_keys=own_keys)
+
+
+class ItemSchemaFieldInline(TabularInline):
+    model = ItemSchemaField
+    formset = ItemSchemaFieldFormSet
+    extra = 0
+    ordering_field = "order"
+    hide_ordering_field = True
+    fields = ("key", "label", "type", "required", "options", "unit", "min_value", "max_value", "help_text", "order")
+    formfield_overrides = {
+        models.JSONField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
+    }
+
+
+@admin.register(ItemSchema)
+class ItemSchemaAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "kind", "includes_summary", "fields_summary")
+    list_filter = ("kind",)
+    search_fields = ("name",)
+    autocomplete_fields = ("company", "includes")
+    inlines = [ItemSchemaFieldInline]
+    readonly_fields = ("effective_fields_display", "json_schema_display")
+    fieldsets = (
+        (None, {"fields": ("company", ("name", "kind"), "description", "includes")}),
+        (_("Effective fields"), {"fields": ("effective_fields_display", "json_schema_display")}),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("fields", "includes")
+
+    def save_form(self, request, form, change):
+        obj = super().save_form(request, form, change)
+        if "includes" in form.cleaned_data:
+            obj._proposed_includes = list(form.cleaned_data["includes"].prefetch_related("fields"))
+        return obj
+
+    @admin.display(description=_("Includes"))
+    def includes_summary(self, obj):
+        return ", ".join(block.name for block in obj.includes.all()) or _muted_dash()
+
+    @admin.display(description=_("Fields"))
+    def fields_summary(self, obj):
+        return ", ".join(field.key for field in obj.fields.all()) or _muted_dash()
+
+    @admin.display(description=_("Effective fields"))
+    def effective_fields_display(self, obj):
+        if not obj or not obj.pk:
+            return _muted_dash()
+        rows = format_html_join(
+            "",
+            "<tr><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            (
+                (
+                    field.key,
+                    field.display_label,
+                    field.get_type_display(),
+                    _("Yes") if field.required else "",
+                    field.source.name,
+                )
+                for field in obj.effective_fields()
+            ),
+        )
+        return format_html(
+            '<table class="w-full text-left"><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>'
+            "<tbody>{}</tbody></table>",
+            _("Key"), _("Label"), _("Type"), _("Required"), _("Defined in"), rows,
+        )
+
+    @admin.display(description=_("JSON Schema"))
+    def json_schema_display(self, obj):
+        if not obj or not obj.pk:
+            return _muted_dash()
+        return format_html(
+            '<pre style="white-space:pre-wrap;margin:0;">{}</pre>',
+            json.dumps(obj.json_schema(), indent=2, ensure_ascii=False),
+        )

@@ -19,6 +19,8 @@ from unfold.widgets import (
     UnfoldAdminSingleDateWidget,
 )
 
+from core.forms.select import StaticSelect2MultipleWidget
+
 
 def options_to_choices(options):
     """Normalize a field's stored `options` (list or dict) into choice pairs."""
@@ -40,6 +42,9 @@ def json_schema_fragment(field_type, *, options=None):
         return {"type": "number"}
     if field_type == "boolean":
         return {"type": "boolean"}
+    if field_type == "multiselect":
+        enum = options if isinstance(options, list) else []
+        return {"type": "array", "items": {"enum": enum}, "uniqueItems": True}
     fragment = {"type": "string"}
     if field_type == "date":
         fragment["format"] = "date"
@@ -63,15 +68,24 @@ class DynamicFieldBuilder:
         self.boolean_widget = boolean_widget
         self.select_blank_choice = select_blank_choice
 
-    def build(self, *, field_type, label, required, options=None, initial=None):
+    def build(
+        self, *, field_type, label, required, options=None, initial=None,
+        min_value=None, max_value=None, help_text="",
+    ):
         builder = getattr(self, f"_build_{field_type}", None)
         if builder is None:
             raise ValueError(f"Unsupported dynamic field type: {field_type!r}")
-        return builder(label=label, required=required, options=options, initial=initial)
+        kwargs = dict(label=label, required=required, options=options, initial=initial)
+        if field_type == "number":
+            kwargs.update(min_value=min_value, max_value=max_value)
+        field = builder(**kwargs)
+        field.help_text = help_text or ""
+        return field
 
-    def _build_number(self, *, label, required, options, initial):
+    def _build_number(self, *, label, required, options, initial, min_value=None, max_value=None):
         return forms.FloatField(
             label=label, required=required, initial=initial,
+            min_value=min_value, max_value=max_value,
             widget=UnfoldAdminDecimalFieldWidget(),
         )
 
@@ -104,4 +118,10 @@ class DynamicFieldBuilder:
         return forms.DateField(
             label=label, required=required, initial=initial,
             widget=UnfoldAdminSingleDateWidget(),
+        )
+
+    def _build_multiselect(self, *, label, required, options, initial):
+        return forms.MultipleChoiceField(
+            label=label, required=required, initial=initial or [],
+            choices=options_to_choices(options), widget=StaticSelect2MultipleWidget(),
         )

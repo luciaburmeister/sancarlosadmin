@@ -1,8 +1,10 @@
+from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
 from import_export import resources, fields
-from import_export.widgets import DecimalWidget, ForeignKeyWidget, IntegerWidget, Widget
-from inventory.models import InventoryItem, Warehouse
+from import_export.widgets import DecimalWidget, ForeignKeyWidget, IntegerWidget, JSONWidget, Widget
+from general.metadata_schema import validate_barcode, validate_data
+from inventory.models import InventoryItem, ItemSchema, Warehouse
 from company.models import Company
 from materials.models import Provider
 
@@ -58,6 +60,18 @@ class MoneyCurrencyWidget(Widget):
         return str(value).strip().upper()
 
 
+class CompanyScopedSchemaWidget(ForeignKeyWidget):
+    """ItemSchema by name, looked up in the row's company (names repeat across companies)."""
+
+    def __init__(self):
+        super().__init__(ItemSchema, "name")
+
+    def get_queryset(self, value, row, *args, **kwargs):
+        company_name = (row or {}).get(str(_("Company")))
+        queryset = ItemSchema.objects.all()
+        return queryset.filter(company__name=company_name) if company_name else queryset
+
+
 class InventoryItemResource(resources.ModelResource):
     company = fields.Field(
         column_name=_("Company"),
@@ -78,6 +92,16 @@ class InventoryItemResource(resources.ModelResource):
         column_name=_("Product Content Type"),
         attribute="product_content_type",
         widget=ContentTypeWidget(),
+    )
+    metadata_schema = fields.Field(
+        column_name=_("Metadata schema"),
+        attribute="metadata_schema",
+        widget=CompanyScopedSchemaWidget(),
+    )
+    metadata = fields.Field(
+        column_name=_("Metadata"),
+        attribute="metadata",
+        widget=JSONWidget(),
     )
 
     # ── Money fields split into amount + currency ─────────────────────────
@@ -128,6 +152,7 @@ class InventoryItemResource(resources.ModelResource):
         fields = (
             "id",
             "code",
+            "barcode",
             "name",
             "description",
             "item_type",
@@ -141,9 +166,28 @@ class InventoryItemResource(resources.ModelResource):
             "cost_price",
             "cost_price_currency",
             "min_stock",
+            "metadata_schema",
+            "metadata",
             "stock_on_hand",
             "incoming_quantity",
             "reserved_quantity",
         )
         export_order = fields
         import_id_fields = ("id",)
+
+    def validate_instance(self, instance, import_validation_errors=None, validate_unique=True):
+        # clean_model_instances stays off (older rows would fail other model
+        # rules), so the barcode and metadata checks run here explicitly.
+        errors = dict(import_validation_errors or {})
+        instance.metadata = instance.metadata or {}
+        try:
+            validate_barcode(instance.barcode)
+        except ValidationError as exc:
+            errors["barcode"] = exc.messages
+        schema = instance.metadata_schema
+        if schema is not None:
+            try:
+                validate_data(schema.json_schema(), instance.metadata)
+            except ValidationError as exc:
+                errors["metadata"] = [f"{k}: {m}" for k, ms in exc.message_dict.items() for m in ms]
+        super().validate_instance(instance, errors, validate_unique)

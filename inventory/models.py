@@ -1,6 +1,8 @@
 from decimal import Decimal
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models import Q
 from django.db.models.functions import Coalesce, Greatest
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -13,7 +15,9 @@ from django.core.exceptions import ValidationError
 
 from company.models import CompanyOwnedModel
 from materials.models import Provider
-from .choices import LocationType, ItemType, MovementType
+from .choices import ItemSchemaKind, LocationType, ItemType, MovementType
+from general.metadata_schema import build_json_schema, validate_barcode, validate_data
+from general.metadata_schema.models import SchemaFieldBase
 from configurator.utils.codegen import next_scoped_code
 
 
@@ -370,7 +374,139 @@ class InventoryItemQuerySet(models.QuerySet):
             computed_reserved=self.reserved_expression(),
         )
 
+    def with_metadata(self, **values):
+        """Items whose metadata contains these key/values (``@>``, GIN-indexed).
 
+        ``with_metadata(color="RAL9016")``; a multiselect matches when its
+        list contains the given items: ``with_metadata(tags=["pvc"])``.
+        """
+        return self.filter(metadata__contains=values)
+
+
+class ItemSchema(Timestampable, CompanyOwnedModel):
+    """The metadata properties an item has.
+
+    A *product* schema is what an item points to. A *block* is a reusable
+    group of fields (Shopify, Shipping…) that product schemas include, so a
+    shared property is defined once. Composition is one level deep on
+    purpose: blocks include nothing, and a key may appear only once across a
+    product's own fields and its blocks, so every property has exactly one
+    definition and no override rules exist.
+    """
+
+    name = models.CharField(_("Name"), max_length=100)
+    description = models.TextField(_("Description"), blank=True)
+    kind = models.CharField(
+        _("Kind"),
+        max_length=10,
+        choices=ItemSchemaKind.choices,
+        default=ItemSchemaKind.PRODUCT,
+        help_text=_("Items use product schemas; blocks are groups of fields that product schemas include."),
+    )
+    includes = models.ManyToManyField(
+        "self",
+        symmetrical=False,
+        blank=True,
+        related_name="included_in",
+        limit_choices_to={"kind": ItemSchemaKind.BLOCK},
+        verbose_name=_("Included blocks"),
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company", "name"], name="uniq_itemschema_company_name"),
+        ]
+        ordering = ["name"]
+        verbose_name = _("Item schema")
+        verbose_name_plural = _("Item schemas")
+
+    def __str__(self):
+        return self.name
+
+    def effective_fields(self):
+        """Fields of the included blocks (in block name order), then own fields.
+
+        Each returned field carries ``source``: the schema it is defined on.
+        """
+        blocks = list(self.includes.order_by("name").prefetch_related("fields")) if self.pk else []
+        own = list(self.fields.all()) if self.pk else []
+        result = []
+        for schema in [*blocks, self]:
+            for field in (own if schema is self else schema.fields.all()):
+                field.source = schema
+                result.append(field)
+        return result
+
+    def json_schema(self):
+        return build_json_schema(self.effective_fields())
+
+    def validate_structure(self, *, includes, own_keys):
+        """Check a proposed set of included blocks and own keys.
+
+        Takes the proposed values rather than reading the DB so the admin can
+        reject an edit before any of it is saved.
+        """
+        includes = list(includes)
+        if self.kind == ItemSchemaKind.BLOCK and includes:
+            raise ValidationError({"includes": _("A block cannot include other schemas.")})
+        for block in includes:
+            if block.kind != ItemSchemaKind.BLOCK:
+                raise ValidationError({"includes": _("Only blocks can be included: %(name)s is a product schema.") % {"name": block.name}})
+            if block.company_id != self.company_id:
+                raise ValidationError({"includes": _("Block %(name)s belongs to another company.") % {"name": block.name}})
+
+        seen = {}
+        sources = [(block.name, [f.key for f in block.fields.all()]) for block in includes]
+        sources.append((self.name or _("this schema"), list(own_keys)))
+        for source, keys in sources:
+            for key in keys:
+                if key in seen and seen[key] != source:
+                    raise ValidationError(
+                        _("The key “%(key)s” is defined in both %(first)s and %(second)s.")
+                        % {"key": key, "first": seen[key], "second": source}
+                    )
+                seen[key] = source
+
+    def clean(self):
+        super().clean()
+        if self.pk and self.kind == ItemSchemaKind.BLOCK and self.items.exists():
+            raise ValidationError({"kind": _("Items use this schema, so it cannot be a block.")})
+        if self.pk and self.kind == ItemSchemaKind.PRODUCT and self.included_in.exists():
+            raise ValidationError({"kind": _("Other schemas include this one, so it must stay a block.")})
+
+
+class ItemSchemaField(SchemaFieldBase):
+    schema = models.ForeignKey(
+        ItemSchema,
+        on_delete=models.CASCADE,
+        related_name="fields",
+        verbose_name=_("Schema"),
+    )
+
+    class Meta(SchemaFieldBase.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["schema", "key"], name="uniq_itemschemafield_schema_key"),
+        ]
+        verbose_name = _("Schema field")
+        verbose_name_plural = _("Schema fields")
+
+    def clean(self):
+        super().clean()
+        if not self.schema_id or self.schema.kind != ItemSchemaKind.BLOCK:
+            return
+        # A new key on a block must not collide with any product including it.
+        for product in self.schema.included_in.all():
+            taken = {
+                f.key
+                for f in ItemSchemaField.objects.filter(
+                    Q(schema=product) | Q(schema__in=product.includes.exclude(pk=self.schema_id))
+                ).exclude(pk=self.pk)
+            }
+            if self.key in taken:
+                raise ValidationError({
+                    "key": _("The key “%(key)s” is already used by %(schema)s, which includes this block.")
+                    % {"key": self.key, "schema": product.name}
+                })
 
 
 def _item_prefix(item_type: str) -> str:
@@ -384,6 +520,14 @@ def _item_prefix(item_type: str) -> str:
 
 class InventoryItem(Timestampable, CompanyOwnedModel):
     code = models.CharField(_("Code"), max_length=20, blank=True, db_index=True)
+    barcode = models.CharField(
+        _("Barcode"),
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_barcode],
+        help_text=_("EAN/UPC/GTIN or any other code. Unique per company when set."),
+    )
     name = models.CharField(_("Name"), max_length=200, db_index=True, null=True, blank=True)
     description = models.TextField(_("Description"), blank=True)
     item_type = models.CharField(
@@ -438,6 +582,22 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     product_object = GenericForeignKey("product_content_type", "product_object_id")
 
     image = models.ImageField(_("Image"), upload_to="inventory/items/images/", null=True, blank=True)
+
+    metadata_schema = models.ForeignKey(
+        ItemSchema,
+        verbose_name=_("Metadata schema"),
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="items",
+        limit_choices_to={"kind": ItemSchemaKind.PRODUCT},
+    )
+    metadata = models.JSONField(
+        _("Metadata"),
+        default=dict,
+        blank=True,
+        help_text=_("Properties defined by the metadata schema (ecommerce, shipping…)."),
+    )
 
     selling_price = MoneyField(
         max_digits=12,
@@ -539,9 +699,17 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
                 fields=["company", "code"],
                 name="uniq_item_company_code",
             ),
+            models.UniqueConstraint(
+                fields=["company", "barcode"],
+                condition=~Q(barcode=""),
+                name="uniq_item_company_barcode",
+            ),
         ]
         indexes = [
             models.Index(fields=["company", "item_type"], name="idx_item_company_type"),
+            # jsonb_path_ops: smaller and faster for @> (metadata__contains),
+            # which is all with_metadata() needs; it cannot serve has_key.
+            GinIndex(fields=["metadata"], name="idx_item_metadata_gin", opclasses=["jsonb_path_ops"]),
         ]
         verbose_name = _("Item")
         verbose_name_plural = _("Items")
@@ -561,6 +729,19 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         if self.item_type in (ItemType.STOCKABLE, ItemType.FINISHED_PRODUCT, ItemType.OWN_PRODUCTION) and not self.default_warehouse_id:
             raise ValidationError({"default_warehouse": _("This item type requires a warehouse.")})
 
+        if self.metadata_schema_id:
+            schema = self.metadata_schema
+            if schema.company_id != self.company_id:
+                raise ValidationError({"metadata_schema": _("The metadata schema must belong to the same company.")})
+            if schema.kind != ItemSchemaKind.PRODUCT:
+                raise ValidationError({"metadata_schema": _("Items can only use product schemas, not blocks.")})
+            try:
+                validate_data(schema.json_schema(), self.metadata or {})
+            except ValidationError as exc:
+                raise ValidationError({"metadata": [
+                    f"{key}: {message}" for key, messages in exc.message_dict.items() for message in messages
+                ]})
+
         # OWN_PRODUCTION items must be linked to a ConfigurationPreset
         if self.item_type == ItemType.OWN_PRODUCTION:
             from configurator.models import ConfigurationPreset
@@ -574,6 +755,9 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     def save(self, *args, **kwargs):
         if self.item_type == ItemType.SERVICE:
             self.default_warehouse = None
+        self.barcode = (self.barcode or "").strip()
+        if self.metadata is None:
+            self.metadata = {}
 
         if not self.code:
             prefix = _item_prefix(self.item_type)

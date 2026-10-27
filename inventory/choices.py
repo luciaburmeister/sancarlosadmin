@@ -17,3 +17,7 @@ class MovementType(models.TextChoices):
     OUT = "OUT", _("Stock Out")
     ADJUST = "ADJUST", _("Adjustment")
     TRANSFER = "TRANSFER", _("Transfer")
+
+class ItemSchemaKind(models.TextChoices):
+    PRODUCT = "product", _("Product schema")
+    BLOCK = "block", _("Reusable block")

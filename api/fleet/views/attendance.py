@@ -471,17 +471,36 @@ class PorteSubmitView(APIView):
                     return JsonResponse(
                         {"error": "La máquina escaneada no pertenece a este plan."}, status=400,
                     )
+                if machine_link.status == AssetPlanningMachineStatus.PENDING:
+                    return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
+                if machine_link.status == AssetPlanningMachineStatus.DELIVERED:
+                    return JsonResponse({"success": True, "message": "Máquina ya entregada", "already_done": True})
+                tx_asset = machine_link.machine
+                leg_from_zone = machine_link.effective_from_zone
+                leg_to_zone = machine_link.effective_to_zone
+            elif links:
+                # Exactly one tracked machine -- no scan required, same as
+                # a single-machine plan always worked.
+                machine_link = links[0]
+                if machine_link.status == AssetPlanningMachineStatus.PENDING:
+                    return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
+                if machine_link.status == AssetPlanningMachineStatus.DELIVERED:
+                    return JsonResponse({"success": True, "message": "Máquina ya entregada", "already_done": True})
+                tx_asset = machine_link.machine
+                leg_from_zone = machine_link.effective_from_zone
+                leg_to_zone = machine_link.effective_to_zone
             else:
-                # Single machine (or legacy data with no tracked rows yet):
-                # no scan required, same as before.
-                machine_link = links[0] if links else None
-            if machine_link is None or machine_link.status == AssetPlanningMachineStatus.PENDING:
-                return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
-            if machine_link.status == AssetPlanningMachineStatus.DELIVERED:
-                return JsonResponse({"success": True, "message": "Máquina ya entregada", "already_done": True})
-            tx_asset = machine_link.machine
-            leg_from_zone = machine_link.effective_from_zone
-            leg_to_zone = machine_link.effective_to_zone
+                # No tracked rows at all -- a planning from before this
+                # feature existed (machine assigned the old way, or already
+                # loaded before any AssetPlanningMachine row could exist).
+                # Fall back to the original, pre-feature check so nothing
+                # already in flight gets blocked.
+                if not planning.transactions.filter(
+                    transaction_type=TransactionTypeChoices.PORTE_LOAD,
+                ).exists():
+                    return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
+                if planning.machine_id:
+                    tx_asset = planning.machine
 
         zone_project_file = (
             (leg_to_zone.project_file if leg_to_zone else None)

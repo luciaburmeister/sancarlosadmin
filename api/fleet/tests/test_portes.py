@@ -317,6 +317,29 @@ class PorteCargaAndMachineTests(PorteTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("máquina", response.json()["error"])
 
+    def test_entrega_allowed_for_pre_feature_planning_with_no_tracked_row(self):
+        """Retroactive-compatibility regression: a planning already loaded
+        before AssetPlanningMachine existed has machine_id set and a real
+        PORTE_LOAD transaction, but zero planning_machines rows (the table
+        didn't exist yet when it was loaded). Entrega must still work,
+        falling back to the original "does a PORTE_LOAD transaction exist"
+        check -- not require a scan/tracked row that can't possibly exist
+        for data from before this feature shipped."""
+        from assets.models import AssetTransaction, PorteTransactionDataKey, PorteMovementKind, TransactionTypeChoices
+
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        AssetTransaction.objects.create(
+            asset=self.cuba, company=self.company, from_zone=self.origin, to_zone=self.destination,
+            transaction_type=TransactionTypeChoices.PORTE_LOAD, planning=planning,
+            data={PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE, PorteTransactionDataKey.MACHINE_ID: self.machine.id},
+        )
+        self.assertEqual(planning.planning_machines.count(), 0)
+
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "delivered")
+
     def test_machine_carga_must_match_dispatch_assignment(self):
         other_machine = Asset.objects.create(
             company=self.company, asset_type=self.machine_type, name="MAQUINA-2",

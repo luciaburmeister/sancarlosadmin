@@ -107,6 +107,23 @@ class MovementStrategyTests(DriverFixtureMixin, TestCase):
         self.assertEqual(tx.data.get("m3"), "6")
         self.assertEqual(tx.data.get("vertedero"), "Vertedero Norte")
 
+    def test_movement_uses_the_planning_project_file_over_the_zone(self):
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        zone_file = ProjectFile.objects.create(name="Zone", client=client, company=self.company)
+        plan_file = ProjectFile.objects.create(name="Plan", client=client, company=self.company)
+        self.zone.project_file = zone_file
+        self.zone.save(update_fields=["project_file"])
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+
+        response = self._run_movement()
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get()
+        self.assertEqual(tx.project_file_id, plan_file.pk)
+
     @patch("core.tasks.send_asset_transaction_email_task.delay")
     def test_movement_emails_the_named_landfill_when_automatic_send_is_on(self, delay):
         landfill = make_zone(self.company, name="Vertedero Norte", zone_type=WorkingZone.ZoneType.VERTEDERO)
@@ -301,6 +318,23 @@ class DeliveryStrategyTests(DriverFixtureMixin, TestCase):
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone_id, almacen.id)
 
+    def test_delivery_uses_the_planning_project_file_over_the_destination_zone(self):
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        zone_file = ProjectFile.objects.create(name="Zone", client=client, company=self.company)
+        plan_file = ProjectFile.objects.create(name="Plan", client=client, company=self.company)
+        self.dest_zone.project_file = zone_file
+        self.dest_zone.save(update_fields=["project_file"])
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+
+        response = self._run_delivery()
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(transaction_type=TransactionTypeChoices.DELIVERY)
+        self.assertEqual(tx.project_file_id, plan_file.pk)
+
     def test_delivery_rejects_full_cuba_at_an_obra(self):
         """dest_zone defaults to zone_type=OBRA — never let a full cuba be
         dropped there, no matter the plan/operation type."""
@@ -459,6 +493,22 @@ class ReceiptStrategyTests(DriverFixtureMixin, TestCase):
         self._run_receipt()
         tx = AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).first()
         self.assertEqual(tx.project_file_id, project_file.id)
+
+    def test_receipt_prefers_the_planning_project_file_over_the_movement(self):
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        movement_file = ProjectFile.objects.create(name="Movement", client=client, company=self.company)
+        plan_file = ProjectFile.objects.create(name="Plan", client=client, company=self.company)
+        self.movement_tx.project_file = movement_file
+        self.movement_tx.save(update_fields=["project_file"])
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+
+        self._run_receipt()
+        tx = AssetTransaction.objects.get(transaction_type=TransactionTypeChoices.RECEIPT)
+        self.assertEqual(tx.project_file_id, plan_file.pk)
 
     def test_receipt_links_to_movement_picked_up_from_an_almacen(self):
         """Regression: movement_tx used to be filtered to from_zone__zone_type=OBRA,

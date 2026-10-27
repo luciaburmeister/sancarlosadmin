@@ -794,6 +794,13 @@ class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampabl
     # not part of the albarán (billing_status changes in bulk admin actions).
     DOCUMENT_IRRELEVANT_FIELDS = frozenset({"billing_status", "document_file", "document_generated_at"})
 
+    @classmethod
+    def resolve_project_file(cls, planning, fallback):
+        """Project file for a new transaction: the plan's when it has one, else fallback."""
+        if planning is not None and planning.project_file_id:
+            return planning.project_file
+        return fallback
+
     @property
     def requires_di_number(self) -> bool:
         """Whether this transaction is one of the two DI-worthy events (see

@@ -502,10 +502,11 @@ class MovementStrategy(BaseTransactionStrategy):
             form_data["cliente"] = ""
             form_data["zone_type"] = ""
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
+        zone_project_file = asset.current_working_zone.project_file if asset.current_working_zone else None
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
             transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
-            project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
+            project_file=AssetTransaction.resolve_project_file(planning, zone_project_file),
             planning=planning, reference_number=reference_number,
             notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}", data=form_data,
         )
@@ -572,10 +573,11 @@ class DeliveryStrategy(BaseTransactionStrategy):
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
         form_data["zone_type"] = destination_zone.zone_type
         form_data["trabajo"] = "Dejada"
+        zone_project_file = destination_zone.project_file if destination_zone else None
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
-            project_file=destination_zone.project_file if destination_zone else None,
+            project_file=AssetTransaction.resolve_project_file(planning, zone_project_file),
             planning=planning, reference_number=reference_number,
             notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
             data=form_data,
@@ -638,10 +640,11 @@ class ReceiptStrategy(BaseTransactionStrategy):
             asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT,
         ).order_by("-date").first()
         form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran", "reference_number")}
+        movement_project_file = movement_tx.project_file if movement_tx else None
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
             transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
-            project_file=movement_tx.project_file if movement_tx else None,
+            project_file=AssetTransaction.resolve_project_file(planning, movement_project_file),
             planning=planning, reference_number=reference_number,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
@@ -766,10 +769,11 @@ class MachineHoursStrategy(BaseTransactionStrategy):
             _save_transaction_photo(existing_tx, photo_b64, AssetTransactionPhoto.PhotoType.START)
             return JsonResponse({"success": True, "message": "Jornada reanudada.", "transaction_id": existing_tx.id})
 
+        zone_project_file = detected_zone.project_file if detected_zone else None
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=detected_zone, to_zone=None,
             transaction_type=TransactionTypeChoices.MACHINE_HOURS, date=timezone.now(), performed_by=employee,
-            project_file=detected_zone.project_file if detected_zone else None,
+            project_file=AssetTransaction.resolve_project_file(planning_obj, zone_project_file),
             planning=planning_obj,
             notes=f"Inicio de maquina por {user.username}. GPS: {latitude}, {longitude}.",
             data={

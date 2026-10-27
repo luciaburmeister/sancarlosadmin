@@ -216,6 +216,41 @@ class PorteWithoutAssetTests(PorteTestCase):
         self.assertEqual(tx.reference_number, "REF-12345")
         self.assertNotIn("reference_number", tx.data)
 
+    def test_submit_uses_the_planning_project_file_over_the_destination_zone(self):
+        from assets.models import AssetTransaction
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        zone_file = ProjectFile.objects.create(name="Zone", client=client, company=self.company)
+        plan_file = ProjectFile.objects.create(name="Plan", client=client, company=self.company)
+        self.destination.project_file = zone_file
+        self.destination.save(update_fields=["project_file"])
+        planning = self._make_planning(transport_asset=self.truck)
+        planning.project_file = plan_file
+        planning.save(update_fields=["project_file"])
+
+        response = self._submit(planning, "recogida", image=TINY_PNG_B64)
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(planning=planning)
+        self.assertEqual(tx.project_file_id, plan_file.pk)
+
+    def test_submit_falls_back_to_the_destination_zone_when_the_plan_has_no_project_file(self):
+        from assets.models import AssetTransaction
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        zone_file = ProjectFile.objects.create(name="Zone", client=client, company=self.company)
+        self.destination.project_file = zone_file
+        self.destination.save(update_fields=["project_file"])
+        planning = self._make_planning(transport_asset=self.truck)
+
+        response = self._submit(planning, "recogida", image=TINY_PNG_B64)
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(planning=planning)
+        self.assertEqual(tx.project_file_id, zone_file.pk)
+
 
 class PorteCargaAndMachineTests(PorteTestCase):
     """New 'carga' step + AssetPlanning.machine (own-machine transport carried

@@ -62,6 +62,17 @@ class CreateManualTransactionMovementTests(TestCase):
         self.assertEqual(transaction.planning_id, self.planning.pk)
         self.assertEqual(transaction.asset_id, self.asset.pk)
 
+    def test_movement_prefers_the_planning_project_file_over_the_zone(self):
+        plan_file = ProjectFile.objects.create(
+            company=self.company, client=self.client_obj, name="Plan Expediente",
+        )
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+        )
+        self.assertEqual(transaction.project_file_id, plan_file.pk)
+
     @patch("core.tasks.send_asset_transaction_email_task.delay")
     def test_movement_emails_the_named_landfill_not_to_zone(self, delay):
         landfill = make_zone(self.company, name="Vertedero Norte")
@@ -250,6 +261,17 @@ class CreateManualTransactionDeliveryTests(TestCase):
         self.assertEqual(transaction.data[CubaTransactionKey.SITE], self.dest_zone.full_address)
         self.assertEqual(transaction.data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk)
 
+    def test_delivery_prefers_the_planning_project_file_over_the_destination_zone(self):
+        plan_file = ProjectFile.objects.create(
+            company=self.company, client=self.client_obj, name="Plan Expediente",
+        )
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.DELIVERY,
+        )
+        self.assertEqual(transaction.project_file_id, plan_file.pk)
+
     def test_delivery_with_explicit_zone_overrides_planning_destination(self):
         other_zone = make_zone(self.company, name="Other")
         transaction = create_manual_transaction(
@@ -319,6 +341,19 @@ class CreateManualTransactionReceiptTests(TestCase):
             data={"nro_albaran": "01083485", "material_vertido": "Tierras", "peso_neto": "500"},
         )
         self.assertEqual(transaction.receipts.get().data["peso_neto"], "500")
+
+    def test_receipt_prefers_the_planning_project_file_over_the_movement(self):
+        plan_file = ProjectFile.objects.create(
+            company=self.company, client=self.client_obj, name="Plan Expediente",
+        )
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+        transaction = create_manual_transaction(
+            planning=self.planning,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            data={"nro_albaran": "01083485"},
+        )
+        self.assertEqual(transaction.project_file_id, plan_file.pk)
 
     def test_receipt_after_delivery_creates_implicit_repickup(self):
         AssetTransaction.objects.create(
@@ -406,6 +441,17 @@ class CreateManualTransactionPorteTests(TestCase):
         )
         self.assertEqual(transaction.data["load_description"], "zahorra")
         self.assertEqual(transaction.data["machine_id"], machine.pk)
+
+    def test_porte_prefers_the_planning_project_file_over_the_destination_zone(self):
+        plan_file = ProjectFile.objects.create(
+            company=self.company, client=self.client_obj, name="Plan Expediente",
+        )
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
+        )
+        self.assertEqual(transaction.project_file_id, plan_file.pk)
 
     def test_porte_load_marks_planning_in_transit(self):
         create_manual_transaction(planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_LOAD)

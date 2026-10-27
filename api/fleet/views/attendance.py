@@ -362,6 +362,7 @@ class PorteSubmitView(APIView):
         try:
             planning = AssetPlanning.objects.select_related(
                 "asset", "machine", "transport_asset", "origin", "destination",
+                "project_file", "origin__project_file", "destination__project_file",
             ).get(
                 id=planning_id, assigned_to=employee, planning_type=PlanningType.PORTE
             )
@@ -422,10 +423,16 @@ class PorteSubmitView(APIView):
             if planning.machine_id:
                 tx_asset = planning.machine
 
+        destination, origin = planning.destination, planning.origin
+        zone_project_file = (
+            (destination.project_file if destination else None)
+            or (origin.project_file if origin else None)
+        )
         transaction = AssetTransaction.objects.create(
             asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
+            project_file=AssetTransaction.resolve_project_file(planning, zone_project_file),
             planning=planning, reference_number=reference_number,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",
             data={

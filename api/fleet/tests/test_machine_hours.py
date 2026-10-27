@@ -192,6 +192,35 @@ class MachineHoursStrategyTest(MachineHoursBaseTest):
         # The new FK is populated alongside the existing soft data["planning_id"].
         self.assertEqual(tx.planning_id, self.planning.id)
 
+    def test_start_uses_the_planning_project_file_over_the_zone(self):
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        zone_file = ProjectFile.objects.create(name="Zone", client=client, company=self.company)
+        plan_file = ProjectFile.objects.create(name="Plan", client=client, company=self.company)
+        self.zone.project_file = zone_file
+        self.zone.save(update_fields=["project_file"])
+        self.planning.project_file = plan_file
+        self.planning.save(update_fields=["project_file"])
+
+        response = self._post("start")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._get_tx().project_file_id, plan_file.pk)
+
+    def test_start_falls_back_to_the_zone_when_the_plan_has_no_project_file(self):
+        from management.models import ProjectFile
+        from sales.models import Client
+
+        client = Client.objects.create(name="Client 1", company=self.company)
+        zone_file = ProjectFile.objects.create(name="Zone", client=client, company=self.company)
+        self.zone.project_file = zone_file
+        self.zone.save(update_fields=["project_file"])
+
+        response = self._post("start")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._get_tx().project_file_id, zone_file.pk)
+
     def test_start_with_unknown_planning_id_leaves_fk_blank(self):
         response = self._post("start", extra={"planning_id": 999999})
         self.assertEqual(response.status_code, 200)

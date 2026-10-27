@@ -1643,8 +1643,13 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         required = SERVICE_TYPE_FIELDS.get(self.service_type, set())
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
-        if "machine" in required and not self.machine_id:
-            raise ValidationError({"machine": _("Machine is required for this service type.")})
+        # Unlike AssetPlanningRequest (below), a planning's own `machine` is
+        # no longer something you type in directly here -- it's a read-only
+        # mirror (see AssetPlanningAdmin), kept in sync by the mobile app's
+        # scans or by adding rows in the Planning Machines table below, both
+        # of which can legitimately happen after this planning is first
+        # created. So it's never required at save time, only reset if the
+        # service type stops needing one at all.
         if "machine" not in required:
             self.machine = None
 

@@ -168,7 +168,14 @@ class MachineFieldCleanTests(TestCase):
         request.clean()
         self.assertIsNone(request.machine_id)
 
-    def test_planning_requires_machine_for_maquina_propia(self):
+    def test_planning_allows_no_machine_for_maquina_propia(self):
+        """Unlike AssetPlanningRequest (still required, above) -- AssetPlanning.machine
+        became a read-only mirror once machines moved to the Planning Machines
+        table (AssetPlanningMachine), settable after this planning is first
+        saved (by the admin inline, or by the driver's own scan via open
+        dispatch). Requiring it up front made it impossible to even create a
+        new own-machine-transport planning through the admin, since there's
+        no way to fill in a read-only field on the same form submission."""
         planning = AssetPlanning(
             company=self.company,
             origin=self.to_zone,
@@ -178,8 +185,8 @@ class MachineFieldCleanTests(TestCase):
             service_type="porte_maquina",
             project_file=self.project_file,
         )
-        with self.assertRaises(ValidationError):
-            planning.clean()
+        planning.clean()
+        self.assertIsNone(planning.machine_id)
 
     def test_planning_allows_blank_asset_for_maquina_propia(self):
         planning = AssetPlanning(

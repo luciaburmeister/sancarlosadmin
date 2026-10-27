@@ -63,14 +63,17 @@ class AssetPlanningStopInline(TabularInline):
 class AssetPlanningMachineInline(TabularInline):
     """One row per machine an own-machine-transport planning carries. Leave
     from_zone/to_zone blank to use the planning's own origin/destination --
-    only set them when this specific machine needs a different route."""
+    only set them when this specific machine needs a different route.
+    There's no order between machines -- any can be scanned/loaded/
+    delivered whenever, in any sequence -- so `sequence` (an internal,
+    auto-assigned bookkeeping field, not meant to be hand-set) is left out
+    of the form entirely."""
 
     model = AssetPlanningMachine
     extra = 1
-    fields = ("sequence", "machine", "from_zone", "to_zone", "status", "loaded_at", "delivered_at")
+    fields = ("machine", "from_zone", "to_zone", "status", "loaded_at", "delivered_at")
     readonly_fields = ("status", "loaded_at", "delivered_at")
     autocomplete_fields = ["machine", "from_zone", "to_zone"]
-    ordering = ["sequence"]
 
 
 class AssetPlanningTransactionInline(TabularInline):

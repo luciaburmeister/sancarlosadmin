@@ -54,7 +54,7 @@ class BaseManualTransactionStrategy:
             transaction_type=self.transaction_type,
             date=timezone.now(),
             performed_by=self.performed_by,
-            project_file=project_file,
+            project_file=AssetTransaction.resolve_project_file(self.planning, project_file),
             planning=self.planning,
             reference_number=self.reference_number,
             notes=self.notes,
@@ -170,8 +170,8 @@ class ReceiptStrategy(BaseManualTransactionStrategy):
         self.data = dict(self.data)
         self._stamp_planning_id()
 
-        # Same lookup the mobile ReceiptStrategy uses: the most recent pickup,
-        # to link the receipt and inherit its project_file.
+        # Same lookup the mobile ReceiptStrategy uses, to link the receipt.
+        # Its project_file is the fallback when the plan has none.
         movement_tx = AssetTransaction.objects.filter(
             asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT,
         ).order_by("-date").first()

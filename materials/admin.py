@@ -77,7 +77,19 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     autocomplete_fields = ("materials","company")
 
+    actions = ["duplicate_components"]
+
     inlines = [ComponentPriceRuleInline]  # 👈 HERE
+
+    @admin.action(description=_("Duplicate selected components"))
+    def duplicate_components(self, request, queryset):
+        count = queryset.count()
+        for component in queryset:
+            component.clone()
+        self.message_user(
+            request,
+            _("Duplicated %(count)d component(s).") % {"count": count},
+        )
 
     formfield_overrides = {
         models.JSONField:{
@@ -157,6 +169,7 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
     list_filter_submit = True
     autocomplete_fields = ["provider", "company", "category"]
     list_select_related = ["company", "category"]
+    actions = ["duplicate_materials"]
 
     fieldsets = (
         ("Product Details", {
@@ -172,6 +185,16 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
 
     def has_import_permission(self, request):
         return request.user.has_perm("materials.can_import_materials")
+
+    @admin.action(description=_("Duplicate selected materials"))
+    def duplicate_materials(self, request, queryset):
+        count = queryset.count()
+        for material in queryset:
+            material.clone()
+        self.message_user(
+            request,
+            _("Duplicated %(count)d material(s).") % {"count": count},
+        )
 
 
 class ProviderForm(forms.ModelForm):

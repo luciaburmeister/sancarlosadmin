@@ -1,6 +1,6 @@
 from .direct_receipt import DirectReceiptView
 from .identity_codes import IdentityCodesView
-from .match_invoice import POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView
+from .match_invoice import POMatchInvoiceView, BulkPOMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView
 from .reject_po import RejectPurchaseOrderView
 from .post_message import PostPurchaseOrderMessageView
 from .approval_analysis import POApprovalAnalysisView
@@ -14,6 +14,7 @@ __all__ = [
     "DirectReceiptView",
     "IdentityCodesView",
     "POMatchInvoiceView",
+    "BulkPOMatchInvoiceView",
     "POAIMatchView",
     "DispatchPOAIMatchView",
     "RejectPurchaseOrderView",

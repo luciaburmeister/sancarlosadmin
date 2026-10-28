@@ -249,6 +249,43 @@ class Material(Timestampable,CompanyOwnedModel):
                 for component in self.components.all():
                     component.save(update_fields=["cost_per_unit", "updated_at"])
 
+    def clone(self, *, name_suffix=" (copy)"):
+        """
+        Create an independent copy of this material with a new, unique
+        reference code and rule key.
+        Returns the newly created Material.
+        """
+        with transaction.atomic():
+            new_reference_code = self._unique_clone_value(
+                "reference_code", self.reference_code, "-copy"
+            )
+            new_rule_key = None
+            if self.rule_key:
+                new_rule_key = self._unique_clone_value(
+                    "rule_key", self.rule_key, "_copy", company=self.company
+                )
+
+            return Material.objects.create(
+                reference_code=new_reference_code,
+                rule_key=new_rule_key,
+                name=f"{self.name}{name_suffix}",
+                category=self.category,
+                family=self.family,
+                unit_type=self.unit_type,
+                cost_per_unit=self.cost_per_unit,
+                provider=self.provider,
+                company=self.company,
+                metadata=dict(self.metadata),
+            )
+
+    @classmethod
+    def _unique_clone_value(cls, field_name, base_value, suffix, **extra_lookup):
+        candidate = f"{base_value}{suffix}"
+        counter = 2
+        while cls.objects.filter(**{field_name: candidate}, **extra_lookup).exists():
+            candidate = f"{base_value}{suffix}{counter}"
+            counter += 1
+        return candidate
 
 
 class ComponentType(models.TextChoices):
@@ -421,6 +458,39 @@ class Component(Timestampable,CompanyOwnedModel):
         computed_price = self.compute_unit_price(context=None)
         self.cost_per_unit = computed_price
         super().save(*args, **kwargs)
+
+    def clone(self, *, name_suffix=" (copy)"):
+        """
+        Create an independent copy of this component, including its
+        materials and price rules.
+        Returns the newly created Component.
+        """
+        with transaction.atomic():
+            new_component = Component.objects.create(
+                name=f"{self.name}{name_suffix}",
+                code=self.code,
+                unit_price_expression=self.unit_price_expression,
+                component_type=self.component_type,
+                production_stages=list(self.production_stages),
+                metadata=dict(self.metadata),
+                company=self.company,
+            )
+            new_component.materials.set(self.materials.all())
+
+            ComponentPriceRule.objects.bulk_create([
+                ComponentPriceRule(
+                    component=new_component,
+                    condition=rule.condition,
+                    unit_price_expression=rule.unit_price_expression,
+                    unit_price=rule.unit_price,
+                    priority=rule.priority,
+                    is_fallback=rule.is_fallback,
+                )
+                for rule in self.price_rules.all()
+            ])
+            new_component.save()
+
+            return new_component
 
 
 class ComponentPriceRule(models.Model):

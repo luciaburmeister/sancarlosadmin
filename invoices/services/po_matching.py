@@ -90,21 +90,33 @@ class POInvoiceMatchService:
         (or provider not yet identified), with at least one line not fully
         allocated. Sorted by how close the invoice base is to the PO total.
         """
+        return cls.candidate_invoices_for_pos([po])
+
+    @classmethod
+    def candidate_invoices_for_pos(cls, pos):
+        """
+        Pooled version of candidate_invoices_for_po, used by the bulk matcher:
+        several POs (same company and provider) are matched against one
+        invoice at a time, so candidates are scored against their combined
+        total rather than a single PO's.
+        """
+        first = pos[0]
         qs = (
-            Invoice.objects.filter(company_id=po.company_id)
-            .filter(Q(provider_id=po.provider_id) | Q(provider__isnull=True))
+            Invoice.objects.filter(company_id=first.company_id)
+            .filter(Q(provider_id=first.provider_id) | Q(provider__isnull=True))
             .select_related("provider")
             .prefetch_related("items__po_allocations")
             .order_by("-date_issued")
         )
-        if po.date_ordered:
+        dates = [po.date_ordered for po in pos if po.date_ordered]
+        if dates:
             delta = timedelta(days=cls.MAX_DATE_DELTA_DAYS)
             qs = qs.filter(
                 # Invoices still awaiting OCR have no issue date yet — keep them.
                 Q(date_issued__isnull=True)
                 | Q(
-                    date_issued__gte=po.date_ordered - delta,
-                    date_issued__lte=po.date_ordered + delta,
+                    date_issued__gte=min(dates) - delta,
+                    date_issued__lte=max(dates) + delta,
                 )
             )
 
@@ -115,7 +127,7 @@ class POInvoiceMatchService:
                 inv.unmatched_lines = len(unmatched)
                 result.append(inv)
 
-        target = cls._money_amount(po.total_amount)
+        target = sum((cls._money_amount(po.total_amount) or Decimal("0")) for po in pos)
         result.sort(key=lambda inv: abs(abs(cls._invoice_base(inv) or target) - target))
         return result[: cls.MAX_CANDIDATES]
 
@@ -170,8 +182,19 @@ class POInvoiceMatchService:
         For each PO line with pending qty, suggest the best invoice line.
         Returns {po_item_id: {"target_id": invoice_item_id, "quantity": qty}}.
         """
+        return cls.suggest_pairs_for_pos([po], invoice)
+
+    @classmethod
+    def suggest_pairs_for_pos(cls, pos, invoice):
+        """
+        Pooled version of suggest_pairs_for_po, used by the bulk matcher: PO
+        lines from every selected PO are suggested against the same invoice
+        in one greedy pass, so two POs are never both suggested the same
+        invoice line quantity.
+        """
         sources = [
             (pi, pending, cls._po_item_text(pi), pi.unit_price)
+            for po in pos
             for pi, pending in cls.po_items_with_pending(po, for_credit=invoice.is_credit_note)
         ]
         targets = [

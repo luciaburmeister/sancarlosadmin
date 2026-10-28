@@ -186,6 +186,27 @@ class POInvoiceMatchServiceTest(POMatchingTestBase):
         self.po_line_profile.refresh_from_db()
         self.assertEqual(self.po_line_profile.invoiced_quantity, Decimal("0"))
 
+    def test_candidate_invoices_for_pos_pools_several_pos(self):
+        other_po = self._make_po(self.provider)
+        self._make_po_line(other_po, self.item_glass, "4", "20.00")
+
+        candidates = POInvoiceMatchService.candidate_invoices_for_pos([self.po, other_po])
+        self.assertIn(self.invoice.pk, {inv.pk for inv in candidates})
+
+    def test_suggest_pairs_for_pos_splits_one_invoice_line_across_pos(self):
+        # Two POs each ordering 5 of the same item; one invoice line for 10.
+        po_a = self._make_po(self.provider)
+        line_a = self._make_po_line(po_a, self.item_profile, "5", "5.00")
+        po_b = self._make_po(self.provider)
+        line_b = self._make_po_line(po_b, self.item_profile, "5", "5.00")
+        invoice = self._make_invoice("F-003")
+        inv_line = self._make_invoice_line(invoice, "Perfil aluminio", "10", "5.00")
+
+        suggestions = POInvoiceMatchService.suggest_pairs_for_pos([po_a, po_b], invoice)
+
+        self.assertEqual(suggestions[line_a.pk], {"target_id": inv_line.pk, "quantity": Decimal("5")})
+        self.assertEqual(suggestions[line_b.pk], {"target_id": inv_line.pk, "quantity": Decimal("5")})
+
 
 class MatchViewsTest(POMatchingTestBase):
     def setUp(self):
@@ -262,3 +283,80 @@ class MatchViewsTest(POMatchingTestBase):
         self.assertEqual(InvoicePOAllocation.objects.count(), 0)
         messages = [str(m) for m in response.context["messages"]]
         self.assertTrue(any("invoiced" in m or "facturad" in m for m in messages))
+
+
+class BulkMatchViewsTest(POMatchingTestBase):
+    def setUp(self):
+        super().setUp()
+        User = get_user_model()
+        self.admin = User.objects.create_superuser("admin", "admin@test.com", "pass")
+        self.client.force_login(self.admin)
+        self.po_b = self._make_po(self.provider)
+        self.po_b_line = self._make_po_line(self.po_b, self.item_glass, "4", "20.00")
+
+    def test_changelist_action_redirects_to_bulk_matcher(self):
+        url = reverse("admin:purchasing_purchaseorder_changelist")
+        response = self.client.post(url, {
+            "action": "match_selected_pos_to_invoice",
+            "_selected_action": [self.po.pk, self.po_b.pk],
+        })
+        self.assertEqual(response.status_code, 302)
+        location = response.url
+        base, _, ids_param = location.partition("?ids=")
+        self.assertEqual(base, reverse("admin:purchasing_purchaseorder_bulk_match_invoice"))
+        self.assertEqual({int(v) for v in ids_param.split(",")}, {self.po.pk, self.po_b.pk})
+
+    def test_changelist_action_skips_non_matchable_statuses(self):
+        draft_po = self._make_po(self.provider, status=PurchaseOrderStatus.DRAFT)
+        url = reverse("admin:purchasing_purchaseorder_changelist")
+        response = self.client.post(url, {
+            "action": "match_selected_pos_to_invoice",
+            "_selected_action": [self.po.pk, draft_po.pk],
+        }, follow=True)
+        self.assertRedirects(
+            response,
+            reverse("admin:purchasing_purchaseorder_bulk_match_invoice") + f"?ids={self.po.pk}",
+        )
+        messages = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("skipped" in m or "omitid" in m for m in messages))
+
+    def test_bulk_candidate_page_shows_pooled_pos(self):
+        url = reverse("admin:purchasing_purchaseorder_bulk_match_invoice")
+        response = self.client.get(f"{url}?ids={self.po.pk},{self.po_b.pk}")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.po.number)
+        self.assertContains(response, self.po_b.number)
+        self.assertContains(response, "F-001")
+
+    def test_bulk_post_creates_allocations_across_pos(self):
+        url = reverse("admin:purchasing_purchaseorder_bulk_match_invoice")
+        response = self.client.post(f"{url}?ids={self.po.pk},{self.po_b.pk}&invoice={self.invoice.pk}", {
+            "ids": f"{self.po.pk},{self.po_b.pk}",
+            "invoice": self.invoice.pk,
+            f"target_{self.po_line_profile.pk}": self.inv_line_profile.pk,
+            f"qty_{self.po_line_profile.pk}": "10",
+            f"target_{self.po_line_glass.pk}": "",
+            f"qty_{self.po_line_glass.pk}": "",
+            f"target_{self.po_b_line.pk}": self.inv_line_glass.pk,
+            f"qty_{self.po_b_line.pk}": "4",
+        })
+        self.assertRedirects(response, reverse("admin:purchasing_purchaseorder_changelist"))
+        self.assertEqual(InvoicePOAllocation.objects.count(), 2)
+        self.po_line_profile.refresh_from_db()
+        self.po_b_line.refresh_from_db()
+        self.assertEqual(self.po_line_profile.invoiced_quantity, Decimal("10"))
+        self.assertEqual(self.po_b_line.invoiced_quantity, Decimal("4"))
+
+    def test_bulk_view_rejects_mixed_providers(self):
+        other_po = self._make_po(self.other_provider)
+        self._make_po_line(other_po, self.item_profile, "1", "1.00")
+        url = reverse("admin:purchasing_purchaseorder_bulk_match_invoice")
+        response = self.client.get(f"{url}?ids={self.po.pk},{other_po.pk}", follow=True)
+        self.assertRedirects(response, reverse("admin:purchasing_purchaseorder_changelist"))
+        messages = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("provider" in m or "proveedor" in m for m in messages))
+
+    def test_bulk_view_errors_without_ids(self):
+        url = reverse("admin:purchasing_purchaseorder_bulk_match_invoice")
+        response = self.client.get(url, follow=True)
+        self.assertRedirects(response, reverse("admin:purchasing_purchaseorder_changelist"))

@@ -8,8 +8,10 @@
         <span class="mx-2">&raquo;</span>
         <a href="{% url 'admin:purchasing_purchaseorder_changelist' %}" class="hover:text-primary-600">{% trans 'Purchase Orders' %}</a>
         <span class="mx-2">&raquo;</span>
-        <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}" class="hover:text-primary-600">{{ po.number }}</a>
+        {% if not is_bulk %}
+        <a href="{% url 'admin:purchasing_purchaseorder_change' pos.0.id %}" class="hover:text-primary-600">{{ pos.0.number }}</a>
         <span class="mx-2">&raquo;</span>
+        {% endif %}
         <span>{% trans 'Match Invoice' %}</span>
     </div>
 </div>
@@ -21,15 +23,27 @@
         <div class="p-8 border-b border-gray-100 bg-gray-50/50 flex flex-wrap items-start justify-between gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-gray-900">
-                    {% if selected_invoice %}{% trans "Match PO Lines" %}{% else %}{% trans "Match Invoice for PO" %}{% endif %}
+                    {% if selected_invoice %}{% trans "Match PO Lines" %}{% elif is_bulk %}{% trans "Match Invoice for Selected Purchase Orders" %}{% else %}{% trans "Match Invoice for PO" %}{% endif %}
                 </h1>
-                <p class="mt-2 text-sm text-gray-600">{{ po.number }} — {{ po.provider.name }} — {{ po.date_ordered }} — {{ po.total_amount }}</p>
-                <a href="{% url 'admin:purchasing_purchaseorder_run_ai_match_invoice' po.id %}"
+                {% if is_bulk %}
+                <p class="mt-2 text-sm text-gray-600">
+                    {% blocktrans count counter=pos|length %}{{ counter }} purchase order selected{% plural %}{{ counter }} purchase orders selected{% endblocktrans %}
+                    — {{ pos.0.provider.name }}
+                </p>
+                <div class="mt-2 flex flex-wrap gap-1">
+                    {% for po in pos %}
+                    <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{{ po.number }}</span>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="mt-2 text-sm text-gray-600">{{ pos.0.number }} — {{ pos.0.provider.name }} — {{ pos.0.date_ordered }} — {{ pos.0.total_amount }}</p>
+                <a href="{% url 'admin:purchasing_purchaseorder_run_ai_match_invoice' pos.0.id %}"
                     class="mt-3 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg"
                     style="color:#0f6e56; background-color:#e1f5ee; border:1px solid #9fe1cb;">
                     <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l1.5 4.5L16 8l-4.5 1.5L10 14l-1.5-4.5L4 8l4.5-1.5L10 2z"/><path d="M16 14l0.7 2 2 0.7-2 0.7-0.7 2-0.7-2-2-0.7 2-0.7z"/></svg>
                     {% trans "Try AI Suggest Match" %}
                 </a>
+                {% endif %}
             </div>
             {% if selected_invoice %}
             <div class="text-right text-sm flex-shrink-0">
@@ -40,7 +54,7 @@
                     <span class="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">{% trans "Credit Note" %}</span>
                     {% endif %}
                 </div>
-                <a href="{{ request.path }}" class="text-primary-600 hover:underline text-xs">{% trans "Choose another invoice" %}</a>
+                <a href="?ids={{ ids_param }}" class="text-primary-600 hover:underline text-xs">{% trans "Choose another invoice" %}</a>
             </div>
             {% endif %}
         </div>
@@ -81,7 +95,7 @@
                             <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{ inv.net_amount|default:inv.total_amount }}</td>
                             <td class="px-6 py-5 text-sm font-bold text-primary-600 text-center font-mono">{{ inv.unmatched_lines }}</td>
                             <td class="px-6 py-5 text-right">
-                                <a href="?invoice={{ inv.pk }}"
+                                <a href="?ids={{ ids_param }}&invoice={{ inv.pk }}"
                                     class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 shadow-sm transition-all">
                                     {% trans "Select" %}
                                 </a>
@@ -119,15 +133,15 @@
             <p class="text-sm text-gray-500">{% trans "No candidate invoices found for this provider with unmatched lines." %}</p>
             {% endif %}
             <div class="pt-8 flex justify-end">
-                <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}"
+                <a href="{{ cancel_url }}"
                     class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
-                    {% trans "Back to PO" %}
+                    {% if is_bulk %}{% trans "Back to Purchase Orders" %}{% else %}{% trans "Back to PO" %}{% endif %}
                 </a>
             </div>
         </div>
 
         {% else %}
-        <!-- Step 2: checklist review of suggested line pairings -->
+        <!-- Step 2: checklist review of suggested line pairings, across all selected POs -->
         <div class="mx-8 mt-6 mb-2 p-5 rounded-lg bg-amber-50 border border-amber-100">
             <div class="flex flex-wrap items-center justify-between gap-4 mb-3">
                 <span class="text-sm font-semibold text-amber-800">
@@ -150,63 +164,72 @@
             </div>
         </div>
 
-        <form method="post" action="?invoice={{ selected_invoice.pk }}" class="px-8 pb-8 space-y-3">
+        <form method="post" action="?ids={{ ids_param }}&invoice={{ selected_invoice.pk }}" class="px-8 pb-8 space-y-3">
             {% csrf_token %}
+            <input type="hidden" name="ids" value="{{ ids_param }}">
             <input type="hidden" name="invoice" value="{{ selected_invoice.pk }}">
 
-            {% for row in rows %}
-            <div class="rounded-lg border {% if row.is_matched %}border-gray-200 bg-white{% else %}border-amber-200 bg-amber-50/40{% endif %}">
-                <div class="flex items-start justify-between gap-4 px-5 py-4">
-                    <div class="flex items-start gap-3 min-w-0">
-                        <span class="mt-0.5 flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold {% if row.is_matched %}bg-emerald-600{% else %}bg-amber-500{% endif %}">
-                            {% if row.is_matched %}&#10003;{% else %}!{% endif %}
-                        </span>
-                        <div class="min-w-0">
-                            <div class="font-semibold text-gray-900">{{ row.item.inventory_item.name }}</div>
-                            <div class="text-xs text-gray-400 mt-1">{{ row.item.description }}</div>
-                            <div class="text-xs mt-1 {% if row.is_matched %}text-gray-500{% else %}text-amber-700{% endif %}">
-                                {% if row.is_matched %}
-                                    {% trans "Matched" %} — {{ row.matched_summary }}
-                                {% else %}
-                                    {% trans "Needs an invoice line match" %}
-                                {% endif %}
+            {% regroup rows by po as po_rows %}
+            {% for group in po_rows %}
+            <div class="pt-4 first:pt-0">
+                {% if pos|length > 1 %}
+                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{{ group.grouper.number }} — {{ group.grouper.date_ordered }}</div>
+                {% endif %}
+                {% for row in group.list %}
+                <div class="rounded-lg border {% if row.is_matched %}border-gray-200 bg-white{% else %}border-amber-200 bg-amber-50/40{% endif %} mb-3">
+                    <div class="flex items-start justify-between gap-4 px-5 py-4">
+                        <div class="flex items-start gap-3 min-w-0">
+                            <span class="mt-0.5 flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold {% if row.is_matched %}bg-emerald-600{% else %}bg-amber-500{% endif %}">
+                                {% if row.is_matched %}&#10003;{% else %}!{% endif %}
+                            </span>
+                            <div class="min-w-0">
+                                <div class="font-semibold text-gray-900">{{ row.item.inventory_item.name }}</div>
+                                <div class="text-xs text-gray-400 mt-1">{{ row.item.description }}</div>
+                                <div class="text-xs mt-1 {% if row.is_matched %}text-gray-500{% else %}text-amber-700{% endif %}">
+                                    {% if row.is_matched %}
+                                        {% trans "Matched" %} — {{ row.matched_summary }}
+                                    {% else %}
+                                        {% trans "Needs an invoice line match" %}
+                                    {% endif %}
+                                </div>
                             </div>
                         </div>
+                        <div class="text-right flex-shrink-0">
+                            <div class="text-xs text-gray-400">{% trans "Qty" %} {{ row.item.quantity|floatformat:2 }}</div>
+                            <div class="font-bold text-gray-900">{{ row.line_amount }}</div>
+                        </div>
                     </div>
-                    <div class="text-right flex-shrink-0">
-                        <div class="text-xs text-gray-400">{% trans "Qty" %} {{ row.item.quantity|floatformat:2 }}</div>
-                        <div class="font-bold text-gray-900">{{ row.line_amount }}</div>
-                    </div>
-                </div>
 
-                {% if not row.is_matched %}
-                <div class="px-5 pb-5 pt-3 border-t border-amber-100 grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{% trans "Match to Invoice Line" %}</label>
-                        <select name="target_{{ row.item.pk }}"
-                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
-                            <option value="">{% trans "— No matching invoice line —" %}</option>
-                            {% for inv_item, remaining in target_lines %}
-                            <option value="{{ inv_item.pk }}" {% if inv_item.pk == row.suggested_target %}selected{% endif %}>
-                                {{ inv_item.description|truncatechars:60 }} ({% trans "unmatched" %} {{ remaining|floatformat:2 }} / {{ inv_item.quantity|floatformat:2 }} · {{ inv_item.unit_price }})
-                            </option>
-                            {% endfor %}
-                        </select>
+                    {% if not row.is_matched %}
+                    <div class="px-5 pb-5 pt-3 border-t border-amber-100 grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{% trans "Match to Invoice Line" %}</label>
+                            <select name="target_{{ row.item.pk }}"
+                                class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
+                                <option value="">{% trans "— No matching invoice line —" %}</option>
+                                {% for inv_item, remaining in target_lines %}
+                                <option value="{{ inv_item.pk }}" {% if inv_item.pk == row.suggested_target %}selected{% endif %}>
+                                    {{ inv_item.description|truncatechars:60 }} ({% trans "unmatched" %} {{ remaining|floatformat:2 }} / {{ inv_item.quantity|floatformat:2 }} · {{ inv_item.unit_price }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{% trans "Qty to Match" %}</label>
+                            <input type="number" name="qty_{{ row.item.pk }}" step="0.001" min="0"
+                                value="{{ row.suggested_qty }}" placeholder="0"
+                                class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
+                        </div>
                     </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{% trans "Qty to Match" %}</label>
-                        <input type="number" name="qty_{{ row.item.pk }}" step="0.001" min="0"
-                            value="{{ row.suggested_qty }}" placeholder="0"
-                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
+                    {% if row.allocations %}
+                    <div class="px-5 pb-4 -mt-2 text-xs text-gray-500">
+                        {% trans "Already partially matched" %}:
+                        {% for alloc in row.allocations %}{{ alloc.invoice_item.invoice.invoice_number|default:alloc.invoice_item.invoice.pk }} ({{ alloc.quantity|floatformat:2 }} = {{ alloc.allocated_amount }}){% if not forloop.last %}, {% endif %}{% endfor %}
                     </div>
+                    {% endif %}
+                    {% endif %}
                 </div>
-                {% if row.allocations %}
-                <div class="px-5 pb-4 -mt-2 text-xs text-gray-500">
-                    {% trans "Already partially matched" %}:
-                    {% for alloc in row.allocations %}{{ alloc.invoice_item.invoice.invoice_number|default:alloc.invoice_item.invoice.pk }} ({{ alloc.quantity|floatformat:2 }} = {{ alloc.allocated_amount }}){% if not forloop.last %}, {% endif %}{% endfor %}
-                </div>
-                {% endif %}
-                {% endif %}
+                {% endfor %}
             </div>
             {% endfor %}
 
@@ -218,7 +241,7 @@
                         {% trans "All lines matched." %}
                     {% endif %}
                 </p>
-                    <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}"
+                    <a href="{{ cancel_url }}"
                         class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
                         {% trans "Cancel" %}
                     </a>

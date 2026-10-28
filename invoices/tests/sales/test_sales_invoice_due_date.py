@@ -89,3 +89,31 @@ class SalesInvoiceDueDateTests(TestCase):
         invoice.refresh_from_db()
 
         self.assertIsNone(invoice.due_date)
+
+    def test_due_date_moves_to_client_payment_day(self):
+        client = Client.objects.create(
+            name="Paga el 25", company=self.company,
+            payment_terms_days=30, payment_days=[25],
+        )
+
+        invoice = self._create(client=client)
+
+        self.assertEqual(invoice.due_date, date(2026, 2, 25))
+        self.assertEqual(invoice.payment_terms_days, 30)
+
+    def test_explicit_due_date_wins_over_payment_days(self):
+        client = Client.objects.create(
+            name="Paga el 25", company=self.company, payment_days=[25],
+        )
+
+        invoice = self._create(client=client, due_date=date(2026, 3, 1))
+
+        self.assertEqual(invoice.due_date, date(2026, 3, 1))
+
+    def test_client_payment_days_are_stored_sorted_without_duplicates(self):
+        client = Client.objects.create(
+            name="Paga el 10 y 25", company=self.company, payment_days=[25, 10, 25],
+        )
+        client.refresh_from_db()
+
+        self.assertEqual(client.payment_days, [10, 25])

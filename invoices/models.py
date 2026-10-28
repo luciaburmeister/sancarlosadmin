@@ -10,7 +10,7 @@ from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from materials.models import Provider, PaymentMethod
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
@@ -31,6 +31,7 @@ from payments.models import PaymentAllocation
 from payments.mixins import Payable
 from invoices import line_sources
 from invoices import payment_reference as payment_references
+from invoices.due_dates import compute_due_date
 import os
 
 logger = logging.getLogger(__name__)
@@ -1541,16 +1542,24 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         if self.is_external or self.due_date or not self.client_id:
             return
 
-        date_issued = self.date_issued
+        due_date = self.default_due_date(self.date_issued)
+        if due_date is None:
+            return
+        self.due_date = due_date
+        if not self.payment_terms_days:
+            self.payment_terms_days = self.resolve_payment_terms_days()
+
+    def default_due_date(self, date_issued):
+        """
+        The due date the client's payment terms and payment days give for an
+        invoice issued on `date_issued`, or None when there is nothing to
+        derive it from (no client or no date).
+        """
         if isinstance(date_issued, datetime):
             date_issued = timezone.localdate(date_issued) if timezone.is_aware(date_issued) else date_issued.date()
-        if not isinstance(date_issued, date):
-            return
-
-        terms_days = self.resolve_payment_terms_days()
-        self.due_date = date_issued + timedelta(days=terms_days)
-        if not self.payment_terms_days:
-            self.payment_terms_days = terms_days
+        if not isinstance(date_issued, date) or not self.client_id:
+            return None
+        return compute_due_date(date_issued, self.resolve_payment_terms_days(), self.client.payment_days)
 
     @property
     def has_posted_journal_entry(self):

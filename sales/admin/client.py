@@ -236,7 +236,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
             "classes": ["tab"],
             "fields": (
                 ("is_insured", "max_risk", "current_risk"),
-                ("payment_method", "payment_terms_days"),
+                ("payment_method", "payment_terms_days", "payment_days"),
                 "payment_terms_observations",
                 ("our_bank_account", "default_client_bank_account"),
                 "account",

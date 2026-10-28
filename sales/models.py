@@ -3,6 +3,7 @@ import hashlib
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import Max
 from django.db.models import Sum
@@ -457,6 +458,19 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Payment Terms (Days)"),
         help_text=_("Days after invoice issue date before payment is due. Used to compute invoice due dates."),
     )
+    payment_days = ArrayField(
+        base_field=models.PositiveSmallIntegerField(
+            validators=[MinValueValidator(1), MaxValueValidator(31)],
+        ),
+        default=list,
+        blank=True,
+        verbose_name=_("Payment Days"),
+        help_text=_(
+            "Days of the month this client pays on (e.g. 10,25). The invoice due date "
+            "moves to the next of these days after the payment terms. A day past the "
+            "end of a month counts as its last day. Leave empty to use the terms only."
+        ),
+    )
     payment_terms_observations = models.TextField(
         blank=True,
         verbose_name=_("Observations"),
@@ -560,6 +574,7 @@ class Client(Timestampable, CompanyOwnedModel):
 
     def save(self, *args, **kwargs):
         self._validate_unique_tax_identifier()
+        self.payment_days = sorted(set(self.payment_days or []))
         super().save(*args, **kwargs)
 
     def _validate_unique_tax_identifier(self):

@@ -85,6 +85,40 @@ class SalesInvoiceTest(TestCase):
 
         self.assertEqual(invoice.date_issued, timezone.localdate())
 
+    def test_finalize_recomputes_automatic_due_date_from_new_issue_date(self):
+        """A due date still derived from the draft's issue date follows the
+        issue date set at finalize, including the client's payment days."""
+        from datetime import date, timedelta
+        from invoices.due_dates import compute_due_date
+
+        self.client.payment_terms_days = 30
+        self.client.payment_days = [25]
+        self.client.save()
+        invoice = SalesInvoiceService.create_from_configuration(self.configuration)
+        old_date = date.today() - timedelta(days=40)
+        invoice.date_issued = old_date
+        invoice.due_date = compute_due_date(old_date, 30, [25])
+        invoice.save(update_fields=["date_issued", "due_date"])
+
+        SalesInvoiceService.finalize_invoice(invoice)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.due_date, compute_due_date(timezone.localdate(), 30, [25]))
+
+    def test_finalize_keeps_due_date_set_by_hand(self):
+        from datetime import date, timedelta
+
+        invoice = SalesInvoiceService.create_from_configuration(self.configuration)
+        manual = date.today() + timedelta(days=90)
+        invoice.date_issued = date.today() - timedelta(days=10)
+        invoice.due_date = manual
+        invoice.save(update_fields=["date_issued", "due_date"])
+
+        SalesInvoiceService.finalize_invoice(invoice)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.due_date, manual)
+
     def test_refinalize_keeps_original_date_issued(self):
         """Finalizing an already-final invoice must not touch its issue date."""
         from datetime import date, timedelta

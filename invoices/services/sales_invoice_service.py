@@ -1,5 +1,4 @@
 import logging
-from datetime import timedelta
 from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -8,6 +7,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
 from invoices import line_sources
+from invoices.due_dates import compute_due_date
 from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, SalesInvoiceStatus, SalesInvoiceDocumentType
 from sales.models import DeliveryOrder, DeliveryOrderItem
 from configurator.models import ExportTemplateKind, ConfigurationExportTemplate
@@ -69,7 +69,9 @@ class SalesInvoiceService:
             status=SalesInvoiceStatus.PROFORMA,
             invoice_number=None, # Assigned on finalization
             date_issued=date_issued,
-            due_date=date_issued + timedelta(days=payment_terms_days),
+            due_date=compute_due_date(
+                date_issued, payment_terms_days, client.payment_days if client else (),
+            ),
             client_id=client_id,
             configuration=configuration,
             notes=f"Generated from Configuration #{configuration.id}",
@@ -165,9 +167,19 @@ class SalesInvoiceService:
 
         company = sales_invoice.company
         sales_invoice.status = SalesInvoiceStatus.FINAL
+        # A due date still derived from the draft's issue date follows the new
+        # one; a due date set by hand is kept.
+        due_date_is_automatic = (
+            not sales_invoice.is_external
+            and sales_invoice.due_date is not None
+            and sales_invoice.due_date == sales_invoice.default_due_date(sales_invoice.date_issued)
+        )
         # The legal issue date is when the invoice becomes final, not when the
         # proforma was drafted — keeps invoice numbers chronological.
         sales_invoice.date_issued = timezone.localdate()
+        if due_date_is_automatic:
+            sales_invoice.due_date = sales_invoice.default_due_date(sales_invoice.date_issued)
+            update_fields.append('due_date')
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']

@@ -137,7 +137,9 @@
                 {% if advance_preview %}
                 {% include "invoices/project_file_invoice_advance_preview.html" with preview=advance_preview %}
                 {% endif %}
-                {% if wizard.steps.current == 'items' %}
+                {% if wizard.steps.current == 'work_entries' %}
+                {% include "invoices/project_file_invoice_work_entries.html" with formset=wizard.form %}
+                {% elif wizard.steps.current == 'items' %}
                 {% include "invoices/stacked_inline_formset.html" with formset=wizard.form formset_tag=False form_add=True form_id="item-formset" formset_id="item-formset" %}
                 {% elif wizard.steps.current == 'deductions' %}
                 {% include "invoices/project_file_invoice_deductions.html" with formset=wizard.form %}

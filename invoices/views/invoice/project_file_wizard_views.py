@@ -23,6 +23,7 @@ from invoices.forms.project_file_wizard_forms import (
     AdvanceDeductionForm,
     ProjectFileInvoiceSetupForm,
     ProjectFileInvoiceNotesForm,
+    WorkEntrySelectionForm,
 )
 from general.email import sender_cc, sender_reply_to
 from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
@@ -30,9 +31,13 @@ from invoices.services.project_file_invoice_service import ProjectFileInvoiceSer
 from invoices.services.sales_invoice_service import SalesInvoiceService
 
 
-def _is_advance(wizard):
+def _setup_mode(wizard):
     setup_data = wizard.get_cleaned_data_for_step("setup") or {}
-    return setup_data.get('invoice_mode') == 'advance'
+    return setup_data.get('invoice_mode')
+
+
+def _is_advance(wizard):
+    return _setup_mode(wizard) == 'advance'
 
 
 def _deducts_advances(wizard):
@@ -43,9 +48,16 @@ def _deducts_advances(wizard):
     )
 
 
+def _selects_work_entries(wizard):
+    """Full-mode invoices with pending (unlocked) work entries get a step to
+    pick which ones to bill; the rest stay pending for a later invoice."""
+    return _setup_mode(wizard) == 'full' and bool(wizard.pending_work_entries())
+
+
 class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
     form_list = [
         ("setup", ProjectFileInvoiceSetupForm),
+        ("work_entries", formset_factory(WorkEntrySelectionForm, extra=0)),
         ("items", formset_factory(WizardItemForm, extra=1, can_delete=True)),
         # Kept apart from the goods lines: deductions are never items
         ("deductions", formset_factory(AdvanceDeductionForm, extra=0)),
@@ -53,6 +65,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
     ]
     # An advance has no goods lines to edit: its lines come from the setup
     condition_dict = {
+        "work_entries": _selects_work_entries,
         "items": lambda wizard: not _is_advance(wizard),
         "deductions": _deducts_advances,
     }
@@ -74,6 +87,10 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             kwargs["request"] = self.request
             kwargs["project_file"] = self.project_file
             kwargs["invoicing_summary"] = self.invoicing_summary
+        elif step == "work_entries":
+            kwargs["form_kwargs"] = {
+                "rows": {entry["id"]: entry for entry in self.pending_work_entries()},
+            }
         elif step == "deductions":
             kwargs["form_kwargs"] = {
                 "rows": {row.line.pk: row for row in self._deduction_plan()},
@@ -82,6 +99,23 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             kwargs["request"] = self.request
             kwargs["advance"] = _is_advance(self)
         return kwargs
+
+    def pending_work_entries(self):
+        """WorkEntry dicts from the invoicing summary not yet locked by
+        another invoice — the ones a "full" invoice may still pick from."""
+        return [
+            entry for entry in self.invoicing_summary.get('work_entries', [])
+            if not entry['is_locked']
+        ]
+
+    def selected_work_entry_ids(self):
+        """WorkEntry pks checked on the "work_entries" step, or ``None`` when
+        that step did not run (not "full" mode, or nothing pending): no
+        selection to apply, every pending WorkEntry bills as before."""
+        rows = self.get_cleaned_data_for_step("work_entries")
+        if rows is None:
+            return None
+        return [row['work_entry_id'] for row in rows if row and row.get('selected')]
 
     @staticmethod
     def _items_data(rows):
@@ -132,6 +166,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             # Each source's exact pending amount: no ratio to round
             return ProjectFileInvoiceService.build_items_for_remaining(
                 self.invoicing_summary, split_configs=False,
+                work_entry_ids=self.selected_work_entry_ids(),
             )
         calculated_subtotal = setup_data.get('_calculated_subtotal', Decimal("0.00"))
 
@@ -261,6 +296,11 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
     def get_form_initial(self, step):
         initial = super().get_form_initial(step)
 
+        if step == "work_entries":
+            return [
+                {'work_entry_id': entry['id'], 'selected': True}
+                for entry in self.pending_work_entries()
+            ]
         if step == "items":
             return self._build_items_initial()
         if step == "deductions":
@@ -325,6 +365,14 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             return self._done_advance(setup_form, notes_form)
         # Goods come from the items step only; deductions never go through it
         items_data = self._items_data(form.cleaned_data for form in form_dict["items"])
+        if not items_data:
+            messages.error(
+                self.request,
+                _("No invoice lines were selected. Check at least one item or work entry."),
+            )
+            return redirect(
+                reverse("admin:management_projectfile_change", args=[self.project_file.id])
+            )
         # Keyed by advance line; apply() checks them against its own plan.
         # Without the step (nothing deductible when it started) the default plan.
         amounts = None

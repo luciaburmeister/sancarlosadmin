@@ -812,7 +812,9 @@ class ProjectFileInvoiceService:
         return scaled
 
     @classmethod
-    def build_items_for_remaining(cls, summary, show_vehicle_name=True, split_configs=True):
+    def build_items_for_remaining(
+        cls, summary, show_vehicle_name=True, split_configs=True, work_entry_ids=None,
+    ):
         """
         Invoice line dicts billing everything still pending, source by
         source: each source's full amount less what its lines already billed
@@ -824,6 +826,13 @@ class ProjectFileInvoiceService:
 
         ``split_configs`` as in build_items_for_ratio: a configuration's
         component lines are rescaled to add up to its pending amount.
+
+        With ``work_entry_ids`` given (a list, possibly empty), only those
+        WorkEntry sources are billed; every other pending WorkEntry is left
+        out, so it stays unlocked for a later invoice. ``None`` (the
+        default) bills every pending WorkEntry, as before. Every other
+        source kind (quotes, direct configurations, inventory items) is
+        unaffected.
         """
         invoiced = cls.invoiced_by_source(summary["project_file"])
         quantities = cls._source_quantities(summary)
@@ -833,6 +842,12 @@ class ProjectFileInvoiceService:
             summary, Decimal("1"), show_vehicle_name=show_vehicle_name, split_configs=split_configs,
         ):
             lines_by_source.setdefault(line["source_id"], []).append(line)
+        if work_entry_ids is not None:
+            allowed = {line_sources.source_id(line_sources.WORK_ENTRY, pk) for pk in work_entry_ids}
+            lines_by_source = {
+                source: lines for source, lines in lines_by_source.items()
+                if line_sources.pk_of(source, line_sources.WORK_ENTRY) is None or source in allowed
+            }
         full_by_source = {
             line["source_id"]: cls.line_total(line).quantize(Decimal("0.01"))
             for line in cls.build_items_for_ratio(

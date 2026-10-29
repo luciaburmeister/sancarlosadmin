@@ -11,6 +11,7 @@ from sales.models import Client
 from company.models import Company
 from unfold.widgets import (
     UnfoldAdminSelectWidget,
+    UnfoldBooleanWidget,
     UnfoldBooleanSwitchWidget,
     UnfoldAdminDecimalFieldWidget,
     UnfoldAdminDateWidget,
@@ -285,6 +286,27 @@ class ProjectFileInvoiceNotesForm(forms.Form):
                 ),
             )
         self.helper = ProjectFileInvoiceNotesFormHelper(advance=advance)
+
+
+class WorkEntrySelectionForm(forms.Form):
+    """One pending WorkEntry the invoice may include, in the wizard's
+    "work entries to invoice" step. Unchecking a row leaves it pending,
+    unlocked, for a later invoice; the row's display data (description,
+    date, amount) comes from the server's invoicing summary via ``rows``,
+    keyed by WorkEntry pk, the same way ``AdvanceDeductionForm`` does."""
+
+    work_entry_id = forms.IntegerField(widget=forms.HiddenInput())
+    selected = forms.BooleanField(
+        required=False,
+        initial=True,
+        widget=UnfoldBooleanWidget,
+        label=_("Include in this invoice"),
+    )
+
+    def __init__(self, *args, rows=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rows = rows or {}
+        self.row = self.rows.get(self.initial.get('work_entry_id'))
 
 
 class AdvanceDeductionForm(forms.Form):

@@ -7,12 +7,19 @@ from types import SimpleNamespace
 
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import QueryDict
 from django.test import RequestFactory, TestCase
+from formtools.wizard.storage import get_storage
+from formtools.wizard.views import StepsHelper
 from djmoney.money import Money
 
 from invoices.models import SalesInvoice, TaxType
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-from invoices.tests.factories import apply_tax, create_invoice, make_client, make_company, make_project_file
+from invoices.models import PaymentMethod
+from invoices.tests.factories import (
+    apply_tax, create_invoice, make_client, make_company, make_configuration,
+    make_product_template, make_project_file,
+)
 from invoices.views.invoice.project_file_wizard_views import (
     ProjectFileInvoiceWizardView,
     _selects_work_entries,
@@ -81,7 +88,9 @@ class WizardSelectionStepTests(_TwoWorkEntriesBase):
     """_build_items_initial honors the "work_entries" step's selection."""
 
     def _view(self, invoice_mode, work_entries_rows=None):
-        view = ProjectFileInvoiceWizardView(model_admin=None)
+        view = ProjectFileInvoiceWizardView(
+            **ProjectFileInvoiceWizardView.get_initkwargs(), model_admin=None,
+        )
         view.invoicing_summary = self._summary()
         data_by_step = {
             "setup": {"invoice_mode": invoice_mode, "_calculated_subtotal": Decimal("0.00")},
@@ -192,3 +201,75 @@ class EmptySelectionGuardTests(_TwoWorkEntriesBase):
         view.done([], form_dict)
 
         self.assertEqual(SalesInvoice.objects.filter(project_file=self.project_file).count(), 0)
+
+
+class SkippedWorkEntriesStepTests(_TwoWorkEntriesBase):
+    """A full invoice whose selection step is hidden (nothing pending) must
+    still reach the items step. formtools raises KeyError if that declared
+    step is read after the condition left it out."""
+
+    def test_items_step_builds_when_the_selection_step_is_skipped(self):
+        product = make_product_template(company=self.company, name="Door")
+        config = make_configuration(
+            product=product, project_file=self.project_file, subtotal="50.00", name="Marco",
+        )
+        create_invoice(
+            project_file=self.project_file,
+            items=[
+                {
+                    "source_id": f"work_entry_{self.entry_a.pk}",
+                    "description": "Porte A",
+                    "quantity": Decimal("1"),
+                    "unit_price": Decimal("100.00"),
+                    "discount_percentage": Decimal("0.00"),
+                },
+                {
+                    "source_id": f"work_entry_{self.entry_b.pk}",
+                    "description": "Porte B",
+                    "quantity": Decimal("1"),
+                    "unit_price": Decimal("100.00"),
+                    "discount_percentage": Decimal("0.00"),
+                },
+            ],
+            date_issued=date(2026, 9, 10),
+        )
+
+        view = self._wizard(self._summary())
+        posted = QueryDict(mutable=True)
+        posted.update({
+            "setup-company": str(self.company.pk),
+            "setup-date_issued": "2026-10-29",
+            "setup-invoice_mode": "full",
+            "setup-percentage": "100.00",
+            "setup-payment_method": PaymentMethod.TRANSFER,
+        })
+        setup = view.get_form("setup", data=posted)
+        self.assertTrue(setup.is_valid(), setup.errors)
+        view.storage.set_step_data("setup", view.process_step(setup))
+        view.storage.current_step = "setup"
+        for name in list(view.__dict__):
+            if name.startswith("_cleaned_data_cache_") or name in ("_resolved_form_list", "_cache_signature"):
+                delattr(view, name)
+
+        items = view.get_form("items")
+
+        self.assertEqual(
+            [form.initial.get("source_id") for form in items.forms],
+            [f"direct_{config.pk}"],
+        )
+
+    def _wizard(self, summary):
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda r: None).process_request(request)
+        request.session.save()
+        request.user = SimpleNamespace(is_superuser=True)
+        view = ProjectFileInvoiceWizardView(
+            **ProjectFileInvoiceWizardView.get_initkwargs(), model_admin=None,
+        )
+        view.request = request
+        view.prefix = view.get_prefix(request)
+        view.storage = get_storage(view.storage_name, view.prefix, request)
+        view.steps = StepsHelper(view)
+        view.project_file = self.project_file
+        view.invoicing_summary = summary
+        return view

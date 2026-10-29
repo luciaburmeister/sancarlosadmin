@@ -111,7 +111,12 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
     def selected_work_entry_ids(self):
         """WorkEntry pks checked on the "work_entries" step, or ``None`` when
         that step did not run (not "full" mode, or nothing pending): no
-        selection to apply, every pending WorkEntry bills as before."""
+        selection to apply, every pending WorkEntry bills as before.
+        A skipped step stays declared on the wizard; asking formtools for
+        its data raises KeyError, so that case returns ``None`` directly.
+        """
+        if "work_entries" not in self.get_form_list():
+            return None
         rows = self.get_cleaned_data_for_step("work_entries")
         if rows is None:
             return None

@@ -362,13 +362,7 @@ class MachineHoursHistorialViewTest(MachineHoursBaseTest):
         self.assertEqual(response.json()["count"], 0)
 
 
-# ─── MachineCheckView — open access, no per-worker permission required ───────
-
 class MachineCheckViewTest(MachineHoursBaseTest):
-    """Any worker in the company can check/operate any machine of that
-    company now — MachinePermission is no longer consulted here (it's still
-    used elsewhere, e.g. transport_assigner's driver-fallback)."""
-
     def test_any_employee_in_the_company_can_check_the_machine(self):
         other_user = make_user(username="other_worker")
         other_employee = make_employee(self.company, other_user)
@@ -386,14 +380,7 @@ class MachineCheckViewTest(MachineHoursBaseTest):
         self.assertEqual(response.status_code, 404)
 
 
-# ─── MachineHoursStrategy — the machine's zone follows the worker ────────────
-
 class MachineHoursZoneFollowsWorkerTest(MachineHoursBaseTest):
-    """start/resume/end now resolve where the worker actually is (zone_id,
-    else GPS across ANY zone type) and move the machine there instead of
-    validating distance from a fixed zone. No match / no GPS is not an
-    error — the machine's zone is simply left as it was."""
-
     def setUp(self):
         super().setUp()
         self.planning = make_machine_planning(self.asset, self.employee, self.company)
@@ -430,8 +417,6 @@ class MachineHoursZoneFollowsWorkerTest(MachineHoursBaseTest):
         self.assertEqual(self.asset.current_working_zone_id, self.zone.id)
 
     def test_start_far_from_any_zone_no_longer_errors(self):
-        # Previously this 400'd with "No estas cerca de ninguna obra
-        # conocida." — the distance/obra-only restriction is gone now.
         response = self._post("start", extra={"latitude": 0.0, "longitude": 0.0})
         self.assertEqual(response.status_code, 200)
         self.asset.refresh_from_db()
@@ -468,9 +453,6 @@ class MachineHoursZoneFollowsWorkerTest(MachineHoursBaseTest):
         self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
 
     def test_multiple_nearby_zones_still_returns_the_picker(self):
-        # Non-2xx on purpose (409): app builds already in the field only
-        # look for multiple_zones on a non-2xx response, else they read a
-        # 200 as a successful start/pause/end that silently saved nothing.
         lat, lon = self.almacen.get_coordinates()
         make_almacen(self.company, name="Almacen 2", lat=lat, lon=lon)
         response = self._post("start", extra={"latitude": lat, "longitude": lon})
@@ -484,10 +466,6 @@ class MachineHoursZoneFollowsWorkerTest(MachineHoursBaseTest):
         self.assertEqual(response.status_code, 400)
 
     def test_a_zone_cluster_around_the_machines_own_zone_does_not_force_the_picker(self):
-        # Real sites can have several zones within meters of each other
-        # (e.g. two subsidiaries sharing a yard). If GPS matches several
-        # zones but one of them is the machine's own current zone, that's
-        # not actually ambiguous — start/pause/end must not block on it.
         from api.fleet.tests.helpers import make_almacen
         make_almacen(self.company, name="Almacen Vecino", lat=40.406, lon=-3.683)
         lat, lon = self.zone.get_coordinates()

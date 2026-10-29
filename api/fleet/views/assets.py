@@ -693,14 +693,6 @@ class ReceiptStrategy(BaseTransactionStrategy):
 
 
 def _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id):
-    """Resolves where the worker actually is right now, so the machine's
-    current_working_zone can follow them instead of staying pinned to
-    wherever it was left. Any zone type counts (an almacén is as valid a
-    answer as an obra). Returns (zone, error_response):
-      - a chosen_zone_id that doesn't exist is still a real error.
-      - no GPS, or GPS with zero/multiple matches, is NOT an error — zone
-        is None and the caller leaves the asset's zone exactly as it was.
-    """
     if chosen_zone_id:
         try:
             return WorkingZone.objects.get(id=chosen_zone_id, company=asset.company), None
@@ -712,30 +704,17 @@ def _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id):
     if len(nearby_zones) == 0:
         return None, None
     if len(nearby_zones) > 1:
-        # Real zone clusters (e.g. several yards/clients on the same site,
-        # within meters of each other) would otherwise force the picker on
-        # every single start/pause/resume/end even when the worker hasn't
-        # moved. If the machine's own zone is one of the candidates, that's
-        # not actually ambiguous — stay put instead of asking.
         current_id = asset.current_working_zone_id
         if current_id is not None:
             for z, _distance in nearby_zones:
                 if z.id == current_id:
                     return z, None
-        # 409, not 200 — unlike the cuba/porte multiple_zones responses
-        # (left at 200 on purpose, untouched here), app builds already in
-        # the field only look for multiple_zones on a non-2xx status. A 200
-        # here reads as a silent successful start/pause/end that actually
-        # saved nothing.
         return None, JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, _ in nearby_zones]}, status=409)
     zone, _distance = nearby_zones[0]
     return zone, None
 
 
 def _apply_worker_zone(asset, zone, latitude, longitude):
-    """Moves the machine to the worker's resolved zone, confirming the
-    zone's real-world GPS on its first use — same pattern as
-    MovementStrategy. No-op when nothing was resolved."""
     if zone is None:
         return
     if zone.location_confirmed_at is None and latitude and longitude:
@@ -831,8 +810,6 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         intervals = tx.data.get("intervals", [])
         if not intervals or intervals[-1].get("end") is not None:
             return JsonResponse({"error": "La maquina ya esta pausada."}, status=400)
-        # Pause never required a zone — only resolve/move it when the app
-        # actually sent GPS or a chosen zone, otherwise leave it alone.
         if chosen_zone_id or (latitude and longitude):
             resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
             if err:

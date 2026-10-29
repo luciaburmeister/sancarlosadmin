@@ -444,10 +444,17 @@ class MachineHoursZoneFollowsWorkerTest(MachineHoursBaseTest):
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
 
-    def test_pause_moves_the_zone_when_gps_is_sent(self):
+    def test_pause_does_not_move_the_zone_from_gps_alone(self):
         self._post("start")
         lat, lon = self.almacen.get_coordinates()
         response = self._post("pause", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.zone.id)
+
+    def test_pause_moves_the_zone_when_zone_id_is_sent(self):
+        self._post("start")
+        response = self._post("pause", extra={"zone_id": self.almacen.id})
         self.assertEqual(response.status_code, 200)
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)

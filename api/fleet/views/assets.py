@@ -810,14 +810,14 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         intervals = tx.data.get("intervals", [])
         if not intervals or intervals[-1].get("end") is not None:
             return JsonResponse({"error": "La maquina ya esta pausada."}, status=400)
-        if chosen_zone_id or (latitude and longitude):
+        if chosen_zone_id:
             resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
             if err:
                 return err
             _apply_worker_zone(asset, resolved_zone, latitude, longitude)
         intervals[-1]["end"] = self._now_str()
         tx.data["intervals"] = intervals
-        tx.notes += f" | Pausa por {user.username} a las {intervals[-1]['end']}."
+        tx.notes += f" | Pausa por {user.username} a las {intervals[-1]['end']}. GPS: {latitude}, {longitude}."
         tx.save(update_fields=["data", "notes"])
         return JsonResponse({"success": True, "message": "Pausa registrada."})
 
@@ -835,14 +835,15 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         intervals = tx.data.get("intervals", [])
         if intervals and intervals[-1].get("end") is None:
             return JsonResponse({"error": "La maquina ya esta en marcha."}, status=400)
-        resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
-        if err:
-            return err
-        _apply_worker_zone(asset, resolved_zone, latitude, longitude)
+        if chosen_zone_id:
+            resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
+            if err:
+                return err
+            _apply_worker_zone(asset, resolved_zone, latitude, longitude)
         now_str = self._now_str()
         intervals.append({"start": now_str, "end": None})
         tx.data["intervals"] = intervals
-        tx.notes += f" | Reanudado por {user.username} a las {now_str}."
+        tx.notes += f" | Reanudado por {user.username} a las {now_str}. GPS: {latitude}, {longitude}."
         tx.save(update_fields=["data", "notes"])
         return JsonResponse({"success": True, "message": "Reanudado correctamente."})
 
@@ -865,10 +866,11 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         except AssetTransaction.MultipleObjectsReturned:
             tx = qs.order_by("-data__machine_start_time").first()
 
-        resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
-        if err:
-            return err
-        _apply_worker_zone(asset, resolved_zone, latitude, longitude)
+        if chosen_zone_id:
+            resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
+            if err:
+                return err
+            _apply_worker_zone(asset, resolved_zone, latitude, longitude)
 
         now_str = self._now_str()
         intervals = tx.data.get("intervals", [])

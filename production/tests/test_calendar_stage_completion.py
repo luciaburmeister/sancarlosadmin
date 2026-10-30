@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from time import time
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.db import connection
@@ -240,6 +241,8 @@ class CalendarStageCompletionTest(TestCase):
         user.is_superuser = True
         user.save()
         self.client.force_login(user)
+        # Superuser company ids are cached across tests; stale ids hide self.company.
+        cache.delete(ActiveCompany.SUPERUSER_IDS_CACHE_KEY)
         session = self.client.session
         session[ActiveCompany.SESSION_KEY] = [self.company.pk]
         session[ActiveCompany.SESSION_SET_AT_KEY] = time()

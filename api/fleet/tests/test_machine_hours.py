@@ -4,7 +4,7 @@ api/fleet/tests/test_machine_hours.py
 import json
 from datetime import date, timedelta
 from django.utils import timezone
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from assets.models import (
     AssetPlanning,
     AssetTransaction,
@@ -12,8 +12,10 @@ from assets.models import (
 )
 from api.fleet.tests.helpers import (
     ApiFixtureMixin,
+    make_almacen,
     make_asset,
     make_asset_type,
+    make_company,
     make_employee,
     make_obra,
     make_user,
@@ -358,3 +360,131 @@ class MachineHoursHistorialViewTest(MachineHoursBaseTest):
         make_completed_tx(self.asset, other_employee, self.company, planning_id=99)
         response = self.client.get("/en/api/machine-hours/history/")
         self.assertEqual(response.json()["count"], 0)
+
+
+class MachineCheckViewTest(MachineHoursBaseTest):
+    def test_any_employee_in_the_company_can_check_the_machine(self):
+        other_user = make_user(username="other_worker")
+        other_employee = make_employee(self.company, other_user)
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        response = other_client.get(f"/en/api/assets/{self.asset.id}/machine-check/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["asset_id"], self.asset.id)
+
+    def test_a_machine_from_another_company_is_not_found(self):
+        other_company = make_company(name="Other Co")
+        other_asset_type = make_asset_type(other_company, name="MAQUINAS")
+        other_asset = make_asset(other_company, other_asset_type, name="Maquina Ajena")
+        response = self.client.get(f"/en/api/assets/{other_asset.id}/machine-check/")
+        self.assertEqual(response.status_code, 404)
+
+
+class MachineHoursZoneFollowsWorkerTest(MachineHoursBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.planning = make_machine_planning(self.asset, self.employee, self.company)
+        self.url = f"/en/api/assets/{self.asset.id}/transaction/"
+        self.almacen = make_almacen(self.company, name="Almacen Test", lat=41.0, lon=-4.0)
+
+    def _post(self, action, extra=None):
+        payload = {
+            "transaction_type": "machine_hours",
+            "action": action,
+            "planning_id": self.planning.id,
+        }
+        if extra:
+            payload.update(extra)
+        return self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
+
+    def test_start_moves_the_machine_to_a_zone_sent_by_id(self):
+        response = self._post("start", extra={"zone_id": self.almacen.id})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
+
+    def test_start_moves_the_machine_to_a_gps_matched_almacen_not_just_obras(self):
+        lat, lon = self.almacen.get_coordinates()
+        response = self._post("start", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
+
+    def test_start_with_no_gps_and_no_zone_id_leaves_the_zone_unchanged(self):
+        response = self._post("start")
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.zone.id)
+
+    def test_start_far_from_any_zone_no_longer_errors(self):
+        response = self._post("start", extra={"latitude": 0.0, "longitude": 0.0})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.zone.id)
+
+    def test_end_can_move_the_machine_to_a_different_zone_than_it_started_in(self):
+        self._post("start")
+        response = self._post("end", extra={"zone_id": self.almacen.id})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
+
+    def test_resume_moves_the_machine_when_a_zone_is_sent(self):
+        self._post("start")
+        self._post("pause")
+        response = self._post("resume", extra={"zone_id": self.almacen.id})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
+
+    def test_pause_does_not_touch_the_zone_when_nothing_is_sent(self):
+        self._post("start", extra={"zone_id": self.almacen.id})
+        response = self._post("pause")
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
+
+    def test_pause_does_not_move_the_zone_from_gps_alone(self):
+        self._post("start")
+        lat, lon = self.almacen.get_coordinates()
+        response = self._post("pause", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.zone.id)
+
+    def test_pause_moves_the_zone_when_zone_id_is_sent(self):
+        self._post("start")
+        response = self._post("pause", extra={"zone_id": self.almacen.id})
+        self.assertEqual(response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.almacen.id)
+
+    def test_multiple_nearby_zones_still_returns_the_picker(self):
+        lat, lon = self.almacen.get_coordinates()
+        make_almacen(self.company, name="Almacen 2", lat=lat, lon=lon)
+        response = self._post("start", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(response.json().get("multiple_zones"))
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.zone.id)
+
+    def test_an_unknown_zone_id_is_still_a_real_error(self):
+        response = self._post("start", extra={"zone_id": 999999})
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_zone_cluster_around_the_machines_own_zone_does_not_force_the_picker(self):
+        from api.fleet.tests.helpers import make_almacen
+        make_almacen(self.company, name="Almacen Vecino", lat=40.406, lon=-3.683)
+        lat, lon = self.zone.get_coordinates()
+
+        start_response = self._post("start", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(start_response.status_code, 200)
+        self.assertNotIn("multiple_zones", start_response.json())
+
+        pause_response = self._post("pause", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(pause_response.status_code, 200)
+
+        end_response = self._post("end", extra={"latitude": lat, "longitude": lon})
+        self.assertEqual(end_response.status_code, 200)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, self.zone.id)

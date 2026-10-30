@@ -6,6 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from .context_helpers import get_company_context
 from invoices import payment_reference as payment_references
 from invoices.services.sales_invoice_payment import effective_payment_method_display
+from invoices import line_sources
+from sales.models import Quote
 if TYPE_CHECKING:
     from invoices.models import SalesInvoice
 
@@ -16,12 +18,6 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
     def __init__(self, sales_invoice: "SalesInvoice"):
         super().__init__(sales_invoice)
         self.sales_invoice = sales_invoice
-
-    @staticmethod
-    def _quote_id_from_source(source_id: str):
-        from invoices import line_sources
-
-        return line_sources.quote_id_of(source_id)
 
     def _delivery_order_contexts(self):
         """
@@ -71,6 +67,15 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             self.sales_invoice.items.select_related("advance_line__invoice").order_by("pk"),
             key=lambda item: item.advance_line_id is not None,
         )
+        quote_id_by_source = line_sources.quote_ids_by_source(
+            [item.source_id for item in items]
+        )
+        quote_dates = dict(
+            Quote.objects.filter(
+                pk__in=set(quote_id_by_source.values())
+            ).values_list("pk", "date")
+        )
+
         for item in items:
 
             is_discount_line = is_discount_line_source(item.source_id)
@@ -79,12 +84,14 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             advance_invoice = item.advance_line.invoice if item.advance_line_id else None
             if advance_invoice and item.line_total:
                 advances_deducted += -Decimal(str(item.line_total.amount))
+            quote_id = quote_id_by_source.get(item.source_id)
             item_dict = {
                 "id": item.id,
                 "description": item.description,
                 "reference": item.reference,
                 "quote_name": item.quote_name,
-                "quote_id": self._quote_id_from_source(item.source_id),
+                "quote_id": quote_id,
+                "quote_date": quote_dates.get(quote_id),
                 "quantity": float(item.quantity) if item.quantity else 0,
                 "unit_price": float(item.unit_price.amount) if item.unit_price else 0,
                 "line_total": float(item.line_total.amount) if item.line_total else 0,

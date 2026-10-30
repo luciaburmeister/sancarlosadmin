@@ -12014,6 +12014,23 @@ msgstr ""
 "Dejar vacío para tipos de toda la empresa. Establecer para restringir a un "
 "Expediente específico."
 
+msgid ""
+"Leave empty for company-wide types. Select one or more project files to "
+"restrict this type to them."
+msgstr ""
+"Dejar vacío para tipos de toda la empresa. Selecciona uno o más expedientes "
+"para restringir este tipo a ellos."
+
+msgid "Project files must belong to the same company as this type."
+msgstr "Los expedientes deben pertenecer a la misma empresa que este tipo."
+
+msgid ""
+"Another type with this category and direction is already scoped to one of "
+"these project files."
+msgstr ""
+"Otro tipo con esta categoría y dirección ya está limitado a uno de estos "
+"expedientes."
+
 msgid "Work Entry Type"
 msgstr "Tipo de Parte de Trabajo"
 

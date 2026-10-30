@@ -3,7 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Sum, Q, F, ExpressionWrapper, DurationField
+from django.db.models import Exists, ExpressionWrapper, DurationField, F, OuterRef, Q, Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -902,10 +902,12 @@ class WorkEntryType(CompanyOwnedModel):
     Configurable template defining a category of work (revenue) or cost and
     how to price it. The direction decides which entry model is produced:
     WorkEntry for revenue, CostEntry for cost.
-    Can be company-wide (project_file=NULL) or scoped to a specific Expediente.
-    When multiple types share the same category and direction, the
-    project-file-scoped one takes priority over the company-wide default.
+    Can be company-wide (no project file) or scoped to one or more project files.
+    When several types share a category and direction, a scoped type takes
+    priority over the company-wide default.
     """
+
+    HAS_PROJECT_FILES = "has_project_files"
 
     direction = models.CharField(
         max_length=10,
@@ -988,6 +990,16 @@ class WorkEntryType(CompanyOwnedModel):
         verbose_name=_("Project File"),
         help_text=_("Leave empty for company-wide types. Set to restrict to a specific Expediente."),
     )
+    project_files = models.ManyToManyField(
+        "management.ProjectFile",
+        blank=True,
+        related_name="scoped_work_entry_types",
+        verbose_name=_("Project Files"),
+        help_text=_(
+            "Leave empty for company-wide types. Select one or more project files "
+            "to restrict this type to them."
+        ),
+    )
 
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
 
@@ -1005,6 +1017,94 @@ class WorkEntryType(CompanyOwnedModel):
     def __str__(self):
         suffix = f" [{self.project_file.reference}]" if self.project_file else ""
         return f"{self.name}{suffix}"
+
+    def scoped_project_files(self):
+        """Legacy ``project_file`` plus ``project_files``, without duplicates."""
+        by_id = {}
+        if self.project_file_id:
+            by_id[self.project_file_id] = self.project_file
+        for project_file in self.project_files.all():
+            by_id.setdefault(project_file.pk, project_file)
+        return sorted(by_id.values(), key=lambda pf: ((pf.reference or ""), pf.pk))
+
+    def is_project_scoped(self):
+        if self.project_file_id:
+            return True
+        annotated = self.__dict__.get(self.HAS_PROJECT_FILES)
+        if annotated is not None:
+            return bool(annotated)
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "project_files" in prefetched:
+            return bool(self.project_files.all())
+        return self.project_files.exists()
+
+    def apply_legacy_project_file(self, project_files):
+        """Keep the single link on one of the given files, or clear it."""
+        files = list(project_files)
+        ids = {pf.pk for pf in files}
+        if not ids:
+            self.project_file = None
+        elif self.project_file_id not in ids:
+            self.project_file = min(files, key=lambda pf: pf.pk)
+
+    def validate_project_scope(self, project_files):
+        files = [pf for pf in project_files if pf.pk]
+        if self.company_id is not None and any(pf.company_id != self.company_id for pf in files):
+            raise ValidationError(
+                {
+                    "project_files": _(
+                        "Project files must belong to the same company as this type."
+                    ),
+                }
+            )
+        if not self.category_id or not files:
+            return
+        ids = [pf.pk for pf in files]
+        overlap = (
+            type(self)
+            .objects.filter(
+                company_id=self.company_id,
+                category_id=self.category_id,
+                direction=self.direction,
+            )
+            .filter(Q(project_file_id__in=ids) | Q(project_files__in=ids))
+            .distinct()
+        )
+        if self.pk:
+            overlap = overlap.exclude(pk=self.pk)
+        if overlap.exists():
+            raise ValidationError(
+                {
+                    "project_files": _(
+                        "Another type with this category and direction is already "
+                        "scoped to one of these project files."
+                    ),
+                }
+            )
+
+    @classmethod
+    def applicable_to_source(cls, source):
+        """Active types for this source: company-wide ones, plus any scoped to its project file."""
+        m2m = cls._meta.get_field("project_files")
+        through = m2m.remote_field.through
+        link = through._meta.get_field(m2m.m2m_field_name())
+        has_project_files = Exists(
+            through.objects.filter(**{link.attname: OuterRef("pk")})
+        )
+        content_type = ContentType.objects.get_for_model(source)
+        types = cls.objects.filter(
+            Q(source_content_type=content_type) | Q(source_content_type__isnull=True),
+            is_active=True,
+            company_id=source.company_id,
+        ).annotate(**{cls.HAS_PROJECT_FILES: has_project_files}).select_related("category")
+        project_file_id = getattr(source, "project_file_id", None)
+        if not project_file_id:
+            return types
+        return types.filter(
+            (Q(project_file__isnull=True) & Q(**{cls.HAS_PROJECT_FILES: False}))
+            | Q(project_file_id=project_file_id)
+            | Q(project_files=project_file_id)
+        ).distinct()
 
     @property
     def entry_model(self):

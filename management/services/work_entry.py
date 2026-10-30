@@ -169,8 +169,8 @@ class WorkEntryService:
         WorkEntryTypes and check which ones have been fulfilled.
 
         Resolution order per category:
-        1. Project-file-scoped type (if source has a project_file)
-        2. Company-wide default (project_file=NULL)
+        1. Type scoped to the source project file
+        2. Company-wide default (no project file)
 
         Returns:
             dict with 'expected', 'existing_type_ids', 'missing', 'is_fully_processed'
@@ -180,25 +180,7 @@ class WorkEntryService:
         ct = ContentType.objects.get_for_model(source_object)
         context = cls.build_source_context(source_object)
 
-        # Find all WorkEntryTypes that could apply to this source
-        # Include types that explicitly match this source model OR have no source restriction
-        from django.db.models import Q
-
-        applicable_types = WorkEntryType.objects.filter(
-            Q(source_content_type=ct) | Q(source_content_type__isnull=True),
-            is_active=True,
-            company=source_object.company,
-        )
-
-        # Also include project-file-scoped types if the source has a project_file
-        project_file = getattr(source_object, "project_file", None)
-        if project_file:
-            pf_types = WorkEntryType.objects.filter(
-                Q(source_content_type=ct) | Q(source_content_type__isnull=True),
-                project_file=project_file,
-                is_active=True,
-            )
-            applicable_types = applicable_types.filter(project_file__isnull=True) | pf_types
+        applicable_types = WorkEntryType.applicable_to_source(source_object)
 
         # Evaluate applicability and deduplicate by (category, direction).
         # Per key: project-file-scoped type wins over company-wide default.
@@ -206,7 +188,7 @@ class WorkEntryService:
         # Types without a category pass through without deduplication.
         by_category = {}  # (category_id, direction) → WorkEntryType
         no_category = []  # types without a category (backward compat)
-        for wtype in applicable_types.select_related("category"):
+        for wtype in applicable_types:
             if not wtype.evaluate_applicability(context):
                 continue
 
@@ -220,7 +202,7 @@ class WorkEntryService:
 
             if existing is None:
                 by_category[key] = wtype
-            elif wtype.project_file_id and not existing.project_file_id:
+            elif wtype.is_project_scoped() and not existing.is_project_scoped():
                 # Project-file-scoped overrides company-wide default
                 by_category[key] = wtype
 

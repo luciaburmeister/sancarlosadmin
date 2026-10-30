@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline
@@ -38,12 +39,62 @@ class WorkEntryCategoryAdmin(CompanyRestrictedAdmin, ModelAdmin):
     prepopulated_fields = {"slug": ("name",)}
 
 
+class WorkEntryTypeAdminForm(forms.ModelForm):
+    class Meta:
+        model = WorkEntryType
+        exclude = ("project_file",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = self.instance
+        if (
+            instance.pk
+            and not self.is_bound
+            and "project_files" in self.fields
+            and instance.project_file_id
+        ):
+            selected = list(self.initial.get("project_files") or [])
+            selected_ids = {getattr(pf, "pk", pf) for pf in selected}
+            if instance.project_file_id not in selected_ids:
+                selected.append(instance.project_file)
+            self.initial["project_files"] = selected
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors or "project_files" not in cleaned:
+            return cleaned
+        if cleaned.get("company") is not None:
+            self.instance.company = cleaned["company"]
+        if "category" in cleaned:
+            self.instance.category = cleaned.get("category")
+        if cleaned.get("direction"):
+            self.instance.direction = cleaned["direction"]
+        self.instance.validate_project_scope(cleaned.get("project_files") or [])
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.apply_legacy_project_file(self.cleaned_data.get("project_files") or [])
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
 @admin.register(WorkEntryType)
 class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    form = WorkEntryTypeAdminForm
     list_display = ["name", "direction", "category", "unit_label", "project_file_display", "is_active"]
     list_filter = ["is_active", "direction", "category"]
     search_fields = ["name", "category__name"]
-    autocomplete_fields = ["company", "category", "project_file", "source_content_type", "materials", "components"]
+    autocomplete_fields = [
+        "company",
+        "category",
+        "project_files",
+        "source_content_type",
+        "materials",
+        "components",
+    ]
     inlines = [WorkEntryPricingStepInline, WorkEntryTypeAppliedTaxInline]
 
     fieldsets = (
@@ -78,11 +129,19 @@ class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
         (_("Scope"), {
             "fields": (
                 "source_content_type",
-                "project_file",
+                "project_files",
                 "is_active",
             ),
         }),
     )
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("project_file", "category")
+            .prefetch_related("project_files")
+        )
 
     def get_inlines(self, request, obj=None):
         # Cost entries carry net amounts only, so cost types have no taxes.
@@ -90,8 +149,12 @@ class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return [WorkEntryPricingStepInline]
         return super().get_inlines(request, obj)
 
-    @admin.display(description=_("Project File"))
+    @admin.display(description=_("Project Files"))
     def project_file_display(self, obj):
-        if obj.project_file:
-            return obj.project_file.reference
+        labels = [
+            project_file.reference or str(project_file)
+            for project_file in obj.scoped_project_files()
+        ]
+        if labels:
+            return ", ".join(labels)
         return _("Company-wide")

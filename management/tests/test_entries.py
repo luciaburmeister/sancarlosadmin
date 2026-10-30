@@ -11,6 +11,7 @@ from djmoney.money import Money
 from assets.models import AssetTransaction, TransactionTypeChoices
 from company.models import Company
 from invoices.models import AppliedTax, TaxType
+from management.admin.work_entry_type import WorkEntryTypeAdminForm
 from management.models import (
     CostEntry,
     ProjectFile,
@@ -152,11 +153,133 @@ class BillingStatusTests(EntryFixtureMixin, TestCase):
 
     def test_project_file_override_is_per_direction(self):
         pf_cost = self._make_type("PF delivery cost", WorkEntryDirection.COST, "5", project_file=self.project_file)
+        self.assertFalse(pf_cost.project_files.exists())
         status = WorkEntryService.get_billing_status(self.source)
         expected_ids = {t.pk for t in status["expected"]}
         self.assertIn(pf_cost.pk, expected_ids)
         self.assertNotIn(self.cost_type.pk, expected_ids)
         self.assertIn(self.revenue_type.pk, expected_ids)
+
+    def _source_for(self, project_file):
+        return AssetTransaction.objects.create(
+            company=self.company,
+            project_file=project_file,
+            transaction_type=TransactionTypeChoices.DELIVERY,
+            date=timezone.now(),
+        )
+
+    def test_several_project_files_override_only_those_files(self):
+        sales_client = self.project_file.client
+        other = ProjectFile.objects.create(company=self.company, name="PF2", client=sales_client)
+        untouched = ProjectFile.objects.create(company=self.company, name="PF3", client=sales_client)
+        multi = self._make_type("Multi delivery cost", WorkEntryDirection.COST, "5")
+        multi.project_files.set([self.project_file, other])
+
+        for project_file in (self.project_file, other):
+            status = WorkEntryService.get_billing_status(self._source_for(project_file))
+            expected_ids = {t.pk for t in status["expected"]}
+            self.assertIn(multi.pk, expected_ids)
+            self.assertNotIn(self.cost_type.pk, expected_ids)
+
+        untouched_ids = {t.pk for t in WorkEntryService.get_billing_status(self._source_for(untouched))["expected"]}
+        self.assertIn(self.cost_type.pk, untouched_ids)
+        self.assertNotIn(multi.pk, untouched_ids)
+
+    def test_legacy_project_file_still_scopes_when_listed_with_another(self):
+        other = ProjectFile.objects.create(
+            company=self.company, name="PF2", client=self.project_file.client
+        )
+        scoped = self._make_type(
+            "Legacy plus one", WorkEntryDirection.COST, "5", project_file=self.project_file
+        )
+        scoped.project_files.add(other)
+
+        for project_file in (self.project_file, other):
+            expected_ids = {
+                t.pk for t in WorkEntryService.get_billing_status(self._source_for(project_file))["expected"]
+            }
+            self.assertIn(scoped.pk, expected_ids)
+            self.assertNotIn(self.cost_type.pk, expected_ids)
+
+
+class ProjectFileScopeFormTests(EntryFixtureMixin, TestCase):
+    def _form(self, instance, project_file_ids):
+        data = {
+            "company": self.company.pk,
+            "direction": instance.direction,
+            "category": instance.category_id or "",
+            "name": instance.name,
+            "unit_label": instance.unit_label,
+            "applicability_expression": "",
+            "description_template": "",
+            "source_content_type": "",
+            "is_active": True,
+            "project_files": [str(pk) for pk in project_file_ids],
+        }
+        return WorkEntryTypeAdminForm(data=data, instance=instance)
+
+    def test_legacy_link_is_copied_onto_project_files(self):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module(
+            "management.migrations.0035_workentrytype_project_files"
+        )
+        scoped = self._make_type(
+            "Legacy only", WorkEntryDirection.COST, "1", project_file=self.project_file
+        )
+        self.assertFalse(scoped.project_files.exists())
+        migration.copy_legacy_project_file(apps, None)
+        self.assertEqual(
+            list(scoped.project_files.values_list("pk", flat=True)),
+            [self.project_file.pk],
+        )
+
+    def test_unbound_form_includes_legacy_project_file(self):
+        scoped = self._make_type("Legacy", WorkEntryDirection.COST, "1", project_file=self.project_file)
+        form = WorkEntryTypeAdminForm(instance=scoped)
+        selected = {getattr(pf, "pk", pf) for pf in form.initial["project_files"]}
+        self.assertIn(self.project_file.pk, selected)
+
+    def test_save_adds_a_project_file_and_keeps_the_legacy_link(self):
+        other = ProjectFile.objects.create(
+            company=self.company, name="PF2", client=self.project_file.client
+        )
+        scoped = self._make_type("Legacy", WorkEntryDirection.COST, "1", project_file=self.project_file)
+        form = self._form(scoped, [self.project_file.pk, other.pk])
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.project_file_id, self.project_file.pk)
+        self.assertEqual(
+            set(saved.project_files.values_list("pk", flat=True)),
+            {self.project_file.pk, other.pk},
+        )
+
+    def test_clearing_project_files_restores_company_wide_type(self):
+        scoped = self._make_type("Legacy", WorkEntryDirection.COST, "1", project_file=self.project_file)
+        scoped.project_files.add(self.project_file)
+        form = self._form(scoped, [])
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertIsNone(saved.project_file_id)
+        self.assertFalse(saved.project_files.exists())
+
+    def test_rejects_a_project_file_already_used_by_another_type(self):
+        self._make_type("Taken", WorkEntryDirection.COST, "1", project_file=self.project_file)
+        with self.assertRaises(ValidationError) as ctx:
+            self.cost_type.validate_project_scope([self.project_file])
+        self.assertIn("project_files", ctx.exception.message_dict)
+
+    def test_rejects_a_project_file_from_another_company(self):
+        other_company = Company.objects.create(name="Other Co")
+        other_client = Client.objects.create(name="Other", company=other_company)
+        foreign = ProjectFile.objects.create(
+            company=other_company, name="Foreign", client=other_client
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            self.cost_type.validate_project_scope([foreign])
+        self.assertIn("project_files", ctx.exception.message_dict)
 
 
 class ProjectFileTotalsTests(EntryFixtureMixin, TestCase):

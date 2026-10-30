@@ -903,13 +903,20 @@ class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampabl
         return email
 
     def _sync_zones_on_porte_delivery(self):
-        """An own-machine porte delivery means the machine — linked via
-        AssetPlanning.machine (separate from this transaction's own asset,
-        the cuba it travels in) — and, if the plan says the operator(s) moved
-        with it, those employees too, are now at to_zone. Keeps
+        """An own-machine porte delivery means the machine actually being
+        delivered by THIS transaction — and, if the plan says the operator(s)
+        moved with it, those employees too — are now at to_zone. Keeps
         Asset/Employee.current_working_zone in sync with what actually
         happened in the field. Scoped to own-machine transport only — other
         porte service types don't track a zone this way.
+
+        Which machine: this transaction's own data.machine_id snapshot
+        (PorteSubmitView/the manual wizard set it to the specific machine
+        this delivery was for), falling back to planning.machine_id for any
+        older code path that doesn't set it per-transaction. This is what
+        makes it correct for a planning carrying several machines -- each
+        one's own delivery only ever moves *that* machine, not whichever one
+        happens to be AssetPlanning.machine at the moment.
         """
         if self.transaction_type != TransactionTypeChoices.PORTE_DELIVERY:
             return
@@ -918,9 +925,15 @@ class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampabl
         planning = self.planning
         if planning.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
             return
-        if planning.machine_id:
-            planning.machine.current_working_zone = self.to_zone
-            planning.machine.save(update_fields=["current_working_zone"])
+        machine_id = (self.data or {}).get(PorteTransactionDataKey.MACHINE_ID) or planning.machine_id
+        if machine_id:
+            try:
+                machine = Asset.objects.get(pk=machine_id)
+            except Asset.DoesNotExist:
+                machine = None
+            if machine is not None:
+                machine.current_working_zone = self.to_zone
+                machine.save(update_fields=["current_working_zone"])
         if planning.machinist_moved:
             for employee in planning.moved_employees.all():
                 employee.current_working_zone = self.to_zone
@@ -1408,7 +1421,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         Asset, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="machine_plannings", verbose_name=_("Machine"),
         limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
-        help_text=_("Own-machine transport only — the machine being carried, separate from the cuba used to transport it."),
+        help_text=_(
+            "Own-machine transport only — the first/primary machine, kept in sync automatically. "
+            "To add or edit machines, use the Planning Machines table below, not this field."
+        ),
     )
     origin = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_origin", verbose_name=_("From Zone"))
     destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))
@@ -1627,8 +1643,13 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         required = SERVICE_TYPE_FIELDS.get(self.service_type, set())
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
-        if "machine" in required and not self.machine_id:
-            raise ValidationError({"machine": _("Machine is required for this service type.")})
+        # Unlike AssetPlanningRequest (below), a planning's own `machine` is
+        # no longer something you type in directly here -- it's a read-only
+        # mirror (see AssetPlanningAdmin), kept in sync by the mobile app's
+        # scans or by adding rows in the Planning Machines table below, both
+        # of which can legitimately happen after this planning is first
+        # created. So it's never required at save time, only reset if the
+        # service type stops needing one at all.
         if "machine" not in required:
             self.machine = None
 
@@ -1834,16 +1855,20 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     def porte_checklist(self):
         if self.planning_type != PlanningType.PORTE:
             return []
+        # Deliberately flat/order-agnostic, same 3 steps regardless of how
+        # many machines this planning has -- there's no "finish machine 1
+        # before starting machine 2" requirement, so the checklist doesn't
+        # pretend there is one either. Per-machine status (which is what
+        # actually varies) lives in PortePlanningSerializer's `machines`
+        # list instead, which the app reads to know what a given scanned
+        # machine still needs -- recoger/carga/entrega are resolved per scan,
+        # not by working down an ordered list.
         is_machine = self.service_type == SERVICE_TYPE_MAQUINA_PROPIA
         pickup_done = self.driver_claimed_cuba or self.transactions.filter(
             transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
         ).exists()
-        load_done = self.transactions.filter(
-            transaction_type=TransactionTypeChoices.PORTE_LOAD,
-        ).exists()
-        dropoff_done = self.transactions.filter(
-            transaction_type=TransactionTypeChoices.PORTE_DELIVERY,
-        ).exists()
+        load_done = self.transactions.filter(transaction_type=TransactionTypeChoices.PORTE_LOAD).exists()
+        dropoff_done = self.transactions.filter(transaction_type=TransactionTypeChoices.PORTE_DELIVERY).exists()
         origin_name = self.origin.name if self.origin_id else "el almacén"
         destination_name = self.destination.name if self.destination_id else "destino"
         carga_label = "Escanear máquina" if is_machine else f"Cargar material en {origin_name}"
@@ -2575,6 +2600,78 @@ class AssetPlanningStop(models.Model):
 
     def __str__(self):
         return f"Stop {self.sequence}: {self.zone}"
+
+
+class AssetPlanningMachineStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    LOADED = "loaded", _("Loaded")
+    DELIVERED = "delivered", _("Delivered")
+
+
+class AssetPlanningMachine(models.Model):
+    """One machine within an own-machine-transport (porte_maquina) planning,
+    tracked individually through load -> deliver. A planning can have many of
+    these -- that's the entire mechanism for "several machines on one job":
+    not a cap of one, a plain FK-back child row, same shape as
+    AssetPlanningStop. Each one can have its own pickup/delivery zone,
+    falling back to the planning's own origin/destination when left blank,
+    so a single-machine planning needs nothing extra set here at all."""
+    planning = models.ForeignKey(AssetPlanning, on_delete=models.CASCADE, related_name="planning_machines", verbose_name=_("Planning"))
+    machine = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="planning_machine_links",
+        limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE}, verbose_name=_("Machine"),
+    )
+    sequence = models.PositiveSmallIntegerField(default=1, verbose_name=_("Sequence"))
+    from_zone = models.ForeignKey(
+        WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name=_("Pickup Zone"), help_text=_("Leave blank to use the planning's own origin."),
+    )
+    to_zone = models.ForeignKey(
+        WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name=_("Delivery Zone"), help_text=_("Leave blank to use the planning's own destination."),
+    )
+    status = models.CharField(
+        max_length=10, choices=AssetPlanningMachineStatus.choices,
+        default=AssetPlanningMachineStatus.PENDING, verbose_name=_("Status"),
+    )
+    # True for a row dispatch set up ahead of time (the admin inline default)
+    # -- that closes the planning's machine list, so scanning anything else
+    # is rejected. False for a row the mobile app created on the fly from an
+    # unplanned scan (open dispatch): that must NOT close the list for the
+    # next machine the driver scans, or a second genuinely-undefined machine
+    # could never be added.
+    assigned_by_dispatch = models.BooleanField(
+        default=True, verbose_name=_("Assigned By Dispatch"),
+        help_text=_("Unchecked for a row the app created automatically from a scan, rather than one set up here ahead of time."),
+    )
+    loaded_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Loaded At"))
+    delivered_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Delivered At"))
+    # Traceability only -- the actual load/delivery evidence (photo, firma,
+    # notes) lives on these AssetTransaction rows exactly as it always has;
+    # this model doesn't duplicate or replace that, just points at it.
+    load_transaction = models.ForeignKey(
+        "assets.AssetTransaction", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    delivery_transaction = models.ForeignKey(
+        "assets.AssetTransaction", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        verbose_name = _("Planning Machine")
+        verbose_name_plural = _("Planning Machines")
+        ordering = ["sequence"]
+        constraints = [models.UniqueConstraint(fields=["planning", "machine"], name="unique_planning_machine")]
+
+    def __str__(self):
+        return f"{self.machine} ({self.get_status_display()})"
+
+    @property
+    def effective_from_zone(self):
+        return self.from_zone or self.planning.origin
+
+    @property
+    def effective_to_zone(self):
+        return self.to_zone or self.planning.destination
 
 
 class AssetDocumentType(BaseDocumentType):

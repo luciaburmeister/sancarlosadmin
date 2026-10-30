@@ -19,7 +19,7 @@ from django.contrib import messages
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
 from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
-from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
+from assets.models import Asset, AssetPlanning, AssetPlanningMachine, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
 from assets.views.asset_transaction_wizard import AssetTransactionFromPlanningWizardView
 
 
@@ -58,6 +58,22 @@ class AssetPlanningStopInline(TabularInline):
     fields = ("sequence", "zone", "notes")
     autocomplete_fields = ["zone"]
     ordering = ["sequence"]
+
+
+class AssetPlanningMachineInline(TabularInline):
+    """One row per machine an own-machine-transport planning carries. Leave
+    from_zone/to_zone blank to use the planning's own origin/destination --
+    only set them when this specific machine needs a different route.
+    There's no order between machines -- any can be scanned/loaded/
+    delivered whenever, in any sequence -- so `sequence` (an internal,
+    auto-assigned bookkeeping field, not meant to be hand-set) is left out
+    of the form entirely."""
+
+    model = AssetPlanningMachine
+    extra = 1
+    fields = ("machine", "from_zone", "to_zone", "status", "loaded_at", "delivered_at")
+    readonly_fields = ("status", "loaded_at", "delivered_at")
+    autocomplete_fields = ["machine", "from_zone", "to_zone"]
 
 
 class AssetPlanningTransactionInline(TabularInline):
@@ -157,7 +173,6 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "project_file",
         "asset",
         "reserved_asset",
-        "machine",
         "origin",
         "destination",
         "assigned_to",
@@ -166,6 +181,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "moved_employees",
     ]
     readonly_fields = [
+        "machine",  # legacy single-machine mirror -- use the Planning Machines table below to add/edit machines.
         "assignment_origin", "computed_end_time_display",
         "abandoned_stage", "abandoned_at", "abandoned_reason", "abandoned_by",
     ]
@@ -176,7 +192,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "assigned_to", "transport_asset", "transport_asset__asset_type",
         "company",
     ]
-    inlines = [AssetPlanningStopInline, AssetPlanningTransactionInline]
+    inlines = [AssetPlanningStopInline, AssetPlanningMachineInline, AssetPlanningTransactionInline]
 
     def get_changelist(self, request, **kwargs):
         return AssetPlanningChangeList

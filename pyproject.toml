@@ -69,5 +69,6 @@ package-mode=false
 [dependency-groups]
 dev = [
     "tblib (>=3.0)",
-    "coverage (>=7.6)"
+    "coverage (>=7.6)",
+    "pre-commit (>=4.7.0,<5.0.0)"
 ]

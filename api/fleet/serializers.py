@@ -102,6 +102,21 @@ class ChecklistStepSerializer(serializers.Serializer):
     status = serializers.CharField()
 
 
+class PorteMachineSerializer(serializers.Serializer):
+    id = serializers.IntegerField(source="machine_id", allow_null=True)
+    name = serializers.SerializerMethodField()
+    sequence = serializers.IntegerField()
+    status = serializers.CharField()
+    to_zone_name = serializers.SerializerMethodField()
+
+    def get_name(self, link):
+        return link.machine.name if link.machine_id else ""
+
+    def get_to_zone_name(self, link):
+        zone = link.effective_to_zone
+        return zone.name if zone else None
+
+
 class CubaPlanningSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     planning_type = serializers.CharField()
@@ -221,6 +236,8 @@ class PortePlanningSerializer(serializers.Serializer):
     is_machine_porte = serializers.SerializerMethodField()
     machine_id = serializers.SerializerMethodField()
     machine_name = serializers.CharField(source="machine.name", allow_null=True, default=None)
+    machine_count = serializers.SerializerMethodField()
+    machines = serializers.SerializerMethodField()
     pickup_done = serializers.SerializerMethodField()
     load_done = serializers.SerializerMethodField()
     checklist = serializers.SerializerMethodField()
@@ -284,6 +301,17 @@ class PortePlanningSerializer(serializers.Serializer):
 
     def get_machine_id(self, planning):
         return planning.machine_id or 0
+
+    def _machine_links(self, planning):
+        if not self.get_is_machine_porte(planning):
+            return []
+        return list(planning.planning_machines.select_related("machine", "to_zone", "planning__destination").all())
+
+    def get_machine_count(self, planning):
+        return len(self._machine_links(planning))
+
+    def get_machines(self, planning):
+        return PorteMachineSerializer(self._machine_links(planning), many=True).data
 
     def get_pickup_done(self, planning):
         return self._progress(planning)["pickup_done"]

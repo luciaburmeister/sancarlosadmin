@@ -539,7 +539,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         PurchaseInvoiceInline,
     ]
 
-    actions_row = ["create_invoice_row_action", "create_delivery_order_row_action", "repair_order_row_action"]
+    actions_row = ["create_invoice_row_action", "create_delivery_order_row_action", "repair_order_row_action", "generate_work_entries_row_action"]
     actions_detail = ["create_invoice_detail_action", "create_delivery_order_detail_action", "asset_reception_detail_action", "repair_order_detail_action"]
     actions = ["create_bulk_invoice"]
 
@@ -738,6 +738,29 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             "admin:configurator_configuration_wizard_form", args=[product.pk]
         )
         return redirect(f"{url}?project_file_id={object_id}")
+
+    def _queue_project_file_work_entries(self, request, object_id):
+        from assets.models import AssetTransaction
+        from core.tasks import generate_work_entries_task
+
+        transaction_ids = list(
+            AssetTransaction.objects.filter(project_file_id=object_id).values_list(
+                "pk", flat=True,
+            )
+        )
+        change_url = reverse("admin:management_projectfile_change", args=[object_id])
+        if not transaction_ids:
+            messages.info(request, _("This project file has no asset transactions."))
+            return redirect(change_url)
+        generate_work_entries_task.delay(transaction_ids)
+        messages.success(request, _(
+            "Work entry generation queued for %(count)d transactions."
+        ) % {"count": len(transaction_ids)})
+        return redirect(change_url)
+
+    @action(description=_("Generate Work Entries"), icon="add_task")
+    def generate_work_entries_row_action(self, request, object_id):
+        return self._queue_project_file_work_entries(request, object_id)
 
     @action(description=_("Create Bulk Invoice"), icon="receipt_long")
     def create_bulk_invoice(self, request, queryset):

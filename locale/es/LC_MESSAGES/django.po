@@ -1549,6 +1549,12 @@ msgstr "Se crearon %(count)d partes de trabajo."
 msgid "Generate All Work Entries"
 msgstr "Generar Todos los Partes de Trabajo"
 
+msgid "Generate Work Entries"
+msgstr "Generar Partes de Trabajo"
+
+msgid "This project file has no asset transactions."
+msgstr "Este expediente no tiene transacciones de activos."
+
 #, python-format
 msgid "Work entry generation queued for %(count)d transactions."
 msgstr "Generación de partes de trabajo en cola para %(count)d transacciones."

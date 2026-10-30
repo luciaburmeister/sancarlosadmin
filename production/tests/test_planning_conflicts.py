@@ -73,6 +73,16 @@ class ConflictCheckerTest(TestCase):
     def test_a_well_placed_session_has_no_conflicts(self):
         self.assertEqual(self.checker().check(self.candidate()), [])
 
+    def test_identical_slots_on_distinct_bookings_are_not_collapsed_in_capacity(self):
+        oven = resource_for(make_machine(self.company, name="Shared oven", needs_human=False, parallel_capacity=2))
+        for _ in range(2):
+            make_session(make_ticket(self.company), start=self.at(MONDAY, 9), end=self.at(MONDAY, 10),
+                         resources=[oven])
+        conflicts = self.checker().check(self.candidate(end=self.at(MONDAY, 10), resources=[oven]))
+        conflict = self.only(conflicts, ConflictCode.RESOURCE_OVERLAP)
+        self.assertEqual(conflict.detail["busy"], 2)
+        self.assertEqual(conflict.severity, BLOCK)
+
     # --- integrity (blocking) --------------------------------------------
 
     def test_inverted_interval_blocks(self):

@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from configurator.models import Configuration
-from production.models import PlannedProductionSession, ProductionResource
+from production.models import PlannedProductionSession, ProductionResource, ProductionTicket
 from production.services.configuration_to_production import ConfigurationToProductionService
 from production.services.planning_conflicts import ConflictChecker, SessionCandidate, blocking
 from production.services.production_planning import ProductionPlanningService
@@ -43,12 +43,18 @@ class ScheduleProposalApplier:
             for c_id in configuration_ids
         }
 
+        list(ProductionTicket.objects.select_for_update().filter(
+            pk__in=[ticket.pk for ticket in tickets.values()]
+        ).order_by("pk"))
         existing_sessions = list(
             PlannedProductionSession.objects.select_for_update()
             .filter(production_ticket__in=tickets.values()).order_by("pk")
         )
         if any(session.locked for session in existing_sessions):
             raise ValidationError(_("This session is locked. Unlock it before moving it."))
+        stage_keys = [(s.production_ticket_id, s.production_stage) for s in existing_sessions]
+        if len(stage_keys) != len(set(stage_keys)):
+            raise ValidationError(_("This ticket has split bookings. Remove them from the calendar before replacing its plan automatically."))
         ProductionPlanningService.lock_resources(resource_ids)
 
         # Delete previous planned sessions for those tickets

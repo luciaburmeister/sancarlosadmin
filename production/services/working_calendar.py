@@ -112,24 +112,26 @@ class WorkingCalendar:
 
     def windows_between(self, start: datetime, end: datetime) -> list[WorkingWindow]:
         """Open windows intersecting ``[start, end)``, clipped to those bounds."""
-        if start >= end:
-            return []
+        windows = list(self.iter_windows_between(start, end))
+        windows.sort(key=lambda w: w.start)
+        return windows
 
-        windows: list[WorkingWindow] = []
+    def iter_windows_between(self, start: datetime, end: datetime):
+        """Yield clipped windows without building a full scheduling horizon."""
+        if start >= end:
+            return
+
         # Extra day on each side covers timezone conversion drift.
         first = timezone.localtime(start, self._tz).date() - timedelta(days=1)
         last = timezone.localtime(end, self._tz).date() + timedelta(days=1)
 
         day = first
         while day <= last:
-            for window in self.windows_for_date(day):
+            for window in sorted(self.windows_for_date(day), key=lambda w: w.start):
                 clipped = window.clipped(start, end)
                 if clipped is not None:
-                    windows.append(clipped)
+                    yield clipped
             day += timedelta(days=1)
-
-        windows.sort(key=lambda w: w.start)
-        return windows
 
     def working_minutes_between(self, start: datetime, end: datetime) -> int:
         """Open minutes in ``[start, end)`` - closed time excluded."""

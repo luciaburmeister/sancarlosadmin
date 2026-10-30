@@ -1,4 +1,5 @@
 from datetime import timedelta
+from collections import defaultdict
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -10,11 +11,13 @@ from production.models import (
     ProductionItemSession,
     ProductionItemSessionStatus,
     ProductionItemSessionKind,
+    ProductionTicket,
+    ProductionTicketStatus,
 )
 from company.models import Employee
 from production.constants import ProductionActions
 from production.exceptions import StageHasActiveWorkersError, WorkerBusyError
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext as _
 
 import unicodedata
 
@@ -111,6 +114,21 @@ class StagesToSessionsService:
         )
 
     @classmethod
+    def _lock_stage_items(cls, items):
+        """Refresh progress under row locks before starting work from a stale screen."""
+        progress = {row["pk"]: row for row in (
+            ProductionItem.objects.select_for_update(no_key=True)
+            .filter(pk__in=[item.pk for item in items]).order_by("pk")
+            .values("pk", "planning", "status")
+        )}
+        for item in items:
+            if item.pk in progress:
+                item.planning = progress[item.pk]["planning"]
+                item.status = progress[item.pk]["status"]
+        return [item for item in items if item.pk in progress]
+
+    @classmethod
+    @transaction.atomic
     def start_group_activity(
         cls, *, stage_name: str, items: list[ProductionItem], employee: Employee, skip_worker_check: bool = False
     ) -> int:
@@ -118,6 +136,7 @@ class StagesToSessionsService:
         stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
+        items = cls._lock_stage_items(items)
 
         # Rule: worker cannot already be active on something else
         if not skip_worker_check:
@@ -170,6 +189,7 @@ class StagesToSessionsService:
         return count
 
     @classmethod
+    @transaction.atomic
     def _start_exclusive_activity(
         cls, *, stage_name: str, items: list[ProductionItem], employee: Employee
     ) -> int:
@@ -177,6 +197,7 @@ class StagesToSessionsService:
         stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
+        items = cls._lock_stage_items(items)
 
         now = timezone.now()
         count = 0
@@ -235,12 +256,12 @@ class StagesToSessionsService:
 
     @classmethod
     def _other_active_workers_on_stage(
-        cls, item: ProductionItem, stage_name: str, employee: Employee
+        cls, item: ProductionItem, stage_name: str, employee: Employee, *, sessions=None,
     ) -> list[dict]:
         """Employees (other than *employee*) with an open session on this item+stage."""
         seen: set[int] = set()
         workers: list[dict] = []
-        for sess in cls._open_sessions_for_stage(item, stage_name):
+        for sess in (sessions if sessions is not None else cls._open_sessions_for_stage(item, stage_name)):
             emp = sess.created_by
             if emp is None or emp.id == employee.id or emp.id in seen:
                 continue
@@ -257,6 +278,7 @@ class StagesToSessionsService:
         session.finish(completed_by=completed_by)
 
     @classmethod
+    @transaction.atomic
     def supervisor_finish_activity(
         cls,
         *,
@@ -265,6 +287,8 @@ class StagesToSessionsService:
         attributions: list[tuple[Employee, int]],
     ) -> int:
         """Close a stage on behalf of supervisors, recording who worked and how long."""
+        if not cls._lock_stage_items([item]):
+            return 0
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
 
@@ -344,23 +368,97 @@ class StagesToSessionsService:
         return 1
 
     @classmethod
+    @transaction.atomic
+    def complete_ticket_stage(cls, *, ticket, stage_name: str, employee: Employee | None = None, user=None) -> int:
+        """Complete a ticket's stage without scheduling it or adding work sessions."""
+        # Stage actions lock items before updating the ticket. NO KEY UPDATE
+        # still allows the calendar to add operator roster FK references.
+        ticket_items = list(ProductionItem.objects.select_for_update(no_key=True).filter(ticket=ticket).order_by("pk"))
+        ticket = ProductionTicket.objects.select_for_update().get(pk=ticket.pk, company_id=ticket.company_id)
+        if (employee is None and user is None) or (employee is not None and (
+            not employee.is_active or employee.company_id != ticket.company_id
+        )):
+            raise ValidationError(_("An active employee in this company must complete the stage."))
+        if ticket.status == ProductionTicketStatus.CANCELLED:
+            raise ValidationError(_("Cancelled tickets cannot be changed."))
+        from management.models import ProjectFileStatus
+
+        project_file = ticket.resolved_project_file
+        if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
+            raise ValidationError(_("Tickets in cancelled project files cannot be changed."))
+
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        if any(item.company_id != ticket.company_id for item in ticket_items):
+            raise ValidationError(_("The ticket's items must belong to the same company."))
+        items = []
+        unfinished = []
+        for item in ticket_items:
+            item.ticket = ticket
+            if stage_name in {unicodedata.normalize("NFC", key) for key in (item.planning or {})}:
+                status = item.get_stage_planning(stage_name).get("status") or ProductionItemStatus.PENDING
+                if status not in (ProductionItemStatus.PENDING, ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.DONE):
+                    raise ValidationError(_("This stage cannot be marked as done in its current state."))
+                items.append(item)
+                if status != ProductionItemStatus.DONE:
+                    unfinished.append(item)
+        if not items:
+            raise ValidationError(_("This stage is not defined for the ticket's items."))
+        if ProductionItemSession.objects.filter(
+            production_item__in=items, production_stage=stage_name,
+            status=ProductionItemSessionStatus.IN_PROGRESS, end_time__isnull=True,
+        ).exists():
+            raise ValidationError(_("Workers are active on this stage. Stop their work before marking it as done."))
+
+        count = cls.finish_activity(
+            stage_name=stage_name, items=unfinished, employee=employee, allow_pending=True, user=user, save=False,
+        )
+        if count != len(unfinished):
+            raise ValidationError(_("This stage cannot be marked as done in its current state."))
+        if unfinished:
+            for item in unfinished:
+                item.updated_at = timezone.now()
+            ProductionItem.objects.bulk_update(unfinished, ["planning", "status", "updated_at"])
+            # The items' validated companies are unchanged. Preserve save()'s
+            # only other side effect once for the whole completion batch.
+            ticket.recompute_status()
+        return count
+
+    @classmethod
+    @transaction.atomic
     def finish_activity(
         cls,
         *,
         stage_name: str,
         items: list[ProductionItem],
-        employee: Employee,
+        employee: Employee | None,
         allow_pending: bool = False,
+        user=None,
+        save: bool = True,
     ) -> int:
         """Mark a stage as done, closing this employee's open sessions.
 
         With ``allow_pending=True`` a stage that never started can also be
         closed directly (used by the terminal to close leftover tasks on
         fully-invoiced expedientes).
+        Calendar supervisors can also attribute direct completion to a user
+        account when they have no employee profile; active work remains blocked.
+        With save=False the caller must persist item progress and recompute
+        ticket status inside its transaction, after validating the whole batch.
         """
+        if employee is None and (not allow_pending or user is None):
+            raise ValidationError(_("An active employee in this company must complete the stage."))
+        items = cls._lock_stage_items(items)
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
         count = 0
+        if not items:
+            return count
+        sessions_by_item = defaultdict(list)
+        for session in ProductionItemSession.objects.filter(
+            production_item__in=items, production_stage=stage_name,
+            status=ProductionItemSessionStatus.IN_PROGRESS, end_time__isnull=True,
+        ).select_related("created_by"):
+            sessions_by_item[session.production_item_id].append(session)
 
         allowed_statuses = {ProductionItemStatus.IN_PROGRESS}
         if allow_pending:
@@ -375,12 +473,16 @@ class StagesToSessionsService:
             if status not in allowed_statuses:
                 continue
 
-            others = cls._other_active_workers_on_stage(item, stage_name, employee)
-            if others:
-                raise StageHasActiveWorkersError(others)
+            if employee is None:
+                if sessions_by_item[item.pk]:
+                    raise ValidationError(_("Workers are active on this stage. Stop their work before marking it as done."))
+            else:
+                others = cls._other_active_workers_on_stage(item, stage_name, employee, sessions=sessions_by_item[item.pk])
+                if others:
+                    raise StageHasActiveWorkersError(others)
 
-            for sess in cls._open_sessions_for_stage(item, stage_name):
-                if sess.created_by_id != employee.id:
+            for sess in sessions_by_item[item.pk]:
+                if employee is None or sess.created_by_id != employee.id:
                     continue
                 sess.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
                 sess.finish(completed_by=employee)
@@ -388,14 +490,30 @@ class StagesToSessionsService:
             stage_info["status"] = ProductionItemStatus.DONE
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = now.isoformat()
-            stage_info["completed_by"] = employee.pk
+            if employee is not None:
+                stage_info["completed_by"] = employee.pk
+            else:
+                stage_info.pop("completed_by", None)
+            if user is not None:
+                stage_info["completed_by_user"] = user.pk
+                entry = {
+                    "at": now.isoformat(), "action": ProductionActions.FINISH_ACTIVITY,
+                    "user_id": user.pk, "user": user.get_full_name() or user.get_username(),
+                }
+                if employee is not None:
+                    entry["employee_id"] = employee.pk
+                stage_info.setdefault("completion_log", []).append(entry)
+            else:
+                stage_info.pop("completed_by_user", None)
             stage_info.pop("pause_reason", None)
-            cls._save_planning(item, stage_name, stage_info)
+            cls._save_planning(item, stage_name, stage_info, save=save)
             count += 1
         return count
 
     @classmethod
+    @transaction.atomic
     def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        items = cls._lock_stage_items(items)
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
         count = 0
@@ -441,6 +559,7 @@ class StagesToSessionsService:
         return count
 
     @classmethod
+    @transaction.atomic
     def leave_activity(
         cls,
         *,
@@ -454,6 +573,7 @@ class StagesToSessionsService:
         When the stage is left with no open sessions (truly paused) an optional
         ``pause_reason`` from Company.pause_reasons is recorded on the planning.
         """
+        items = cls._lock_stage_items(items)
         stage_name = unicodedata.normalize("NFC", stage_name)
         reason = cls._validated_pause_reason(items, pause_reason)
         count = 0
@@ -510,33 +630,35 @@ class StagesToSessionsService:
         employee: Employee,
         pause_reason: str | None = None,
     ) -> int:
-        stage_name = unicodedata.normalize("NFC", stage_name)
-        reason = cls._validated_pause_reason(items, pause_reason)
-        count = 0
-        for item in items:
-            session = (
-                ProductionItemSession.objects.filter(
-                    production_item=item,
-                    production_stage=stage_name,
-                    created_by=employee,
-                    status=ProductionItemSessionStatus.IN_PROGRESS,
-                    end_time__isnull=True,
+        with transaction.atomic():
+            items = cls._lock_stage_items(items)
+            stage_name = unicodedata.normalize("NFC", stage_name)
+            reason = cls._validated_pause_reason(items, pause_reason)
+            count = 0
+            for item in items:
+                session = (
+                    ProductionItemSession.objects.filter(
+                        production_item=item,
+                        production_stage=stage_name,
+                        created_by=employee,
+                        status=ProductionItemSessionStatus.IN_PROGRESS,
+                        end_time__isnull=True,
+                    )
+                    .order_by("-start_time")
+                    .first()
                 )
-                .order_by("-start_time")
-                .first()
-            )
-            if not session:
-                raise ValidationError(
-                    _("No active session found to end. It may have already been closed.")
-                )
+                if not session:
+                    raise ValidationError(
+                        _("No active session found to end. It may have already been closed.")
+                    )
 
-            session.kind = ProductionItemSessionKind.SESSION_FINISHED
-            session.finish(completed_by=employee)
-            count += 1
+                session.kind = ProductionItemSessionKind.SESSION_FINISHED
+                session.finish(completed_by=employee)
+                count += 1
 
-            if reason and not cls._stage_has_open_session(item, stage_name):
-                cls._set_pause_reason(item, stage_name, reason)
-        return count
+                if reason and not cls._stage_has_open_session(item, stage_name):
+                    cls._set_pause_reason(item, stage_name, reason)
+            return count
 
     @classmethod
     def revert_activity(
@@ -579,7 +701,7 @@ class StagesToSessionsService:
         stage_orders = {}
         with transaction.atomic():
             locked_items = (
-                ProductionItem.objects.select_for_update(of=("self",))
+                ProductionItem.objects.select_for_update(of=("self",), no_key=True)
                 .select_related("ticket")
                 .filter(pk__in=[item.pk for item in items])
                 .order_by("pk")
@@ -608,6 +730,7 @@ class StagesToSessionsService:
                 stage_info["status"] = target_status
                 stage_info["completed_at"] = None
                 stage_info.pop("completed_by", None)
+                stage_info.pop("completed_by_user", None)
                 stage_info.pop("pause_reason", None)
                 # Reverting to pending also clears the start timestamp
                 if target_status == ProductionItemStatus.PENDING:
@@ -704,10 +827,11 @@ class StagesToSessionsService:
         return ProductionItemStatus.PENDING
 
     @classmethod
-    def _save_planning(cls, production_item: ProductionItem, stage_name: str, stage_info: dict):
+    def _save_planning(cls, production_item: ProductionItem, stage_name: str, stage_info: dict, *, save=True):
         planning = {unicodedata.normalize("NFC", k): v for k, v in (production_item.planning or {}).items()}
         planning[stage_name] = stage_info
 
         production_item.planning = planning
         production_item.status = cls._compute_item_status(planning)
-        production_item.save(update_fields=["planning", "status", "updated_at"])
+        if save:
+            production_item.save(update_fields=["planning", "status", "updated_at"])

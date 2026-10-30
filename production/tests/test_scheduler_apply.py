@@ -107,6 +107,18 @@ class ScheduleProposalApplyTest(TestCase):
 
         self.assertTrue(PlannedProductionSession.objects.filter(pk=original.pk, locked=True).exists())
 
+    def test_automatic_replanning_preserves_explicit_split_bookings(self):
+        originals = [make_session(
+            self.ticket, start=self.start + timedelta(days=day),
+            end=self.start + timedelta(days=day, hours=1), resources=[self.oven],
+        ) for day in (0, 1)]
+
+        with self.assertRaises(ValidationError):
+            ScheduleProposalApplier().apply(self.proposal())
+
+        self.assertEqual(set(self.ticket.planned_sessions.values_list("pk", flat=True)),
+                         {session.pk for session in originals})
+
     def apply_run(self, proposal, *, grant_permissions=True):
         if grant_permissions:
             self.user.user_permissions.add(*Permission.objects.filter(

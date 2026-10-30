@@ -20,11 +20,18 @@ function productionSchedule() {
     backlogOpen: sessionStorage.getItem(BACKLOG_OPEN_KEY) === "1",
     // One small modal covers every warning/error shape: overridable conflicts
     // ("confirm") and everything that used to be a bare alert() ("error").
+    cutActive: false,
+    cutBusy: false,
+    cutSessionId: "",
+    _cut: null,
+    _cutMarker: null,
+    _cutTooltip: null,
     modalOpen: false,
     modalKind: "confirm", // "confirm" | "error"
     modalTitle: "",
     modalMessage: "",
     modalConflicts: [],
+    modalParts: [],
     modalConfirmLabel: "",
     _modalRefreshOnClose: false,
     // Drives the "drop here to return it to pending" affordance on the
@@ -38,6 +45,7 @@ function productionSchedule() {
     openGroups: {},
 
     _actionUrl: "",
+    _timeZone: "",
     _csrfToken: "",
     _i18n: {},
     _snapMinutes: 15,
@@ -46,6 +54,7 @@ function productionSchedule() {
     _canChange: false,
     _canPlan: false,
     _canUnplan: false,
+    _canCompleteStage: false,
     _segments: [],
     _totalMinutes: 0,
     _retry: null, // {action, payload} to resend with override:true
@@ -65,6 +74,7 @@ function productionSchedule() {
     init() {
       const root = document.getElementById("ps-root");
       this._actionUrl = root.dataset.actionUrl;
+      this._timeZone = root.dataset.timeZone;
       this._csrfToken = root.dataset.csrfToken;
       this._snapMinutes = parseInt(root.dataset.snapMinutes || "15", 10);
       this._windowStart = root.dataset.windowStart;
@@ -72,6 +82,7 @@ function productionSchedule() {
       this._canChange = root.dataset.canChange === "1";
       this._canPlan = root.dataset.canPlan === "1";
       this._canUnplan = root.dataset.canUnplan === "1";
+      this._canCompleteStage = root.dataset.canCompleteStage === "1";
       if (root.dataset.openGroupKey) {
         this.openGroups[root.dataset.openGroupKey] = true;
         this.$nextTick(() => {
@@ -95,6 +106,10 @@ function productionSchedule() {
       const i18nEl = document.getElementById("ps-i18n");
       this._i18n = i18nEl ? JSON.parse(i18nEl.textContent) : {};
 
+      document.addEventListener("pointermove", (event) => this._onCutMove(event));
+      document.addEventListener("click", (event) => this._onCutClick(event), true);
+      document.addEventListener("keydown", (event) => this._onCutKey(event), true);
+      document.addEventListener("scroll", () => this.cancelSplit(), true);
       this._bindDragEvents();
       this._bindResizeEvents();
       this._bindBacklogScrollTracking();
@@ -116,7 +131,7 @@ function productionSchedule() {
           sessionStorage.setItem(BACKLOG_EXPANDED_KEY, String(ticketId));
         }
       });
-      this._restoreExpandedBacklogTicket();
+      if (backlogEl) this._restoreExpandedBacklogTicket();
     },
 
     _restoreExpandedBacklogTicket() {
@@ -217,7 +232,7 @@ function productionSchedule() {
 
     _onResizeStart(event) {
       const handle = event.target.closest(".ps-block__resize");
-      if (!handle || !this._canChange) return;
+      if (!handle || !this._canChange || this.cutActive || this.cutBusy) return;
 
       const block = handle.closest(".ps-block");
       const track = block && block.closest(".ps-track");
@@ -304,8 +319,20 @@ function productionSchedule() {
     },
 
     _onDragStart(event) {
-      if (this._resizing || event.target.closest(".ps-block__resize, .ps-block__session-link")) {
+      if (this.cutActive || this.cutBusy || this._resizing || event.target.closest(".ps-block__resize, .ps-block__session-link, .ps-block__split")) {
         event.preventDefault();
+        return;
+      }
+      const weekEntry = event.target.closest(".ps-week-entry");
+      if (weekEntry?.getAttribute("draggable") === "true" && this._canChange) {
+        this._dragged = {
+          week: true, sessionId: weekEntry.dataset.sessionId,
+          rowKey: weekEntry.closest("[data-row-key]").dataset.rowKey,
+          start: weekEntry.dataset.start, end: weekEntry.dataset.end,
+        };
+        weekEntry.classList.add("ps-block--dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", weekEntry.dataset.sessionId);
         return;
       }
       const block = event.target.closest(".ps-block");
@@ -377,6 +404,7 @@ function productionSchedule() {
 
     _onDragEnd(event) {
       this._stopDragAutoScroll();
+      document.querySelectorAll(".ps-week-day--dragover").forEach((el) => el.classList.remove("ps-week-day--dragover"));
       document
         .querySelectorAll(".ps-block--dragging, .ps-backlog-card--dragging")
         .forEach((el) => el.classList.remove("ps-block--dragging", "ps-backlog-card--dragging"));
@@ -414,6 +442,15 @@ function productionSchedule() {
     },
 
     _onDragOver(event) {
+      if (this._dragged?.week) {
+        const target = this._weekDropTarget(event);
+        if (target) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          target.classList.add("ps-week-day--dragover");
+        }
+        return;
+      }
       this._updateDragAutoScroll(event);
       // The backlog panel is where a planned block goes to be unplanned. It
       // holds no track, so this has to be answered before the track lookup.
@@ -449,6 +486,8 @@ function productionSchedule() {
     },
 
     _onDragLeave(event) {
+      const day = event.target.closest("[data-drop-day]");
+      if (day && !day.contains(event.relatedTarget)) day.classList.remove("ps-week-day--dragover");
       const panel = event.target.closest("#ps-backlog-section");
       if (panel && !panel.contains(event.relatedTarget)) this.unplanHover = false;
 
@@ -513,6 +552,10 @@ function productionSchedule() {
     },
 
     _onDrop(event) {
+      if (this._dragged?.week) {
+        this._dropWeekSession(event);
+        return;
+      }
       this._stopDragAutoScroll();
       if (this._unplanZoneFor(event)) {
         event.preventDefault();
@@ -803,7 +846,7 @@ function productionSchedule() {
     // --- ticket-specific stage planning --------------------------------
 
     _prepareTicketStages(ticketId) {
-      if (!this._canPlan) return;
+      if (!this._canPlan && !this._canCompleteStage) return;
       const item = this._backlogItems.get(String(ticketId));
       if (!item) return;
 
@@ -818,6 +861,17 @@ function productionSchedule() {
         employeeQty: source.employee_qty || 0,
       }));
       return true;
+    },
+
+    confirmCompleteStage(ticketId, stageName) {
+      if (!this._canCompleteStage) return;
+      this._openModal({
+        kind: "confirm",
+        title: this._i18n.completeStageTitle,
+        message: this._i18n.completeStageMessage.replace("%(stage)s", stageName),
+        confirmLabel: this._i18n.completeStageTitle,
+        retry: { action: "complete_stage", payload: { ticket_id: ticketId, stage: stageName } },
+      });
     },
 
     _stageDropResourceIds(row) {
@@ -932,7 +986,7 @@ function productionSchedule() {
     },
 
     toggleTicketStages(ticketId) {
-      if (!this._canPlan) return;
+      if (!this._canPlan && !this._canCompleteStage) return;
       if (this.expandedBacklogTicketId === Number(ticketId)) {
         this.expandedBacklogTicketId = null;
         this.ticketStages = [];
@@ -961,6 +1015,176 @@ function productionSchedule() {
         el.classList.toggle("ps-block--linked", on);
       });
     },
+
+    // --- split a scheduled booking in place -----------------------------
+
+    async beginSplit(event) {
+      if (!this._canChange || !this._canPlan || this.cutBusy) return;
+      const block = event.currentTarget.closest(".ps-block, .ps-week-entry");
+      if (!block || block.dataset.locked === "1") return;
+      if (this.cutSessionId === block.dataset.sessionId) {
+        this.cancelSplit();
+        return;
+      }
+      this.cancelSplit();
+      this.cutBusy = true;
+      try {
+        const url = new URL(this._actionUrl, window.location.origin);
+        url.searchParams.set("session_id", block.dataset.sessionId);
+        const response = await fetch(url);
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || this._i18n.couldNotApplyTitle);
+        if (result.working_minutes < 2) throw new Error(this._i18n.invalidCut);
+        this._cut = {
+          block, session: result.session, windows: result.working_windows,
+          total: result.working_minutes, first: Math.floor(result.working_minutes / 2),
+        };
+        this.cutSessionId = String(result.session.id);
+        this.cutActive = true;
+        this._cutMarker = document.createElement("span");
+        this._cutMarker.className = "ps-cut-line";
+        this._cutMarker.setAttribute("aria-hidden", "true");
+        block.appendChild(this._cutMarker);
+        this._cutTooltip = document.createElement("span");
+        this._cutTooltip.className = "ps-cut-tooltip";
+        this._cutTooltip.setAttribute("role", "status");
+        this._cutTooltip.setAttribute("aria-live", "polite");
+        document.body.appendChild(this._cutTooltip);
+        block.classList.add("ps-booking--cutting");
+        this._paintCut();
+      } catch (error) {
+        this._openModal({kind: "error", title: this._i18n.couldNotApplyTitle, message: error.message});
+      } finally {
+        this.cutBusy = false;
+      }
+    },
+
+    _cutDate() {
+      let remaining = this._cut.first;
+      for (const segment of this._cut.windows) {
+        if (remaining <= segment.minutes) {
+          return new Date(new Date(segment.start).getTime() + remaining * 60000);
+        }
+        remaining -= segment.minutes;
+      }
+      return null;
+    },
+
+    _onCutMove(event) {
+      if (!this._cut || this.cutBusy) return;
+      const block = event.target.closest(".ps-block, .ps-week-entry");
+      if (block !== this._cut.block) return;
+      const rect = block.getBoundingClientRect();
+      let first;
+      const track = block.closest(".ps-track");
+      if (track && block.dataset.displaced !== "1" && this._segments.length) {
+        const axis = track.getBoundingClientRect();
+        const start = new Date(this._segments[0].start).getTime();
+        const end = new Date(this._segments[this._segments.length - 1].end).getTime();
+        const moment = start + (end - start) * ((event.clientX - axis.left) / axis.width);
+        first = this._cut.windows.reduce((sum, segment) => sum + Math.max(0,
+          (Math.min(moment, new Date(segment.end).getTime()) - new Date(segment.start).getTime()) / 60000
+        ), 0);
+      } else {
+        first = this._cut.total * ((event.clientX - rect.left) / rect.width);
+      }
+      first = Math.round(first / this._snapMinutes) * this._snapMinutes;
+      this._cut.first = Math.max(1, Math.min(this._cut.total - 1, first));
+      this._paintCut();
+    },
+
+    _paintCut() {
+      const cut = this._cut;
+      if (!cut) return;
+      const rect = cut.block.getBoundingClientRect();
+      let left = rect.width * cut.first / cut.total;
+      const track = cut.block.closest(".ps-track");
+      if (track && cut.block.dataset.displaced !== "1" && this._segments.length) {
+        const axis = track.getBoundingClientRect();
+        const start = new Date(this._segments[0].start).getTime();
+        const end = new Date(this._segments[this._segments.length - 1].end).getTime();
+        left = axis.left + axis.width * ((this._cutDate().getTime() - start) / (end - start)) - rect.left;
+      }
+      left = Math.max(1, Math.min(rect.width - 1, left));
+      this._cutMarker.style.transform = `translateX(${left}px)`;
+      this._cutTooltip.textContent = this._i18n.cutMinutes
+        .replace("%(first)s", cut.first).replace("%(second)s", cut.total - cut.first);
+      this._cutTooltip.style.left = Math.max(80, Math.min(window.innerWidth - 80, rect.left + left)) + "px";
+      this._cutTooltip.style.top = Math.max(4, rect.top - 32) + "px";
+    },
+
+    _onCutClick(event) {
+      if (!this._cut || event.target.closest(".ps-block__split")) return;
+      const block = event.target.closest(".ps-block, .ps-week-entry");
+      if (block === this._cut.block) {
+        event.preventDefault();
+        event.stopPropagation();
+        this._onCutMove(event);
+        this.commitSplit();
+      } else {
+        this.cancelSplit();
+      }
+    },
+
+    _onCutKey(event) {
+      if (!this._cut || this.cutBusy) return;
+      if (event.key === "Escape") {
+        event.preventDefault(); this.cancelSplit();
+      } else if (event.key === "Enter") {
+        event.preventDefault(); event.stopPropagation(); this.commitSplit();
+      } else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const next = event.key === "Home" ? 1 : event.key === "End" ? this._cut.total - 1
+          : this._cut.first + (event.key === "ArrowRight" ? this._snapMinutes : -this._snapMinutes);
+        this._cut.first = Math.max(1, Math.min(this._cut.total - 1, next));
+        this._paintCut();
+      }
+    },
+
+    cancelSplit() {
+      this._cut?.block.classList.remove("ps-booking--cutting");
+      this._cutMarker?.remove();
+      this._cutTooltip?.remove();
+      this._cut = null;
+      this._cutMarker = null;
+      this._cutTooltip = null;
+      this.cutActive = false;
+      this.cutSessionId = "";
+    },
+
+    async commitSplit() {
+      if (!this._cut || this.cutBusy) return;
+      const {session} = this._cut;
+      const payload = {
+        session_id: session.id, cut_at: this._cutDate().toISOString(),
+        expected_start: session.start, expected_end: session.end,
+      };
+      this.cancelSplit();
+      this.cutBusy = true;
+      try { await this._post("split_booking", payload); }
+      finally { this.cutBusy = false; }
+    },
+
+    // --- move a booking between days without reassigning its resources ---
+
+    _weekDropTarget(event) {
+      const target = event.target.closest("[data-drop-day]");
+      if (!target || !this._dragged?.week) return null;
+      return !target.dataset.rowKey || target.dataset.rowKey === this._dragged.rowKey ? target : null;
+    },
+
+    _dropWeekSession(event) {
+      const target = this._weekDropTarget(event);
+      if (!target) return;
+      event.preventDefault();
+      target.classList.remove("ps-week-day--dragover");
+      const dragged = this._dragged;
+      this._post("move_session_day", {
+        session_id: dragged.sessionId, day: target.dataset.dropDay,
+        expected_start: dragged.start, expected_end: dragged.end,
+      });
+    },
+
 
     // --- network --------------------------------------------------------
 
@@ -1006,11 +1230,22 @@ function productionSchedule() {
       }
 
       if (result.requires_confirmation) {
+        const overflow = result.overflow_plan;
+        const dateFormat = overflow ? new Intl.DateTimeFormat(document.documentElement.lang || "es", {
+          dateStyle: "short", timeStyle: "short", timeZone: this._timeZone,
+        }) : null;
         this._openModal({
           kind: "confirm",
-          title: this._i18n.hasWarningsTitle,
+          title: overflow ? this._i18n.overflowTitle : this._i18n.hasWarningsTitle,
+          message: overflow ? this._i18n.overflowMessage : "",
+          confirmLabel: overflow ? this._i18n.overflowConfirm : "",
+          parts: overflow ? overflow.parts.map(part => this._i18n.overflowPart
+            .replace("%(start)s", dateFormat.format(new Date(part.start)))
+            .replace("%(end)s", dateFormat.format(new Date(part.end)))
+            .replace("%(minutes)s", part.minutes)) : [],
           conflicts: result.conflicts || [],
-          retry: { action, payload: Object.assign({}, payload, { override: true }) },
+          retry: { action, payload: Object.assign({}, payload, { override: true },
+            overflow ? { overflow_plan: overflow } : {}) },
           refreshOnClose: true,
         });
         return;
@@ -1035,6 +1270,7 @@ function productionSchedule() {
     // Fetches this page's HTML and swaps in just the board/backlog fragments,
     // trusting the server's render without tearing down Alpine state.
     async _refreshBoard() {
+      this.cancelSplit();
       let html;
       try {
         const response = await fetch(window.location.href);
@@ -1103,11 +1339,12 @@ function productionSchedule() {
       }
     },
 
-    _openModal({ kind, title, message = "", conflicts = [], retry = null, refreshOnClose = false, confirmLabel = "" }) {
+    _openModal({ kind, title, message = "", conflicts = [], parts = [], retry = null, refreshOnClose = false, confirmLabel = "" }) {
       this.modalKind = kind;
       this.modalTitle = title;
       this.modalMessage = message;
       this.modalConflicts = conflicts;
+      this.modalParts = parts;
       this.modalConfirmLabel = confirmLabel;
       this._retry = retry;
       this._modalRefreshOnClose = refreshOnClose;
@@ -1119,6 +1356,7 @@ function productionSchedule() {
       if (shouldRefresh) this._restorePendingMove();
       this.modalOpen = false;
       this.modalConflicts = [];
+      this.modalParts = [];
       this._retry = null;
       // Refresh so an optimistic DOM change (a resize preview, a sent move)
       // can't sit half-applied; pure validation never touched the DOM.

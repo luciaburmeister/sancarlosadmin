@@ -79,16 +79,11 @@ class PlannedStageSlot:
 
 def _build_planned_index(employee: Employee, ticket_ids: list[int]) -> dict[tuple[int, str], PlannedStageSlot]:
     """Map (ticket_id, normalized stage) -> its slot in this employee's calendar plan."""
-    from django.contrib.contenttypes.models import ContentType
-
-    employee_ct = ContentType.objects.get_for_model(Employee)
     sessions = (
-        PlannedProductionSession.objects.filter(
-            primary_resource__content_type=employee_ct,
-            primary_resource__object_id=employee.id,
+        PlannedProductionSession.objects.for_employee(employee).filter(
             production_ticket_id__in=ticket_ids,
         )
-        .order_by("planned_start")
+        .order_by("planned_start", "pk")
     )
 
     by_day: dict = {}
@@ -96,11 +91,16 @@ def _build_planned_index(employee: Employee, ticket_ids: list[int]) -> dict[tupl
         by_day.setdefault(timezone.localtime(session.planned_start).date(), []).append(session)
 
     index: dict[tuple[int, str], PlannedStageSlot] = {}
+    today = timezone.localdate().isoformat()
     for day, day_sessions in by_day.items():
         total = len(day_sessions)
         for position, session in enumerate(day_sessions, start=1):
             key = (session.production_ticket_id, _uc.normalize("NFC", session.production_stage))
-            index[key] = PlannedStageSlot(date=day.isoformat(), order=position, day_total=total)
+            slot = PlannedStageSlot(date=day.isoformat(), order=position, day_total=total)
+            # Prefer the next booking; retain past plans when no continuation exists.
+            current = index.get(key)
+            if current is None or (current.date < today and slot.date >= today):
+                index[key] = slot
     return index
 
 

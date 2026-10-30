@@ -4,6 +4,7 @@ from django.test import TestCase
 
 from production.models import PlannedProductionSession
 from production.services.session_scheduler import get_or_create_resource_for_target
+from production.services.session_resources import sync_session_resources
 from production.tests.factories import make_company, make_employee, make_item, make_machine, make_product, make_ticket
 
 STAGE = "corte"
@@ -61,6 +62,17 @@ class SyncSessionEmployeeAssignmentTest(TestCase):
         assigned = set(self.item.assigned_employees.all())
         self.assertIn(self.employee, assigned)
         self.assertIn(self.other_employee, assigned)
+
+    def test_changing_operator_keeps_machine_anchor_and_refreshes_prefetched_roster(self):
+        session = self._session(self.machine_resource)
+        sync_session_resources(session, [self.machine_resource.pk, self.employee_resource.pk])
+        session = PlannedProductionSession.objects.prefetch_related("resources__resource").get(pk=session.pk)
+
+        sync_session_resources(session, [self.machine_resource.pk, self.other_employee_resource.pk])
+
+        self.assertEqual(session.primary_resource_id, self.machine_resource.pk)
+        self.assertEqual(session.assigned_operators, [self.other_employee])
+        self.assertEqual(set(self.item.assigned_employees.all()), {self.employee, self.other_employee})
 
     def test_machine_resource_is_ignored(self):
         self._session(self.machine_resource)

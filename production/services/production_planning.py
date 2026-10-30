@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -35,6 +36,7 @@ class MutationResult:
     sessions: list = field(default_factory=list)
     conflicts: list[Conflict] = field(default_factory=list)
     requires_confirmation: bool = False
+    overflow_plan: dict | None = None
 
     @property
     def blocked(self) -> bool:
@@ -102,6 +104,7 @@ class ProductionPlanningService:
         duration_minutes: int | None = None,
         resource_ids=None,
         override: bool = False,
+        timetable: dict | None = None,
     ) -> MutationResult:
         """Move a session, keeping its length unless *duration_minutes* is given."""
         session = cls._lock(session_id)
@@ -112,6 +115,14 @@ class ProductionPlanningService:
         candidate = SessionCandidate.from_session(session)
         candidate.start = new_start
         candidate.end = new_start + timedelta(minutes=minutes)
+        if session.production_ticket_id and PlannedProductionSession.objects.filter(
+            production_ticket_id=session.production_ticket_id,
+            production_stage=session.production_stage,
+        ).exclude(pk=session.pk).exists():
+            calendar = WorkingCalendar.for_company(session.company)
+            if duration_minutes is None and calendar.has_slots:
+                minutes = calendar.working_minutes_between(session.planned_start, session.planned_end)
+            candidate.start, candidate.end = cls._fit(calendar, new_start, minutes)
         if resource_ids is not None:
             candidate.resource_ids = [int(r) for r in resource_ids]
             if cls._unknown_resources(session.company, candidate.resource_ids):
@@ -120,6 +131,56 @@ class ProductionPlanningService:
                     _("A selected resource is unavailable or belongs to another company."),
                 )
 
+        if timetable is not None:
+            from production.services.stage_booking_splitting import StageBookingSplittingService
+
+            minutes = duration_minutes or StageBookingSplittingService.working_minutes(session) or minutes
+            calendar = WorkingCalendar.for_company(session.company)
+            if calendar.has_slots:
+                candidate.start, candidate.end = cls._fit(calendar, new_start, minutes)
+            result = StageBookingSplittingService.fit_overflow(
+                session.company, candidate, requested_start=new_start,
+                minutes=minutes,
+                session=session,
+                timetable=timetable, override=override,
+            )
+            if result is not None:
+                return result
+
+        return cls._apply(session, candidate, override=override)
+
+    @classmethod
+    @transaction.atomic
+    def move_session_day(
+        cls, session_id, *, day, expected_start, expected_end, override=False, timetable=None,
+    ) -> MutationResult:
+        session = cls._lock(session_id)
+        if session is None:
+            return cls._missing()
+        if (session.planned_start, session.planned_end) != (expected_start, expected_end):
+            return cls._problem("stale_booking", _("This booking has changed. Reload it before moving."))
+        calendar = WorkingCalendar.for_company(session.company)
+        start_time = timezone.localtime(session.planned_start, calendar.timezone).time()
+        proposed = timezone.make_aware(datetime.combine(day, start_time), calendar.timezone)
+        minutes = (
+            calendar.working_minutes_between(session.planned_start, session.planned_end)
+            if calendar.has_slots else session.duration_minutes
+        )
+        candidate = SessionCandidate.from_session(session)
+        candidate.start, candidate.end = cls._fit(calendar, proposed, minutes)
+        if not candidate.resource_ids and session.primary_resource_id:
+            candidate.resource_ids = [session.primary_resource_id]
+        if timezone.localtime(candidate.start, calendar.timezone).date() != day:
+            return cls._problem("closed_day", _("No working time remains on the selected day."))
+        if timetable is not None:
+            from production.services.stage_booking_splitting import StageBookingSplittingService
+
+            result = StageBookingSplittingService.fit_overflow(
+                session.company, candidate, requested_start=proposed, minutes=minutes, session=session,
+                timetable=timetable, override=override,
+            )
+            if result is not None:
+                return result
         return cls._apply(session, candidate, override=override)
 
     @classmethod
@@ -206,7 +267,7 @@ class ProductionPlanningService:
         from production.services.planning_stages import ticket_stage_plan
 
         ticket = (
-            ProductionTicket.objects.select_related("company")
+            ProductionTicket.objects.select_for_update(of=("self",)).select_related("company")
             .filter(pk=ticket_id)
             .first()
         )
@@ -312,7 +373,7 @@ class ProductionPlanningService:
         from production.services.planning_stages import resolve_ticket_stages
 
         ticket = (
-            ProductionTicket.objects.select_related("company")
+            ProductionTicket.objects.select_for_update(of=("self",)).select_related("company")
             .filter(pk=ticket_id)
             .first()
         )
@@ -458,6 +519,7 @@ class ProductionPlanningService:
         stage: dict,
         assign_machines: bool = False,
         override: bool = False,
+        timetable: dict | None = None,
     ) -> MutationResult:
         """Plan one previously-unplanned product stage at a chosen time.
 
@@ -468,7 +530,7 @@ class ProductionPlanningService:
         from production.services.planning_stages import resolve_ticket_stages
 
         ticket = (
-            ProductionTicket.objects.select_related("company")
+            ProductionTicket.objects.select_for_update(of=("self",)).select_related("company")
             .filter(pk=ticket_id)
             .first()
         )
@@ -596,6 +658,19 @@ class ProductionPlanningService:
             else conflict
             for conflict in conflicts
         ]
+        if timetable is not None:
+            from production.services.stage_booking_splitting import StageBookingSplittingService
+
+            # Time-dependent checks are repeated for each proposed portion.
+            resource_conflicts = [c for c in conflicts if c.code in {
+                ConflictCode.RESOURCE_NOT_SKILLED, ConflictCode.REQUIREMENT_UNMET,
+            }]
+            result = StageBookingSplittingService.fit_overflow(
+                ticket.company, candidate, requested_start=start_at, minutes=duration, session=None,
+                timetable=timetable, override=override, resource_conflicts=resource_conflicts,
+            )
+            if result is not None:
+                return result
         may_apply, needs_confirm = cls._decide(conflicts, override)
         if not may_apply:
             return MutationResult(
@@ -666,13 +741,24 @@ class ProductionPlanningService:
             )
 
         ordered = sorted(sessions, key=lambda session: (session.sequence, session.planned_start, session.pk))
-        ordered.remove(moved)
+        stage_groups = {}
+        for session in ordered:
+            stage_groups.setdefault(session.production_stage, []).append(session)
+        for group in stage_groups.values():
+            group.sort(key=lambda session: (session.planned_start, session.pk))
+        if neighbour and neighbour.production_stage == moved.production_stage:
+            return cls._problem(
+                "invalid_stage_order", _("Choose a different stage when changing the stage order."),
+            )
+        stage_order = list(stage_groups)
+        stage_order.remove(moved.production_stage)
         if neighbour:
-            neighbour_index = ordered.index(neighbour)
+            neighbour_index = stage_order.index(neighbour.production_stage)
             insert_at = neighbour_index if before_session_id else neighbour_index + 1
         else:
-            insert_at = len(ordered)
-        ordered.insert(insert_at, moved)
+            insert_at = len(stage_order)
+        stage_order.insert(insert_at, moved.production_stage)
+        ordered = [session for stage in stage_order for session in stage_groups[stage]]
 
         company = ticket.company
         calendar = WorkingCalendar.for_company(company)
@@ -685,12 +771,24 @@ class ProductionPlanningService:
         anchor = min(session.planned_start for session in sessions)
         cursor = calendar.next_open(anchor) or anchor
 
-        for sequence, session in enumerate(ordered):
+        for session in ordered:
             candidate = SessionCandidate.from_session(session)
-            candidate.sequence = sequence
+            candidate.sequence = stage_order.index(session.production_stage)
 
             if cascade:
-                start, end = cls._fit(calendar, cursor, session.duration_minutes)
+                # Keep intentional postponements between bookings of one stage.
+                group = stage_groups[session.production_stage]
+                position = group.index(session)
+                if position:
+                    previous = group[position - 1]
+                    gap = calendar.working_minutes_between(previous.planned_end, session.planned_start)
+                    if gap:
+                        cursor = cls._fit(calendar, cursor, gap)[1]
+                minutes = (
+                    calendar.working_minutes_between(session.planned_start, session.planned_end)
+                    if calendar.has_slots else session.duration_minutes
+                )
+                start, end = cls._fit(calendar, cursor, minutes)
                 candidate.start, candidate.end = start, end
                 cursor = end
 
@@ -723,6 +821,9 @@ class ProductionPlanningService:
             )
 
         changed_sessions = []
+        original_slots = {session.pk: (
+            session.production_ticket_id, session.production_stage, session.planned_start, session.planned_end,
+        ) for session, candidate in candidates}
         updated_at = timezone.now()
         for session, candidate in candidates:
             changed = False
@@ -739,15 +840,15 @@ class ProductionPlanningService:
                 changed_sessions.append(session)
 
         if changed_sessions:
-            PlannedProductionSession.objects.bulk_update(
-                changed_sessions,
-                ["sequence", "planned_start", "planned_end", "updated_at"],
+            cls._save_rescheduled(
+                changed_sessions, fields=["sequence", "planned_start", "planned_end", "updated_at"],
+                original_slots=original_slots,
             )
             # Session existence is unchanged; sync its derived status once.
             sync_configuration_planning_status(ticket)
 
         # Override for this ticket only; ProductTemplate stays the default elsewhere.
-        planned_stage_names = [session.production_stage for session in ordered]
+        planned_stage_names = stage_order
         ticket.stage_order = planned_stage_names + [
             stage for stage in ticket.get_stage_order() if stage not in planned_stage_names
         ]
@@ -760,7 +861,38 @@ class ProductionPlanningService:
     # --- internals -------------------------------------------------------
 
     @staticmethod
+    def _save_rescheduled(sessions, *, fields, original_slots):
+        """Persist validated positions under ticket/session locks, including swaps."""
+        occupied = {slot: pk for pk, slot in original_slots.items() if slot[0] is not None}
+        collision = any(occupied.get((
+            s.production_ticket_id, s.production_stage, s.planned_start, s.planned_end,
+        ), s.pk) != s.pk for s in sessions)
+        if collision:
+            # The unique slot constraint is immediate. Stage temporary intervals
+            # beyond this ticket's bookings, then write final positions atomically.
+            last_end = PlannedProductionSession.objects.filter(
+                production_ticket_id__in={s.production_ticket_id for s in sessions},
+            ).aggregate(last_end=Max("planned_end"))["last_end"]
+            anchor = max(last_end, max(s.planned_end for s in sessions))
+            final = {s.pk: (s.planned_start, s.planned_end) for s in sessions}
+            try:
+                for index, session in enumerate(sessions):
+                    session.planned_start = anchor + timedelta(microseconds=2 * index + 1)
+                    session.planned_end = anchor + timedelta(microseconds=2 * index + 2)
+                PlannedProductionSession.objects.bulk_update(sessions, ["planned_start", "planned_end"])
+            finally:
+                for session in sessions:
+                    session.planned_start, session.planned_end = final[session.pk]
+        PlannedProductionSession.objects.bulk_update(sessions, fields)
+
+    @staticmethod
     def _lock(session_id: int):
+        ticket_id = PlannedProductionSession.objects.filter(pk=session_id).values_list(
+            "production_ticket_id", flat=True
+        ).first()
+        if ticket_id:
+            # All bookings of a stage share this lock, even with different resources.
+            ProductionTicket.objects.select_for_update().filter(pk=ticket_id).exists()
         # of=("self",): company/production_ticket are nullable LEFT JOINs, unlockable.
         return (
             PlannedProductionSession.objects.select_for_update(of=("self",))
@@ -831,12 +963,12 @@ class ProductionPlanningService:
 
         remaining = minutes
         end = start
-        for window in calendar.windows_between(start, start + timedelta(days=365)):
+        for window in calendar.iter_windows_between(start, start + timedelta(days=365)):
             available = window.minutes
             if available <= 0:
                 continue
             if available >= remaining:
-                end = window.start + timedelta(minutes=remaining)
+                end = (window.start.astimezone(dt_timezone.utc) + timedelta(minutes=remaining)).astimezone(calendar.timezone)
                 remaining = 0
                 break
             remaining -= available

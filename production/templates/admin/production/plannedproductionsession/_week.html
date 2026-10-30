@@ -9,7 +9,7 @@
         <tr class="bg-base-50">
           <th scope="col" class="ps-week-label border-b border-r border-base-200 px-3 py-2 font-semibold text-base-700">{{ form.group_by.label }}</th>
           {% for week_day in week.days %}
-            <th scope="col" class="ps-week-column border-b border-r border-base-200 p-0 last:border-r-0 {% if week_day.is_today %}bg-primary-50{% endif %}">
+            <th scope="col" data-drop-day="{{ week_day.date|date:'Y-m-d' }}" class="ps-week-column border-b border-r border-base-200 p-0 last:border-r-0 {% if week_day.is_today %}bg-primary-50{% endif %}">
               <a href="{{ week_day.url }}" class="ps-week-header-link block px-2 py-2 text-base-700 transition-colors hover:bg-primary-50" aria-label="{% blocktranslate with date=week_day.date|date:'D, d M Y' %}Open day plan for {{ date }}{% endblocktranslate %}">
                 <span class="block font-semibold">{{ week_day.date|date:"D d M" }}</span>
                 <span class="block text-[11px] font-normal text-base-500">{% if week_day.is_today %}{% trans "Today" %}{% else %}{% trans "Open day" %}{% endif %}</span>
@@ -23,19 +23,35 @@
           <tr class="border-b border-base-200 last:border-b-0">
             <th scope="row" class="ps-week-label border-r border-base-200 bg-white px-3 py-2 align-top font-semibold text-base-800" title="{{ row.label }}">{{ row.label }}</th>
             {% for cell in row.cells %}
-              <td class="ps-week-column border-r border-base-200 p-0 align-top last:border-r-0">
-                <a href="{{ cell.url }}" class="ps-week-day-link block p-1.5 transition-colors hover:bg-primary-50" aria-label="{% blocktranslate with date=cell.date|date:'D, d M Y' %}Open day plan for {{ date }}{% endblocktranslate %}">
+              <td data-drop-day="{{ cell.date|date:'Y-m-d' }}" data-row-key="{{ row.key }}" class="ps-week-column border-r border-base-200 p-0 align-top last:border-r-0">
+                <div class="ps-week-day-link p-1.5">
                   {% for entry in cell.entries %}
-                    <span class="ps-week-entry mb-1 block min-w-0 rounded-md border border-base-200 bg-white px-1.5 py-1 text-xs text-base-800 last:mb-0" style="border-left-color: {{ entry.color }};" title="{{ entry.time }} · {{ entry.label }}{% if entry.detail %} · {{ entry.detail }}{% endif %}">
-                      <span class="block font-semibold tabular-nums">{{ entry.time }}</span>
-                      <span class="block truncate">{{ entry.label }}</span>
-                      {% if entry.detail %}<span class="block truncate text-[11px] text-base-500">{{ entry.detail }}</span>{% endif %}
-                    </span>
+                    <div class="ps-week-entry mb-1 min-w-0 rounded-md border border-base-200 bg-white px-1.5 py-1 text-xs text-base-800 last:mb-0"
+                         draggable="{% if can_change and not entry.locked %}true{% else %}false{% endif %}"
+                         data-session-id="{{ entry.session_id }}" data-start="{{ entry.start }}" data-end="{{ entry.end }}"
+                         data-locked="{{ entry.locked|yesno:'1,0' }}"
+                         style="border-left-color: {{ entry.color }};" title="{{ entry.time }} · {{ entry.label }}{% if entry.detail %} · {{ entry.detail }}{% endif %}">
+                      {% if can_change and not entry.locked %}
+                        <span class="material-symbols-outlined ps-week-entry__grip" title="{% trans 'Drag to another day' %}" aria-label="{% trans 'Drag to another day' %}">drag_indicator</span>
+                      {% endif %}
+                      <a href="{{ cell.url }}" draggable="false" class="ps-week-entry__link">
+                        <span class="block font-semibold tabular-nums">{{ entry.time }}</span>
+                        <span class="block truncate">{{ entry.label }}</span>
+                        {% if entry.detail %}<span class="block truncate text-[11px] text-base-500">{{ entry.detail }}</span>{% endif %}
+                      </a>
+                      {% if can_change and can_plan and not entry.locked and entry.can_split %}
+                        <button type="button" class="ps-block__split" draggable="false"
+                                @mousedown.stop @click.stop="beginSplit($event)"
+                                :disabled="cutBusy" :aria-pressed="cutActive && cutSessionId === '{{ entry.session_id }}'"
+                                title="{% trans 'Split booking' %}" aria-label="{% trans 'Split booking' %}">
+                          <span class="material-symbols-outlined" aria-hidden="true">content_cut</span>
+                        </button>
+                      {% endif %}
+                      {% if entry.locked %}<span class="material-symbols-outlined ps-week-entry__lock" aria-label="{% trans 'Locked' %}">lock</span>{% endif %}
+                    </div>
                   {% endfor %}
-                  {% if cell.overflow_count %}
-                    <span class="block px-1 text-xs font-semibold text-primary-700">{% blocktranslate count count=cell.overflow_count %}{{ count }} more session{% plural %}{{ count }} more sessions{% endblocktranslate %}</span>
-                  {% endif %}
-                </a>
+                  <a href="{{ cell.url }}" class="ps-week-open-day" aria-label="{% blocktranslate with date=cell.date|date:'D, d M Y' %}Open day plan for {{ date }}{% endblocktranslate %}">{% trans "Open day" %}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></a>
+                </div>
               </td>
             {% endfor %}
           </tr>

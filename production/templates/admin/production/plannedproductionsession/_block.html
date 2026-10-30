@@ -12,9 +12,18 @@
   data-sequence="{{ block.sequence }}"
   data-stage="{{ block.stage }}"
   data-resource-ids="{{ block.resource_ids|join:',' }}"
+  data-displaced="{{ block.is_displaced|yesno:'1,0' }}"
   data-locked="{{ block.is_locked|yesno:'1,0' }}"
   title="{{ block.title }}"
 >
+  {% if can_change and can_plan and not block.is_locked and not block.is_done and block.ticket_id %}
+    <button type="button" class="ps-block__split" draggable="false"
+            @mousedown.stop @click.stop="beginSplit($event)"
+            :disabled="cutBusy" :aria-pressed="cutActive && cutSessionId === '{{ block.session_id }}'"
+            title="{% trans 'Split booking' %}" aria-label="{% trans 'Split booking' %}">
+      <span class="material-symbols-outlined" aria-hidden="true">content_cut</span>
+    </button>
+  {% endif %}
   {% if block.show_label %}
   <span class="ps-block__move">
     <span class="material-symbols-outlined ps-block__move-grip" aria-hidden="true">drag_indicator</span>

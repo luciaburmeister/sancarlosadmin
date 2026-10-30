@@ -66,10 +66,16 @@ def sync_session_resources(session, resource_ids) -> list[int]:
         PlannedSessionResource.objects.filter(
             planned_session=session, resource_id__in=to_remove
         ).delete()
+    if to_add or to_remove:
+        getattr(session, "_prefetched_objects_cache", {}).pop("resources", None)
 
     primary_id = resolve_primary_resource_id(wanted)
     if session.primary_resource_id != primary_id:
         session.primary_resource_id = primary_id
         session.save(update_fields=["primary_resource", "updated_at"])
+    else:
+        from production.services.planning_status_sync import sync_session_employee_assignment
+
+        sync_session_employee_assignment(session)
 
     return wanted

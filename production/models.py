@@ -277,7 +277,10 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
 
     def _fresh_items(self):
         """Return ticket items from DB, bypassing any prefetched cache."""
-        return list(ProductionItem.objects.filter(ticket_id=self.pk))
+        items = list(ProductionItem.objects.filter(ticket_id=self.pk))
+        for item in items:
+            item.ticket = self
+        return items
 
     def compute_status_from_items(self):
         items = self._fresh_items()
@@ -863,6 +866,19 @@ class PlannedProductionSessionSource(models.TextChoices):
     AUTOMATIC= "auto",_("Automatic")
     MANUAL = "manual", _("Manual")
 
+class PlannedProductionSessionQuerySet(models.QuerySet):
+    def for_employee(self, employee):
+        employee_ct = ContentType.objects.get_for_model(Employee)
+        return self.filter(
+            Q(company_id=employee.company_id) | Q(company__isnull=True),
+        ).filter(
+            Q(primary_resource__company_id=employee.company_id,
+              primary_resource__content_type=employee_ct, primary_resource__object_id=employee.pk)
+            | Q(resources__resource__company_id=employee.company_id,
+                resources__resource__content_type=employee_ct, resources__resource__object_id=employee.pk)
+        ).distinct()
+
+
 class PlannedProductionSession(Timestampable, CompanyOwnedModel):
     """One stage of a ticket, planned into a time slot on one or more resources.
 
@@ -872,6 +888,29 @@ class PlannedProductionSession(Timestampable, CompanyOwnedModel):
     machine, else first employee) kept only for the optimizer and admin;
     ``sync_session_resources`` is the single helper that maintains both.
     """
+
+    objects = PlannedProductionSessionQuerySet.as_manager()
+
+    @property
+    def assigned_operators(self):
+        """Assigned employees, including legacy bookings with only an anchor."""
+        assignments = self.resources.all()
+        if "resources" not in getattr(self, "_prefetched_objects_cache", {}):
+            assignments = assignments.select_related("resource")
+        resources = [assignment.resource for assignment in assignments]
+        if not resources and self.primary_resource_id:
+            resources = [self.primary_resource]
+        employees = {}
+        employee_ct = ContentType.objects.get_for_model(Employee)
+        for resource in resources:
+            if resource.content_type_id != employee_ct.pk:
+                continue
+            employee = resource.target
+            if employee and employee.company_id == resource.company_id and (
+                self.company_id is None or employee.company_id == self.company_id
+            ):
+                employees[employee.pk] = employee
+        return [employees[pk] for pk in sorted(employees)]
 
     production_ticket = models.ForeignKey(
         ProductionTicket,

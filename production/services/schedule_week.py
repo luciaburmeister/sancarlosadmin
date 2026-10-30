@@ -1,4 +1,4 @@
-"""Read-only weekly overview of planned production sessions."""
+"""Weekly production bookings with resource-preserving day moves."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from production.models import (
     PlannedSessionResource,
     ProductionResource,
 )
-from production.services.schedule_context import nfc, ticket_color
+from production.services.schedule_context import ProductionScheduleContext, STATE_DONE, nfc, ticket_color
 from production.services.working_calendar import WorkingCalendar
 
 
@@ -56,6 +56,7 @@ class WeeklyScheduleContext:
             .only(
                 "id", "production_ticket_id", "production_stage",
                 "planned_start", "planned_end",
+                "locked",
             )
             .prefetch_related(
                 Prefetch(
@@ -72,6 +73,7 @@ class WeeklyScheduleContext:
             for session in sessions
             for assignment in session.resources.all()
         }
+        stage_states = ProductionScheduleContext._stage_states(sessions)
         resources = {
             resource.pk: resource
             for resource in ProductionResource.objects.filter(
@@ -142,7 +144,7 @@ class WeeklyScheduleContext:
             ):
                 row = rows.setdefault(
                     key,
-                    {"label": label, "cells": [[] for _ in dates]},
+                    {"key": key, "label": label, "cells": [[] for _ in dates]},
                 )
                 for index, time_label in daily_entries:
                     row["cells"][index].append(
@@ -151,12 +153,19 @@ class WeeklyScheduleContext:
                             "label": entry_label,
                             "detail": detail,
                             "color": ticket_color(session.production_ticket_id),
+                            "session_id": session.pk,
+                            "start": session.planned_start.isoformat(),
+                            "end": session.planned_end.isoformat(),
+                            "locked": session.locked,
+                            "can_split": bool(session.production_ticket_id) and stage_states.get(
+                                (session.production_ticket_id, nfc(session.production_stage))
+                            ) != STATE_DONE,
                         }
                     )
 
         for row in rows.values():
             row["cells"] = [
-                {"entries": entries[:3], "overflow_count": max(0, len(entries) - 3)}
+                {"entries": entries}
                 for entries in row["cells"]
             ]
         stage_order = {stage: index for index, stage in enumerate(configured_stages)}

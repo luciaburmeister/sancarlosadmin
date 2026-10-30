@@ -26,6 +26,7 @@ from production.services.working_calendar import WorkingCalendar
 
 class ConflictCode(models.TextChoices):
     DUPLICATE_STAGE_SLOT = "duplicate_stage_slot", _("Duplicate stage time slot")
+    STAGE_PART_OVERLAP = "stage_part_overlap", _("Stage bookings overlap")
     RESOURCE_OVERLAP = "resource_overlap", _("Resource overlap")
     DAILY_CAPACITY_EXCEEDED = "daily_capacity", _("Daily capacity exceeded")
     OUTSIDE_WORKING_HOURS = "outside_hours", _("Outside working hours")
@@ -119,6 +120,7 @@ class ConflictChecker:
         self.company = company
         self.calendar = calendar or WorkingCalendar.for_company(company)
         self._resources: dict[int, ProductionResource] = {}
+        self._availability = None
 
     # --- resource loading -------------------------------------------------
 
@@ -172,6 +174,38 @@ class ConflictChecker:
         return conflicts
 
     # --- individual checks ------------------------------------------------
+
+    def preload_availability(self, resource_ids, start, end):
+        """Snapshot capacity under resource locks for a search without writes."""
+        self._availability = None
+        rows = list(self._resource_intervals(resource_ids, start, end, ()))
+        self._availability = (set(resource_ids), start, end, rows)
+        return rows
+
+    def _resource_intervals(self, resource_ids, start, end, excluded):
+        if self._availability is not None:
+            ids, lo, hi, rows = self._availability
+            if set(resource_ids) <= ids and lo <= start and end <= hi:
+                return [row for row in rows if (
+                    row[0] not in excluded and row[1] in resource_ids and row[2] < end and row[3] > start
+                )]
+        assigned = PlannedSessionResource.objects.filter(
+            resource_id__in=resource_ids,
+            planned_session__planned_start__lt=end, planned_session__planned_end__gt=start,
+        ).exclude(planned_session_id__in=excluded).order_by().values_list(
+            "planned_session_id", "resource_id", "planned_session__planned_start", "planned_session__planned_end",
+        )
+        anchors = PlannedProductionSession.objects.filter(
+            primary_resource_id__in=resource_ids, planned_start__lt=end, planned_end__gt=start,
+        ).exclude(pk__in=excluded).order_by().values_list("pk", "primary_resource_id", "planned_start", "planned_end")
+        # Include legacy anchors, counting an anchor/M2M pair only once per booking.
+        return assigned.union(anchors)
+
+    def check_resource_availability(self, candidate) -> list[Conflict]:
+        resources = self.resources(candidate.resource_ids)
+        excluded = {candidate.session_id} if candidate.session_id else set()
+        return (self._check_overlap(candidate, resources, excluded)
+                + self._check_daily_capacity(candidate, resources, excluded))
 
     def resource_ids_by_capacity(self, candidate: SessionCandidate) -> list[int]:
         """Prefer free resources, then overridable warnings, then hard conflicts."""
@@ -323,19 +357,9 @@ class ConflictChecker:
         if not resources:
             return []
 
-        overlapping = (
-            PlannedSessionResource.objects.filter(
-                resource_id__in=list(resources),
-                planned_session__planned_start__lt=candidate.end,
-                planned_session__planned_end__gt=candidate.start,
-            )
-            .exclude(planned_session_id__in=exclude_session_ids)
-            .values_list(
-                "resource_id", "planned_session__planned_start", "planned_session__planned_end"
-            )
-        )
+        overlapping = self._resource_intervals(resources, candidate.start, candidate.end, exclude_session_ids)
         events_by_resource = {resource_id: [] for resource_id in resources}
-        for resource_id, start, end in overlapping:
+        for _session_id, resource_id, start, end in overlapping:
             events_by_resource[resource_id].extend(
                 ((max(start, candidate.start), 1), (min(end, candidate.end), -1))
             )
@@ -419,15 +443,7 @@ class ConflictChecker:
             day_start = datetime.combine(day, time.min).replace(tzinfo=tz)
             day_end = day_start + timedelta(days=1)
 
-            existing = (
-                PlannedSessionResource.objects.filter(
-                    resource_id__in=list(resources),
-                    planned_session__planned_start__lt=day_end,
-                    planned_session__planned_end__gt=day_start,
-                )
-                .exclude(planned_session_id__in=exclude_session_ids)
-                .select_related("planned_session")
-            )
+            existing = self._resource_intervals(resources, day_start, day_end, exclude_session_ids)
 
             used = {resource_id: 0 for resource_id in resources}
             unattended_intervals = {
@@ -435,15 +451,14 @@ class ConflictChecker:
                 for resource_id, resource in resources.items()
                 if resource.counts_running_time_once
             }
-            for row in existing:
+            for _session_id, resource_id, start, end in existing:
                 interval = (
-                    max(row.planned_session.planned_start, day_start),
-                    min(row.planned_session.planned_end, day_end),
+                    max(start, day_start), min(end, day_end),
                 )
-                if row.resource_id in unattended_intervals:
-                    unattended_intervals[row.resource_id].append(interval)
+                if resource_id in unattended_intervals:
+                    unattended_intervals[resource_id].append(interval)
                 else:
-                    used[row.resource_id] += self.calendar.working_minutes_between(*interval)
+                    used[resource_id] += self.calendar.working_minutes_between(*interval)
 
             candidate_minutes = self.calendar.working_minutes_between(
                 max(candidate.start, day_start), min(candidate.end, day_end)
@@ -532,6 +547,32 @@ class ConflictChecker:
 
         return machine_content_type_id()
 
+    def _check_stage_part_overlap(self, candidate, exclude_session_ids, *, siblings=None) -> list[Conflict]:
+        if not candidate.ticket_id:
+            return []
+        if siblings is None:
+            overlap = PlannedProductionSession.objects.filter(
+                production_ticket_id=candidate.ticket_id,
+                production_stage=candidate.stage,
+                planned_start__lt=candidate.end,
+                planned_end__gt=candidate.start,
+            ).exclude(pk__in=exclude_session_ids).exists()
+        else:
+            overlap = any(
+                sibling["production_stage"] == candidate.stage
+                and sibling["planned_start"] < candidate.end
+                and sibling["planned_end"] > candidate.start
+                for sibling in siblings
+            )
+        if not overlap:
+            return []
+        return [Conflict(
+            code=ConflictCode.STAGE_PART_OVERLAP,
+            severity=BLOCK,
+            message=_("Bookings for the same stage must run one after another."),
+            session_id=candidate.session_id,
+        )]
+
     def _check_stage_order(self, candidate, exclude_session_ids) -> list[Conflict]:
         if not candidate.ticket_id:
             return []
@@ -545,7 +586,7 @@ class ConflictChecker:
             .values("id", "sequence", "production_stage", "planned_start", "planned_end")
         )
 
-        conflicts = []
+        conflicts = self._check_stage_part_overlap(candidate, exclude_session_ids, siblings=siblings)
 
         previous = [s for s in siblings if s["sequence"] < candidate.sequence]
         following = [s for s in siblings if s["sequence"] > candidate.sequence]

@@ -51,23 +51,23 @@ class SessionEmployeeAssignmentSync:
         self.session = session
 
     def apply(self) -> None:
-        from company.models import Employee
         from production.models import ProductionItem
 
         session = self.session
         if not session.production_ticket_id or not session.primary_resource_id:
             return
 
-        employee = session.primary_resource.target
-        if not isinstance(employee, Employee):
+        employees = session.assigned_operators
+        if not employees:
             return
 
         item_ids = session.production_ticket.item_ids_for_stage(session.production_stage)
         if not item_ids:
             return
 
-        for item in ProductionItem.objects.filter(id__in=item_ids):
-            item.assigned_employees.add(employee)
+        company_id = session.company_id or session.production_ticket.company_id
+        for item in ProductionItem.objects.filter(id__in=item_ids, company_id=company_id):
+            item.assigned_employees.add(*employees)
 
 
 def sync_session_employee_assignment(session):

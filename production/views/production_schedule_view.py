@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import JsonResponse
 from django.urls import reverse
 from django.utils import dateparse, timezone
@@ -14,6 +14,7 @@ from django.views import View
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 
+from company.models import Employee
 from core.admin.company_access import get_user_companies
 from production.constants import PlanningActions
 from production.forms.production_schedule_filters import (
@@ -26,12 +27,14 @@ from production.forms.production_schedule_filters import (
     ProductionScheduleFilterForm,
 )
 from production.models import PlannedProductionSession, ProductionTicket
+from production.services.stage_booking_splitting import StageBookingSplittingService
 from production.services.planning_backlog import unplanned_tickets
 from production.services.production_planning import ProductionPlanningService
 from production.services.schedule_context import ProductionScheduleContext
 from production.services.schedule_geometry import ScheduleWindow, fmt_pct
 from production.services.schedule_week import WeeklyScheduleContext
 from production.services.working_calendar import WorkingCalendar
+from production.services.stages_to_sessions import StagesToSessionsService
 
 VALID_GROUPINGS = {
     GROUP_MACHINE_PEOPLE,
@@ -114,6 +117,17 @@ class ProductionScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         )
         ctx.update(
             company=company,
+            calendar_timezone=timezone.get_current_timezone_name(),
+            action_url=self._action_url(),
+            can_plan=self.request.user.has_perm("production.add_plannedproductionsession"),
+            can_change=self.request.user.has_perm("production.change_plannedproductionsession"),
+            can_unplan=self.request.user.has_perm("production.delete_plannedproductionsession"),
+            can_complete_stage=(
+                self.request.user.has_perm("production.change_productionitem")
+                and Employee.can_reopen_production_stages(self.request.user, company.pk)
+            ),
+            snap_minutes=15,
+            js_strings=self._js_strings(),
             form=form,
             day=day,
             group_by=group_by,
@@ -193,16 +207,6 @@ class ProductionScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             window_end_iso=end.isoformat(),
             backlog=backlog,
             backlog_json=[item.as_dict() for item in backlog],
-            action_url=self._action_url(),
-            can_plan=self.request.user.has_perm("production.add_plannedproductionsession"),
-            can_change=self.request.user.has_perm(
-                "production.change_plannedproductionsession"
-            ),
-            can_unplan=self.request.user.has_perm(
-                "production.delete_plannedproductionsession"
-            ),
-            snap_minutes=15,
-            js_strings=self._js_strings(),
         )
         return ctx
 
@@ -220,8 +224,8 @@ class ProductionScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         return {
             "unplanTitle": _("Return to pending"),
             "unplanMessage": _(
-                "It will be removed from the calendar and returned to the "
-                "pending list. Its time and assigned resources will be lost."
+                "This booking will be removed from the calendar. Its time and assigned "
+                "resources will be lost. Other bookings for the stage will stay."
             ),
             "missingInfoTitle": _("Missing information"),
             "missingDurationMessage": _(
@@ -230,7 +234,15 @@ class ProductionScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             "networkErrorTitle": _("Network error"),
             "networkErrorMessage": _("Network error while saving the change."),
             "hasWarningsTitle": _("This has some warnings"),
+            "overflowTitle": _("Move the remaining work to the next available day?"),
+            "overflowMessage": _("This booking exceeds the day's working hours. Confirm these bookings to keep all planned working time."),
+            "overflowConfirm": _("Confirm bookings"),
+            "overflowPart": _("%(start)s – %(end)s · %(minutes)s min"),
             "couldNotApplyTitle": _("The change could not be applied"),
+            "cutMinutes": _("%(first)s min · %(second)s min"),
+            "invalidCut": _("Choose a cut inside the booking, with at least one working minute on each side."),
+            "completeStageTitle": _("Mark as done"),
+            "completeStageMessage": _("Mark %(stage)s as done for every item in this ticket? No additional working time will be recorded."),
         }
 
 
@@ -239,6 +251,28 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
 
     permission_required = ("production.view_plannedproductionsession",)
 
+    def get(self, request, *args, **kwargs):
+        try:
+            session_id = int(request.GET.get("session_id", ""))
+        except ValueError:
+            return JsonResponse({"ok": False, "error": _("Invalid identifier.")}, status=400)
+        session = PlannedProductionSession.objects.select_related("company").filter(
+            pk=session_id, company=_resolve_company(request),
+        ).first()
+        if session is None:
+            return JsonResponse({"ok": False, "error": _("Not found.")}, status=404)
+        calendar = WorkingCalendar.for_company(session.company)
+        windows = calendar.windows_between(session.planned_start, session.planned_end)
+        if calendar.has_slots:
+            working_windows = [{"start": w.start.isoformat(), "end": w.end.isoformat(), "minutes": w.minutes} for w in windows]
+        else:
+            working_windows = [{"start": session.planned_start.isoformat(), "end": session.planned_end.isoformat(), "minutes": session.duration_minutes}]
+        return JsonResponse({
+            "ok": True, "session": _session_json(session, None),
+            "working_minutes": StageBookingSplittingService.working_minutes(session, calendar),
+            "working_windows": working_windows,
+        })
+
     def post(self, request, *args, **kwargs):
         try:
             payload = json.loads(request.body or b"{}")
@@ -246,6 +280,8 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             return JsonResponse(
                 {"ok": False, "error": _("Malformed request body.")}, status=400
             )
+        if not isinstance(payload, dict):
+            return JsonResponse({"ok": False, "error": _("Malformed request body.")}, status=400)
 
         self._window = self._build_window(request, payload)
 
@@ -259,6 +295,9 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             PlanningActions.PLAN_TICKET_CUSTOM: self._plan_ticket_custom,
             PlanningActions.PLAN_TICKET_STAGE_CUSTOM: self._plan_ticket_stage_custom,
             PlanningActions.REORDER_TICKET: self._reorder_ticket,
+            PlanningActions.SPLIT_BOOKING: self._split_booking,
+            PlanningActions.MOVE_SESSION_DAY: self._move_session_day,
+            PlanningActions.COMPLETE_STAGE: self._complete_stage,
         }.get(action)
 
         if handler is None:
@@ -271,6 +310,10 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             return JsonResponse(
                 {"ok": False, "error": _("Permission denied.")}, status=403
             )
+        if (action == PlanningActions.SPLIT_BOOKING or "overflow_plan" in payload) and not request.user.has_perm(
+            "production.add_plannedproductionsession"
+        ):
+            return JsonResponse({"ok": False, "error": _("Permission denied.")}, status=403)
 
         # ProductionPlanningService trusts a bare id, so this boundary must reject
         # another company's id first. "Not found" rather than 403: a company you
@@ -287,6 +330,10 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
 
         try:
             return handler(request, payload)
+        except PermissionDenied as exc:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=403)
+        except ValidationError as exc:
+            return JsonResponse({"ok": False, "error": " ".join(exc.messages)}, status=400)
         except (KeyError, TypeError, ValueError) as exc:
             return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
@@ -309,6 +356,8 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
 
     @staticmethod
     def _required_permission(action: str) -> str | None:
+        if action == PlanningActions.COMPLETE_STAGE:
+            return "production.change_productionitem"
         if action in {
             PlanningActions.PLAN_TICKET,
             PlanningActions.PLAN_TICKET_CUSTOM,
@@ -353,6 +402,7 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             "sessions": [_session_json(s, window) for s in result.sessions],
             "conflicts": [c.as_dict() for c in result.conflicts],
             "requires_confirmation": result.requires_confirmation,
+            "overflow_plan": result.overflow_plan,
         }
         status = 200
         if not result.ok:
@@ -361,6 +411,43 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
 
     # --- handlers ------------------------------------------------------
 
+    def _complete_stage(self, request, payload):
+        company = _resolve_company(request)
+        if not Employee.can_reopen_production_stages(request.user, company.pk):
+            raise PermissionDenied(_("Only production supervisors can mark stages as done without planning."))
+        employee = Employee.objects.filter(user=request.user, company=company, is_active=True).first()
+        ticket = ProductionTicket.objects.filter(pk=int(payload["ticket_id"]), company=company).first()
+        if ticket is None:
+            return JsonResponse({"ok": False, "error": _("Not found.")}, status=404)
+        stage_name = payload["stage"]
+        if not isinstance(stage_name, str) or not stage_name.strip():
+            raise ValidationError(_("Choose a valid production stage."))
+        count = StagesToSessionsService.complete_ticket_stage(
+            ticket=ticket, stage_name=stage_name, employee=employee, user=request.user,
+        )
+        return JsonResponse({"ok": True, "completed_items": count})
+
+    def _split_booking(self, request, payload):
+        return self._respond(StageBookingSplittingService.split_booking(
+            int(payload["session_id"]), cut_at=self._parse_datetime(payload["cut_at"]),
+            expected_start=self._parse_datetime(payload["expected_start"]),
+            expected_end=self._parse_datetime(payload["expected_end"]),
+            override=bool(payload.get("override")),
+        ))
+
+    def _move_session_day(self, request, payload):
+        day = dateparse.parse_date(payload["day"])
+        if day is None:
+            raise ValueError(_("Invalid date."))
+        return self._respond(ProductionPlanningService.move_session_day(
+            int(payload["session_id"]), day=day,
+            expected_start=self._parse_datetime(payload["expected_start"]),
+            expected_end=self._parse_datetime(payload["expected_end"]),
+            override=bool(payload.get("override")),
+            timetable=({"overflow_plan": payload.get("overflow_plan")}
+                       if request.user.has_perm("production.add_plannedproductionsession") else None),
+        ))
+
     def _move_session(self, request, payload):
         result = ProductionPlanningService.move_session(
             int(payload["session_id"]),
@@ -368,6 +455,8 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             duration_minutes=payload.get("duration_minutes"),
             resource_ids=payload.get("resource_ids"),
             override=bool(payload.get("override")),
+            timetable=({"overflow_plan": payload.get("overflow_plan")}
+                       if request.user.has_perm("production.add_plannedproductionsession") else None),
         )
         return self._respond(result)
 
@@ -422,6 +511,7 @@ class ProductionScheduleActionView(UnfoldModelAdminViewMixin, View):
             stage=payload["stage"],
             assign_machines=True,
             override=bool(payload.get("override")),
+            timetable={"overflow_plan": payload.get("overflow_plan")},
         )
         return self._respond(result)
 

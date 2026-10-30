@@ -7,6 +7,7 @@ from datetime import datetime, time, timedelta
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django.http import JsonResponse
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -73,11 +74,18 @@ class ScheduleBoardView(SharedTerminalAPIView):
             PlannedProductionSession.objects.filter(
                 planned_start__lt=range_end,
                 planned_end__gt=range_start,
-                primary_resource__company=self.company,
-                primary_resource__content_type=employee_ct,
             )
-            .select_related("production_ticket__project_file__client")
-            .prefetch_related(GenericPrefetch("primary_resource__target", [Employee.objects.all()]))
+            .filter(Q(company=self.company) | Q(company__isnull=True))
+            .filter(
+                Q(primary_resource__company=self.company, primary_resource__content_type=employee_ct)
+                | Q(resources__resource__company=self.company, resources__resource__content_type=employee_ct)
+            )
+            .distinct()
+            .select_related("production_ticket__project_file__client", "primary_resource")
+            .prefetch_related(
+                GenericPrefetch("primary_resource__target", [Employee.objects.all()]),
+                GenericPrefetch("resources__resource__target", [Employee.objects.all()]),
+            )
         )
         sessions = list(sessions_qs)
 
@@ -94,7 +102,8 @@ class ScheduleBoardView(SharedTerminalAPIView):
 
         sessions_payload = []
         for s in sessions:
-            employee = s.primary_resource.target if s.primary_resource_id else None
+            operators = s.assigned_operators
+            employee = operators[0] if operators else None
             ticket = tickets_by_id.get(s.production_ticket_id)
             labels = None
             if ticket is not None:
@@ -110,6 +119,7 @@ class ScheduleBoardView(SharedTerminalAPIView):
                 "planned_end": s.planned_end.isoformat(),
                 "employee_id": employee.id if employee else None,
                 "employee_name": employee.full_name if employee else None,
+                "employee_ids": [operator.pk for operator in operators],
                 "locked": s.locked,
                 "source": s.source,
                 "notes": s.notes,
@@ -224,7 +234,8 @@ class RescheduleSessionView(SharedTerminalAPIView):
 
         # primary_resource__company scoping is load-bearing: prevents cross-company access by id.
         session = get_object_or_404(
-            PlannedProductionSession, id=session_id, primary_resource__company=self.company,
+            PlannedProductionSession.objects.filter(Q(company=self.company) | Q(company__isnull=True)),
+            id=session_id, primary_resource__company=self.company,
         )
 
         employee = None
@@ -257,7 +268,7 @@ class RescheduleSessionView(SharedTerminalAPIView):
                 "id": updated.id,
                 "planned_start": updated.planned_start.isoformat(),
                 "planned_end": updated.planned_end.isoformat(),
-                "employee_id": updated.primary_resource.object_id,
+                "employee_id": next((e.pk for e in updated.assigned_operators), None),
             },
         })
 
@@ -274,7 +285,8 @@ class DeleteSessionView(SharedTerminalAPIView):
 
         # primary_resource__company scoping is load-bearing: prevents cross-company access by id.
         session = get_object_or_404(
-            PlannedProductionSession, id=session_id, primary_resource__company=self.company,
+            PlannedProductionSession.objects.filter(Q(company=self.company) | Q(company__isnull=True)),
+            id=session_id, primary_resource__company=self.company,
         )
         try:
             session.unassign()

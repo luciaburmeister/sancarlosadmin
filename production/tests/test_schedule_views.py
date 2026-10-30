@@ -263,8 +263,8 @@ class ScheduleViewTest(StaffUserMixin, TestCase):
         self.assertTrue(response.context["is_week"])
         self.assertEqual(response.context["week_start"].isoformat(), "2026-09-14")
         self.assertEqual(response.context["week_end"].isoformat(), "2026-09-20")
-        self.assertNotContains(response, 'id="ps-root"')
-        self.assertNotContains(response, 'src="/static/production/schedule.js"')
+        self.assertContains(response, 'id="ps-root"')
+        self.assertContains(response, 'src="/static/production/schedule.js"')
         for url, expected_day in (
             (response.context["previous_day_url"], "2026-09-09"),
             (response.context["next_day_url"], "2026-09-23"),

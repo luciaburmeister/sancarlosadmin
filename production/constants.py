@@ -42,6 +42,9 @@ class PlanningActions:
     PLAN_TICKET_CUSTOM = "plan_ticket_custom"
     PLAN_TICKET_STAGE_CUSTOM = "plan_ticket_stage_custom"
     REORDER_TICKET = "reorder_ticket"
+    SPLIT_BOOKING = "split_booking"
+    MOVE_SESSION_DAY = "move_session_day"
+    COMPLETE_STAGE = "complete_stage"
 
 
 # A ticket's colour is its id modulo the palette -- stable, and never stored.

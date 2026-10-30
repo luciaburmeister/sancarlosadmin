@@ -21444,3 +21444,133 @@ msgid "Download file (%(counter)s invoice)"
 msgid_plural "Download file (%(counter)s invoices)"
 msgstr[0] "Descargar fichero (%(counter)s factura)"
 msgstr[1] "Descargar fichero (%(counter)s facturas)"
+
+msgid "%(first)s min · %(second)s min"
+msgstr "%(first)s min · %(second)s min"
+
+msgid "%(start)s – %(end)s · %(minutes)s min"
+msgstr "%(start)s – %(end)s · %(minutes)s min"
+
+msgid "An active employee in this company must complete the stage."
+msgstr "La etapa debe ser terminada por un empleado activo de esta empresa."
+
+msgid "Bookings for the same stage must run one after another."
+msgstr "Los bloques de una misma etapa deben realizarse uno después de otro."
+
+msgid "Cancelled tickets cannot be changed."
+msgstr "No se pueden modificar los tickets cancelados."
+
+msgid ""
+"Choose a cut inside the booking, with at least one working minute on each "
+"side."
+msgstr ""
+"Elige un corte dentro del bloque, con al menos un minuto laborable a cada "
+"lado."
+
+msgid "Choose a different stage when changing the stage order."
+msgstr "Elige otra etapa para cambiar el orden de las etapas."
+
+msgid "Choose where to cut. Click or press Enter to split; Escape to cancel."
+msgstr ""
+"Elige dónde cortar. Haz clic o pulsa Intro para dividir; Esc para cancelar."
+
+msgid "Confirm bookings"
+msgstr "Confirmar bloques"
+
+msgid "Drag to another day"
+msgstr "Arrastrar a otro día"
+
+msgid "Invalid date."
+msgstr "Fecha no válida."
+
+msgid ""
+"Mark %(stage)s as done for every item in this ticket? No additional working "
+"time will be recorded."
+msgstr ""
+"¿Marcar %(stage)s como terminada para todos los artículos de este ticket? No"
+" se añadirá tiempo de trabajo registrado."
+
+msgid "Mark as done"
+msgstr "Marcar como terminada"
+
+msgid "Move the remaining work to the next available day?"
+msgstr "¿Mover el trabajo restante al siguiente día disponible?"
+
+msgid "No available working slot was found within the next %(days)s days."
+msgstr ""
+"No se ha encontrado un hueco de trabajo disponible en los próximos %(days)s "
+"días."
+
+msgid "No working time remains on the selected day."
+msgstr "No queda tiempo laborable en el día seleccionado."
+
+msgid "Only bookings linked to a production ticket can be split."
+msgstr ""
+"Solo se pueden dividir los bloques vinculados a un ticket de producción."
+
+msgid "Only production supervisors can mark stages as done without planning."
+msgstr ""
+"Solo los supervisores de producción pueden marcar etapas como terminadas sin"
+" planificarlas."
+
+msgid "Split booking"
+msgstr "Dividir bloque"
+
+msgid "Stage bookings overlap"
+msgstr "Los bloques de la etapa se solapan"
+
+msgid "The booking and ticket must belong to the same company."
+msgstr "El bloque y el ticket deben pertenecer a la misma empresa."
+
+msgid "The ticket's items must belong to the same company."
+msgstr "Los artículos del ticket deben pertenecer a la misma empresa."
+
+msgid ""
+"This booking exceeds the day's working hours. Confirm these bookings to keep"
+" all planned working time."
+msgstr ""
+"Este bloque supera el horario laboral del día. Confirma estos bloques para "
+"conservar todo el tiempo de trabajo planificado."
+
+msgid "This booking has changed. Reload it before moving."
+msgstr "Este bloque ha cambiado. Vuelve a cargarlo antes de moverlo."
+
+msgid "This booking has changed. Reload it before splitting."
+msgstr "Este bloque ha cambiado. Vuelve a cargarlo antes de dividirlo."
+
+msgid ""
+"This booking will be removed from the calendar. Its time and assigned "
+"resources will be lost. Other bookings for the stage will stay."
+msgstr ""
+"Este bloque se eliminará del calendario y perderá su horario y sus recursos "
+"asignados. Los demás bloques de la etapa se mantendrán."
+
+msgid "This stage cannot be marked as done in its current state."
+msgstr "Esta etapa no se puede marcar como terminada en su estado actual."
+
+msgid "This stage is finished. Reopen it before planning more work."
+msgstr "Esta etapa está terminada. Reábrela antes de planificar más trabajo."
+
+msgid "This stage is not defined for the ticket's items."
+msgstr "Esta etapa no está definida para los artículos del ticket."
+
+msgid ""
+"This ticket has split bookings. Remove them from the calendar before "
+"replacing its plan automatically."
+msgstr ""
+"Este ticket tiene bloques divididos. Elimínalos del calendario antes de "
+"sustituir su planificación automáticamente."
+
+msgid "Tickets in cancelled project files cannot be changed."
+msgstr "No se pueden modificar los tickets de expedientes cancelados."
+
+msgid ""
+"Workers are active on this stage. Stop their work before marking it as done."
+msgstr ""
+"Hay operarios trabajando en esta etapa. Detén su trabajo antes de marcarla "
+"como terminada."
+
+msgid "Working hours have changed. Reload the calendar before planning again."
+msgstr ""
+"El horario laboral ha cambiado. Vuelve a cargar el calendario antes de "
+"planificar de nuevo."

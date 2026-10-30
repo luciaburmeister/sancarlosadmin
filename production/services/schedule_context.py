@@ -378,7 +378,8 @@ class ProductionScheduleContext:
             .order_by("planned_start", "sequence", "id")
         )
 
-    def _stage_states(self, sessions) -> dict[tuple[int, str], str]:
+    @staticmethod
+    def _stage_states(sessions) -> dict[tuple[int, str], str]:
         """Derive done/running per (ticket, stage) from ProductionItem.planning."""
         ticket_ids = {
             session.production_ticket_id

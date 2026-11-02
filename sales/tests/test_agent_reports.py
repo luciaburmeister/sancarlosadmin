@@ -4,7 +4,6 @@ invoices and commission settlement for a month) and the default templates.
 
     python manage.py test sales.tests.test_agent_reports
 """
-import importlib
 import json
 from datetime import date, timedelta
 from decimal import Decimal
@@ -22,6 +21,7 @@ from unfold.widgets import UnfoldAdminDateWidget
 
 from company.active_company import ActiveCompany
 from company.models import CompanyUser
+from configurator import default_agent_report_templates as DEFAULT_TEMPLATES
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
 from configurator.services.export.commissionist_agent import CommissionistAgentExportStrategy
@@ -40,8 +40,6 @@ AUGUST = (date(2026, 8, 1), date(2026, 8, 31))
 SEPTEMBER = (date(2026, 9, 1), date(2026, 9, 30))
 OCTOBER = (date(2026, 10, 1), date(2026, 10, 31))
 NOVEMBER = (date(2026, 11, 1), date(2026, 11, 30))
-
-DEFAULT_TEMPLATES = importlib.import_module("configurator.migrations.0108_default_agent_report_templates")
 
 
 def report(agent, period):

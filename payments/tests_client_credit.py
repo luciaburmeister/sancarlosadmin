@@ -1,14 +1,11 @@
 """Tests for Payment.client and the client's credit ("saldo a favor").
 
 Covers how a payment learns its client from the sales invoice it is allocated
-to, the one-off backfill of existing payments, and the `credit_balance`
-annotation the Client changelist shows.
+to and the `credit_balance` annotation the Client changelist shows.
 """
 from datetime import timedelta
 from decimal import Decimal
-from importlib import import_module
 
-from django.apps import apps
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -25,11 +22,6 @@ from payments.models import (
 )
 from payments.testing import CompanyAdminTestMixin
 from sales.models import Client
-
-backfill_payment_client = import_module(
-    "payments.migrations.0006_backfill_payment_client"
-).backfill_payment_client
-
 
 class _ClientPaymentsMixin(CompanyAdminTestMixin):
     def setUp(self):
@@ -97,58 +89,6 @@ class PaymentClientFromAllocationTest(_ClientPaymentsMixin, TestCase):
 
         payment.refresh_from_db()
         self.assertEqual(payment.amount_pending_allocation, Money("250.00", "EUR"))
-
-
-class BackfillPaymentClientTest(_ClientPaymentsMixin, TestCase):
-    """The migration derives the client from existing allocations, never guesses."""
-
-    def _detached_payment(self, invoices, amounts):
-        """A payment allocated before the field existed: client cleared afterwards."""
-        payment = self._payment(str(sum(Decimal(a) for a in amounts)))
-        for invoice, amount in zip(invoices, amounts):
-            self._allocate(payment, invoice, amount)
-        Payment.objects.filter(pk=payment.pk).update(client=None)
-        return payment
-
-    def test_fills_client_from_sales_invoice_allocations(self):
-        payment = self._detached_payment(
-            [self._sales_invoice(self.client_a, "V-1"), self._sales_invoice(self.client_a, "V-2")],
-            ["60.00", "40.00"],
-        )
-
-        backfill_payment_client(apps, None)
-
-        payment.refresh_from_db()
-        self.assertEqual(payment.client, self.client_a)
-
-    def test_payment_split_across_two_clients_is_left_empty(self):
-        payment = self._detached_payment(
-            [self._sales_invoice(self.client_a, "V-1"), self._sales_invoice(self.client_b, "V-2")],
-            ["50.00", "50.00"],
-        )
-
-        backfill_payment_client(apps, None)
-
-        payment.refresh_from_db()
-        self.assertIsNone(payment.client)
-
-    def test_payment_without_sales_invoice_allocation_is_untouched(self):
-        payment = self._payment()
-
-        backfill_payment_client(apps, None)
-
-        payment.refresh_from_db()
-        self.assertIsNone(payment.client)
-
-    def test_already_assigned_client_is_kept(self):
-        invoice = self._sales_invoice(self.client_a, "V-1")
-        payment = self._payment(client=self.client_b)
-        self._allocate(payment, invoice, "100.00")
-
-        backfill_payment_client(apps, None)
-
-        payment.refresh_from_db()
-        self.assertEqual(payment.client, self.client_b)
 
 
 class ClientCreditBalanceTest(_ClientPaymentsMixin, TestCase):

@@ -218,24 +218,6 @@ class ProjectFileScopeFormTests(EntryFixtureMixin, TestCase):
         }
         return WorkEntryTypeAdminForm(data=data, instance=instance)
 
-    def test_legacy_link_is_copied_onto_project_files(self):
-        import importlib
-
-        from django.apps import apps
-
-        migration = importlib.import_module(
-            "management.migrations.0035_workentrytype_project_files"
-        )
-        scoped = self._make_type(
-            "Legacy only", WorkEntryDirection.COST, "1", project_file=self.project_file
-        )
-        self.assertFalse(scoped.project_files.exists())
-        migration.copy_legacy_project_file(apps, None)
-        self.assertEqual(
-            list(scoped.project_files.values_list("pk", flat=True)),
-            [self.project_file.pk],
-        )
-
     def test_unbound_form_includes_legacy_project_file(self):
         scoped = self._make_type("Legacy", WorkEntryDirection.COST, "1", project_file=self.project_file)
         form = WorkEntryTypeAdminForm(instance=scoped)

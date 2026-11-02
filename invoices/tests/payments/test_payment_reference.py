@@ -150,51 +150,6 @@ class PaymentReferenceAssignmentTests(TestCase):
         self.assertEqual(sales.payment_reference, other)
 
 
-class PaymentReferenceBackfillTests(TestCase):
-    def test_backfill_fills_existing_invoices_unique_per_company(self):
-        from importlib import import_module
-
-        from django.apps import apps
-
-        backfill = import_module("invoices.migrations.0105_backfill_payment_reference").backfill_payment_references
-        company = make_company()
-        other_company = make_company(name="Other Co")
-        provider = Provider.objects.create(company=company, name="ACME")
-        kept = SalesInvoice.objects.create(
-            company=company, client=make_client(company=company), total_amount=Money("1.00", "EUR"),
-        )
-        sales = [
-            SalesInvoice.objects.create(
-                company=c, client=make_client(company=c), total_amount=Money("1.00", "EUR"),
-            )
-            for c in (company, company, other_company)
-        ]
-        external = SalesInvoice.objects.create(
-            company=company, client=make_client(company=company), total_amount=Money("1.00", "EUR"),
-            is_external=True,
-        )
-        purchase = Invoice.objects.create(
-            company=company, provider=provider, total_amount=Money("1.00", "EUR"),
-            file=SimpleUploadedFile("invoice.pdf", b"dummy", content_type="application/pdf"),
-        )
-        SalesInvoice.objects.filter(pk__in=[s.pk for s in sales]).update(payment_reference=None)
-        Invoice.objects.filter(pk=purchase.pk).update(payment_reference=None)
-        kept_ref = kept.payment_reference
-
-        backfill(apps, None)
-
-        kept.refresh_from_db()
-        self.assertEqual(kept.payment_reference, kept_ref)
-        refs = [kept_ref]
-        for invoice in (*sales, purchase):
-            invoice.refresh_from_db()
-            self.assertTrue(payment_references.is_valid(invoice.payment_reference))
-            refs.append(invoice.payment_reference)
-        self.assertEqual(len(set(refs)), len(refs))
-        external.refresh_from_db()
-        self.assertIsNone(external.payment_reference)
-
-
 class PaymentReferenceCopyButtonTests(SimpleTestCase):
     def test_shows_grouped_and_copies_compact(self):
         from invoices.admin import _payment_reference_with_copy

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from decimal import Decimal
 
 from django.contrib.postgres.indexes import GinIndex
@@ -15,7 +16,7 @@ from django.core.exceptions import ValidationError
 
 from company.models import CompanyOwnedModel
 from materials.models import Provider
-from .choices import ItemSchemaKind, LocationType, ItemType, MovementType
+from .choices import ItemSchemaKind, LocationType, ItemType, MovementType, OnlineSaleMode
 from general.metadata_schema import build_json_schema, validate_barcode, validate_data
 from general.metadata_schema.models import SchemaFieldBase
 from configurator.utils.codegen import next_scoped_code
@@ -248,8 +249,12 @@ class InventoryItemQuerySet(models.QuerySet):
         return cls._own_reserved_expression("pk")
 
     @classmethod
-    def _own_reserved_expression(cls, item_ref_name):
-        """Direct reservation for the item referenced by ``item_ref_name``."""
+    def _own_reserved_expression(
+        cls, item_ref_name: str, quote_ids: Iterable[int] | models.QuerySet | None = None
+    ) -> Greatest:
+        """Direct reservation for the item referenced by ``item_ref_name``,
+        optionally counting only the quotes in ``quote_ids`` (ids or a
+        ``values("pk")`` queryset)."""
         from management.models import ProjectFileStatus
         from sales.models import (
             DeliveryOrderItem,
@@ -267,7 +272,7 @@ class InventoryItemQuerySet(models.QuerySet):
 
         def accepted_quote_lines(ref):
             """Quote lines for this item on accepted quotes for open projects."""
-            return QuoteInventoryItem.objects.filter(
+            lines = QuoteInventoryItem.objects.filter(
                 inventory_item=ref,
                 quote__status=QuoteStatus.ACCEPTED,
             ).exclude(
@@ -276,6 +281,7 @@ class InventoryItemQuerySet(models.QuerySet):
                     ProjectFileStatus.CANCELLED,
                 ],
             )
+            return lines if quote_ids is None else lines.filter(quote_id__in=quote_ids)
 
         quoted = models.Subquery(
             accepted_quote_lines(item_ref(1))
@@ -373,6 +379,66 @@ class InventoryItemQuerySet(models.QuerySet):
             computed_incoming=self.incoming_expression(),
             computed_reserved=self.reserved_expression(),
         )
+
+    def with_sellable_quantity(
+        self, warehouse: Warehouse, channel_quote_ids: Iterable[int] | models.QuerySet | None = None
+    ) -> "InventoryItemQuerySet":
+        """Annotate ``sellable_quantity``: what a sales channel may offer from
+        ``warehouse``.
+
+        Stock on hand in that warehouse minus the item's cached reservations,
+        never below zero. Reservations are not tracked per warehouse, so all of
+        them are subtracted: a channel can undersell, never oversell.
+
+        ``channel_quote_ids`` are the channel's own orders: a channel already
+        holds back what it sold and has not shipped, so their reservations are
+        added back rather than counted twice.
+        """
+        on_hand = Coalesce(
+            models.Subquery(
+                ItemTransaction.objects
+                .filter(item=models.OuterRef("pk"), warehouse=warehouse)
+                .values("item")
+                .annotate(total=models.Sum("quantity_change"))
+                .values("total")[:1],
+                output_field=models.IntegerField(),
+            ),
+            models.Value(0),
+        )
+        sellable = on_hand - models.F("reserved_quantity")
+        if channel_quote_ids is not None:
+            sellable = sellable + self._own_reserved_expression("pk", quote_ids=channel_quote_ids)
+        return self.annotate(
+            sellable_quantity=Greatest(
+                models.ExpressionWrapper(sellable, output_field=self.QUANTITY_FIELD),
+                self.ZERO,
+                output_field=self.QUANTITY_FIELD,
+            )
+        )
+
+    def consumer_tax_rates(self) -> dict[int, Decimal | None]:
+        """Per item pk, the tax percentage a consumer pays on top of the selling price.
+
+        As on quotes, minus client taxes (an online shopper has none): the
+        item's own taxes, else its company's default taxes. Only taxes that
+        add to the price count; retentions apply between businesses. ``None``
+        when neither sets any tax, so a channel never guesses a rate.
+        """
+        from company.models import CompanyDefaultTax
+        from invoices.models import AppliedTax
+
+        items = dict(self.values_list("pk", "company_id"))
+        own = {}
+        for item_id, percentage, behavior in AppliedTax.objects.filter(
+            content_type=ContentType.objects.get_for_model(self.model), object_id__in=items
+        ).values_list("object_id", "selected_percentage", "tax_type__behavior"):
+            own[item_id] = own.get(item_id, Decimal("0")) + (percentage if behavior == "add" else Decimal("0"))
+        defaults = {}
+        for company_id, percentage, behavior in CompanyDefaultTax.objects.filter(
+            company_id__in=set(items.values())
+        ).values_list("company_id", "selected_percentage", "tax_type__behavior"):
+            defaults[company_id] = defaults.get(company_id, Decimal("0")) + (percentage if behavior == "add" else Decimal("0"))
+        return {item_id: own.get(item_id, defaults.get(company_id)) for item_id, company_id in items.items()}
 
     def with_metadata(self, **values):
         """Items whose metadata contains these key/values (``@>``, GIN-indexed).
@@ -656,6 +722,26 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         ),
     )
 
+    sell_online = models.BooleanField(
+        _("Sell online"),
+        default=False,
+        db_index=True,
+        help_text=_(
+            "Offer this item in the company's online stores: they create the product "
+            "and keep its price and SKU up to date."
+        ),
+    )
+    online_sale_mode = models.CharField(
+        _("Sold online as"),
+        max_length=10,
+        choices=OnlineSaleMode.choices,
+        default=OnlineSaleMode.BUY,
+        help_text=_(
+            "Buy: customers check out at the ERP price. Request a quote: customers ask for a price "
+            "and receive a draft quote. Applies in online stores that take quote requests alongside buying."
+        ),
+    )
+
     has_components = models.BooleanField(
         _("Composite Item"),
         default=False,
@@ -788,6 +874,10 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
             ]
 
         super().save(*args, **kwargs)
+
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.item_saved(self)
 
     @property
     def stock_on_hand(self) -> int:
@@ -1212,6 +1302,13 @@ class ItemTransaction(Timestampable):
             f"{self.created_at:%Y-%m-%d %H:%M} — {self.item} — "
             f"{self.get_movement_type_display()} ({self.quantity_change:+d})"
         )
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.schedule_stock_push([self.item_id])
 
     def clean(self):
         super().clean()

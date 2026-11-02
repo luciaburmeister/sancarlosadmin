@@ -67,6 +67,24 @@ deploy/worker/   Procfile (health-check gunicorn), swap and Celery systemd hooks
 CI runs `scripts/deploy/apply_overlay.sh <role>` to copy `common/` and `<role>/` over the repo root, then `eb deploy`, web first. The repo root itself has no `.ebextensions`, `.platform` or `Procfile` committed; run the script locally with a role if you need to `eb deploy` by hand.
 
 
+## Environment variables
+
+Set in `.env` locally; in production CI writes them into `.env` from GitHub secrets.
+
+| Variable | Purpose |
+|---|---|
+| `ENCRYPTION_KEYS` | Comma-separated Fernet keys for secrets stored in the database (`core.encryption.SecretCipher`), such as Shopify access tokens and app client secrets. The first key encrypts; every listed key decrypts. Independent of `SECRET_KEY`. Tests use a fixed key when none is set. |
+| `SHOPIFY_APP_URL` | The ERP's public HTTPS address Shopify calls back (OAuth redirect, webhooks). Defaults to `BACKEND_URL`; locally, set it to a tunnel URL. The OAuth callback URL must also be allowed in each Shopify app's Dev Dashboard settings. |
+| `CSRF_TRUSTED_ORIGINS` | Extra comma-separated origins allowed to submit forms, e.g. the tunnel URL while testing the Shopify connection locally. Empty by default. |
+
+Generate an encryption key with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+To rotate it, put the new key first and keep the old one until every value it encrypted has been saved again (e.g. by reconnecting each Shopify store); then remove the old key. Losing every listed key makes the stored secrets unreadable: stores must reconnect and app secrets be entered again.
+
 ⚙️ How it all works together
 Step 1
 

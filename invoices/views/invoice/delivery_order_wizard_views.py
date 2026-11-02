@@ -32,19 +32,7 @@ class DeliveryOrderWizardView(UnfoldModelAdminViewMixin, TemplateView):
         )
 
     def _items_initial(self):
-        return [
-            {
-                "source_content_type_id": i["source_content_type_id"],
-                "source_object_id": i["source_object_id"],
-                "description": i["description"],
-                "quantity": i["remaining_quantity"],
-                "unit_price": i["unit_price"],
-                "discount_percentage": i.get("discount_percentage", Decimal("0.00")),
-                "reference": i.get("reference", ""),
-            }
-            for i in self.delivery_summary.get("deliverable_items", [])
-            if i["remaining_quantity"] != 0  # negative lines are deliverable too
-        ]
+        return DeliveryOrderService.proposed_items(self.delivery_summary.get("deliverable_items", []))
 
     def get_context_data(self, **kwargs):
         # ponytail: super() chains through UnfoldModelAdminViewMixin which injects

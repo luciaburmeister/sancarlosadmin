@@ -67,7 +67,13 @@ def refresh_stock_position(item_ids) -> int:
     ids = {i for i in item_ids if i is not None}
     if not ids:
         return 0
-    return _refresh(InventoryItem.objects.filter(pk__in=_with_bom_descendants(ids)))
+    from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+    refreshed_ids = _with_bom_descendants(ids)
+    rows = _refresh(InventoryItem.objects.filter(pk__in=refreshed_ids))
+    # Reservations change what online stores may sell.
+    ShopifyPushScheduler.schedule_stock_push(refreshed_ids)
+    return rows
 
 
 def _with_bom_descendants(item_ids: set) -> set:

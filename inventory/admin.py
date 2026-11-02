@@ -642,6 +642,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
     form = InventoryItemForm
+    conditional_fields = {"online_sale_mode": "sell_online"}
     inlines = [BillOfMaterialsInline, ItemProviderInfoInline, ItemIdentityCodeInline, DeliveredItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions = ["reset_stock_to_zero"]
     actions_list = ["bulk_stock_update_action"]
@@ -667,6 +668,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "item_type",
         "has_components",
         "exclude_from_commission",
+        "sell_online",
         LowStockFilter,
         "metadata_schema",
         ["default_warehouse", AutocompleteSelectFilter],
@@ -708,6 +710,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                 ("incoming_quantity_display", "reserved_quantity_display"),
                 ("selling_price", "cost_price"),
                 ("min_stock", "exclude_from_commission"),
+                ("sell_online", "online_sale_mode"),
                 ("description", "image"),
                 ("product_content_type", "product_object_selector"),
             ),

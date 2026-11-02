@@ -16,10 +16,12 @@ from django.test import TestCase
 from djmoney.money import Money
 
 from company.models import Company
+from inventory.choices import MovementType
 from inventory.models import (
     BillOfMaterialsLine,
     InventoryItem,
     InventoryItemQuerySet,
+    ItemTransaction,
     Warehouse,
 )
 from inventory.tests.factories import accepted_quote_line, deliver, make_item
@@ -674,3 +676,29 @@ class StockValueTest(_StockPositionTestCase):
             .get()
         )
         self.assertEqual(row["stock_value"], Decimal("12.00"))
+
+
+class SellableQuantityTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        company = Company.objects.create(name="Fistex")
+        cls.nave = Warehouse.objects.create(company=company, code="NAVE", name="Nave")
+        cls.other = Warehouse.objects.create(company=company, code="CIRO", name="Ciro")
+        cls.item = InventoryItem.objects.create(company=company, code="T-1", name="Tank", default_warehouse=cls.nave)
+        for warehouse, change in ((cls.nave, 10), (cls.nave, -3), (cls.other, 50)):
+            ItemTransaction.objects.create(
+                item=cls.item, warehouse=warehouse, movement_type=MovementType.IN, quantity_change=change
+            )
+
+    def sellable(self, warehouse):
+        return InventoryItem.objects.with_sellable_quantity(warehouse).get(pk=self.item.pk).sellable_quantity
+
+    def test_counts_only_the_warehouse_and_subtracts_reservations(self):
+        InventoryItem.objects.filter(pk=self.item.pk).update(reserved_quantity=Decimal("2.5"))
+        self.assertEqual(self.sellable(self.nave), Decimal("4.5"))  # 10 - 3 in Nave, minus 2.5 reserved
+
+    def test_never_below_zero_and_zero_without_movements(self):
+        InventoryItem.objects.filter(pk=self.item.pk).update(reserved_quantity=Decimal("40"))
+        self.assertEqual(self.sellable(self.nave), 0)
+        empty = Warehouse.objects.create(company=self.item.company, code="EMPTY", name="Empty")
+        self.assertEqual(self.sellable(empty), 0)

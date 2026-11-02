@@ -317,6 +317,29 @@ class PorteCargaAndMachineTests(PorteTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("máquina", response.json()["error"])
 
+    def test_entrega_allowed_for_pre_feature_planning_with_no_tracked_row(self):
+        """Retroactive-compatibility regression: a planning already loaded
+        before AssetPlanningMachine existed has machine_id set and a real
+        PORTE_LOAD transaction, but zero planning_machines rows (the table
+        didn't exist yet when it was loaded). Entrega must still work,
+        falling back to the original "does a PORTE_LOAD transaction exist"
+        check -- not require a scan/tracked row that can't possibly exist
+        for data from before this feature shipped."""
+        from assets.models import AssetTransaction, PorteTransactionDataKey, PorteMovementKind, TransactionTypeChoices
+
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        AssetTransaction.objects.create(
+            asset=self.cuba, company=self.company, from_zone=self.origin, to_zone=self.destination,
+            transaction_type=TransactionTypeChoices.PORTE_LOAD, planning=planning,
+            data={PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE, PorteTransactionDataKey.MACHINE_ID: self.machine.id},
+        )
+        self.assertEqual(planning.planning_machines.count(), 0)
+
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "delivered")
+
     def test_machine_carga_must_match_dispatch_assignment(self):
         other_machine = Asset.objects.create(
             company=self.company, asset_type=self.machine_type, name="MAQUINA-2",
@@ -342,6 +365,27 @@ class PorteCargaAndMachineTests(PorteTestCase):
         planning.refresh_from_db()
         self.assertEqual(planning.status, "delivered")
 
+    def test_entrega_with_a_matching_asset_id_still_works_for_a_single_machine(self):
+        """asset_id stays optional for one machine, but if the app sends it
+        anyway (it scanned something) and it's the right one, nothing changes."""
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+
+    def test_entrega_rejects_a_mismatched_scan_even_for_a_single_machine(self):
+        """Catches a driver scanning the wrong physical QR -- without this,
+        a single-machine plan would silently deliver its one known machine
+        regardless of what was actually scanned, masking the mistake."""
+        other_machine = Asset.objects.create(
+            company=self.company, asset_type=self.machine_type, name="MAQUINA-WRONG",
+        )
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega", extra={"asset_id": other_machine.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("pertenece", response.json()["error"])
+
     def test_entrega_does_not_change_cuba_status_for_machine_porte(self):
         planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
         self._submit(planning, "recogida")
@@ -366,3 +410,175 @@ class PorteCargaAndMachineTests(PorteTestCase):
         self.assertTrue(response.json().get("success"))
         planning.refresh_from_db()
         self.assertEqual(planning.status, "delivered")
+
+
+class PorteMultiMachineTests(PorteTestCase):
+    """A planning carrying several machines, each individually scanned,
+    loaded and delivered -- possibly at different destinations."""
+
+    def setUp(self):
+        super().setUp()
+        self.cuba_type = make_asset_type(self.company, name="Cuba")
+        self.cuba = make_asset(self.company, self.cuba_type, employee=self.employee, name="CUBA-PORTE")
+        self.machine_type = make_asset_type(self.company, name="Retroexcavadora", category=AssetTypeCategory.MACHINE)
+        self.machine = Asset.objects.create(company=self.company, asset_type=self.machine_type, name="MAQUINA-1")
+        self.other_machine = Asset.objects.create(
+            company=self.company, asset_type=self.machine_type, name="MAQUINA-2",
+        )
+        self.other_destination = make_zone(self.company, name="Otro Destino")
+
+    def _make_planning(self, *, service_type="porte_maquina"):
+        return AssetPlanning.objects.create(
+            company=self.company,
+            asset=self.cuba,
+            origin=self.origin,
+            destination=self.destination,
+            assigned_to=self.employee,
+            scheduled_date=date.today(),
+            planning_type="porte",
+            service_type=service_type,
+            status="in_transit",
+        )
+
+    def test_scanning_an_undefined_machine_creates_its_row(self):
+        """Open dispatch -- no machines pre-defined -- the first scan creates
+        its own tracking row automatically."""
+        from assets.models import AssetPlanningMachine
+
+        planning = self._make_planning(service_type="porte_maquina")
+        response = self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+        link = AssetPlanningMachine.objects.get(planning=planning, machine=self.machine)
+        self.assertEqual(link.status, "loaded")
+        self.assertIsNotNone(link.loaded_at)
+
+    def test_two_predefined_machines_both_load_independently(self):
+        from assets.models import AssetPlanningMachine, TransactionTypeChoices
+
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.planning_machines.create(machine=self.machine, sequence=1)
+        planning.planning_machines.create(machine=self.other_machine, sequence=2, to_zone=self.other_destination)
+
+        r1 = self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self.assertEqual(r1.status_code, 200)
+        r2 = self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+        self.assertEqual(r2.status_code, 200)
+
+        self.assertEqual(
+            AssetPlanningMachine.objects.filter(planning=planning, status="loaded").count(), 2,
+        )
+        load_txs = planning.transactions.filter(transaction_type=TransactionTypeChoices.PORTE_LOAD)
+        self.assertEqual(load_txs.count(), 2)
+
+    def test_carga_rejects_a_machine_not_on_the_plan(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.planning_machines.create(machine=self.machine, sequence=1)
+        response = self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("coincide", response.json()["error"])
+
+    def test_recarga_of_an_already_loaded_machine_is_idempotent(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("already_done"))
+
+    def test_entrega_requires_asset_id_once_there_are_several_machines(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("escanear", response.json()["error"].lower())
+
+    def test_entrega_rejects_a_machine_not_on_the_plan(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+        intruder = Asset.objects.create(company=self.company, asset_type=self.machine_type, name="MAQUINA-3")
+        response = self._submit(planning, "entrega", extra={"asset_id": intruder.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("pertenece", response.json()["error"])
+
+    def test_planning_stays_in_transit_until_every_machine_is_delivered(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+
+        r1 = self._submit(planning, "entrega", extra={"asset_id": self.machine.id})
+        self.assertEqual(r1.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "in_transit")
+
+        r2 = self._submit(planning, "entrega", extra={"asset_id": self.other_machine.id})
+        self.assertEqual(r2.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "delivered")
+
+    def test_redelivering_an_already_delivered_machine_is_idempotent(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+        self._submit(planning, "entrega", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("already_done"))
+
+    def test_each_machine_is_zone_synced_to_its_own_destination(self):
+        """The concrete scenario that drove this feature: two machines on one
+        planning, delivered to two different places -- each must end up at
+        ITS OWN zone, not the other's or the planning's shared default."""
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.planning_machines.create(machine=self.machine, sequence=1)  # default: planning.destination
+        planning.planning_machines.create(
+            machine=self.other_machine, sequence=2, to_zone=self.other_destination,
+        )
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self._submit(planning, "carga", extra={"asset_id": self.other_machine.id})
+        self._submit(planning, "entrega", extra={"asset_id": self.machine.id})
+        self._submit(planning, "entrega", extra={"asset_id": self.other_machine.id})
+
+        self.machine.refresh_from_db()
+        self.other_machine.refresh_from_db()
+        self.assertEqual(self.machine.current_working_zone_id, self.destination.id)
+        self.assertEqual(self.other_machine.current_working_zone_id, self.other_destination.id)
+
+    def test_serializer_exposes_machine_count_and_list(self):
+        from api.fleet.serializers import PortePlanningSerializer
+
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.planning_machines.create(machine=self.machine, sequence=1)
+        planning.planning_machines.create(
+            machine=self.other_machine, sequence=2, to_zone=self.other_destination,
+        )
+        data = PortePlanningSerializer(planning).data
+        self.assertEqual(data["machine_count"], 2)
+        names = {m["name"] for m in data["machines"]}
+        self.assertEqual(names, {"MAQUINA-1", "MAQUINA-2"})
+        other_entry = next(m for m in data["machines"] if m["id"] == self.other_machine.id)
+        self.assertEqual(other_entry["to_zone_name"], "Otro Destino")
+
+    def test_checklist_stays_flat_regardless_of_machine_count(self):
+        """No "do machine 1 then machine 2" ordering is implied anywhere --
+        the checklist is the same 3 generic steps whether there's one
+        machine or several; per-machine status lives in `machines` instead
+        (see test_serializer_exposes_machine_count_and_list), which the app
+        reads per scan, not by working down an ordered list."""
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.planning_machines.create(machine=self.machine, sequence=1)
+        planning.planning_machines.create(machine=self.other_machine, sequence=2)
+        keys = [step["key"] for step in planning.porte_checklist()]
+        self.assertEqual(keys, ["recoger", "carga", "entrega"])
+
+    def test_load_done_reflects_any_machine_having_started(self):
+        """Matches the single-machine semantics exactly -- "loading has
+        started" for this planning, not "every machine is fully loaded"
+        (that's what each machine's own `status` in `machines` is for)."""
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.planning_machines.create(machine=self.machine, sequence=1)
+        planning.planning_machines.create(machine=self.other_machine, sequence=2)
+        self.assertFalse(planning.porte_progress_flags()["load_done"])
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        planning.refresh_from_db()
+        self.assertTrue(planning.porte_progress_flags()["load_done"])

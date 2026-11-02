@@ -13,10 +13,11 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
+from djmoney.money import Money
 
-from company.models import CompanyUser
+from company.models import Company, CompanyUser
 from configurator.models import Configuration
-from inventory.models import InventoryItem
+from inventory.models import InventoryItem, Warehouse
 from invoices.services.delivery_order_service import DeliveryOrderService
 from invoices.tests.factories import (
     ExpedienteMixin,
@@ -26,12 +27,15 @@ from invoices.tests.factories import (
     make_quote,
 )
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
+from management.models import ProjectFile
 from sales.models import (
+    Client,
     DeliveryOrder,
     DeliveryOrderItem,
     DeliveryOrderStatus,
     Quote,
     QuoteInventoryItem,
+    QuoteStatus,
 )
 
 
@@ -468,3 +472,43 @@ class SyncFromQuoteAdminActionTests(_SyncTestBase):
         response = self.client.get(self.change_url)
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, self.url)
+
+
+class DeliverRemainingTests(TestCase):
+    """What an expediente still has to deliver, shipped without the wizard (e.g. online store orders)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        company = Company.objects.create(name="Fistex")
+        warehouse = Warehouse.objects.create(company=company, code="NAVE", name="Nave")
+        cls.tank = InventoryItem.objects.create(company=company, code="T-1", name="Tank", default_warehouse=warehouse)
+        client = Client.objects.create(company=company, name="Ana")
+        cls.project_file = ProjectFile.objects.create(company=company, client=client, name="Shopify #1001")
+        quote = Quote.objects.create(company=company, client=client, project_file=cls.project_file, status=QuoteStatus.ACCEPTED)
+        # 3 tanks pinned at 100.00 in total: 33.33 a unit doesn't divide evenly.
+        cls.line = QuoteInventoryItem.objects.create(
+            quote=quote, inventory_item=cls.tank, quantity=Decimal("3"),
+            unit_price=Money("33.33", "EUR"), override_line_total=Money("100.00", "EUR"),
+        )
+        cls.key = (ContentType.objects.get_for_model(QuoteInventoryItem).pk, cls.line.pk)
+
+    def test_ships_every_remaining_line_at_its_exact_value(self):
+        delivery_order = DeliveryOrderService.deliver_remaining(self.project_file, external_id="ext-1")
+
+        self.assertEqual((delivery_order.status, delivery_order.external_id), (DeliveryOrderStatus.DRAFT, "ext-1"))
+        self.assertEqual(delivery_order.project_file, self.project_file)
+        line = delivery_order.items.get()
+        self.assertEqual((line.source_object, line.inventory_item, line.quantity), (self.line, self.tank, Decimal("3")))
+        self.assertEqual(line.line_total.amount, Decimal("100.00"))
+
+    def test_partial_deliveries_add_up_to_the_quote_line(self):
+        first = DeliveryOrderService.deliver_remaining(self.project_file, quantities={self.key: 1})
+        rest = DeliveryOrderService.deliver_remaining(self.project_file)
+
+        self.assertEqual(rest.items.get().quantity, Decimal("2"))
+        self.assertEqual(first.items.get().line_total.amount + rest.items.get().line_total.amount, Decimal("100.00"))
+        self.assertIsNone(DeliveryOrderService.deliver_remaining(self.project_file))  # nothing left
+
+    def test_more_than_remains_is_refused(self):
+        with self.assertRaises(ValidationError):
+            DeliveryOrderService.deliver_remaining(self.project_file, quantities={self.key: 4})

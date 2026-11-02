@@ -160,6 +160,7 @@ jobs:
           echo "NUEK_SERVICE_KEY=\"${{ secrets.NUEK_SERVICE_KEY }}\"" >> .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
           echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env
+          echo "ENCRYPTION_KEYS=${{ secrets.ENCRYPTION_KEYS }}" >> .env
 
           echo "DEBUG=False" >> .env
 

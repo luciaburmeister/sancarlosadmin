@@ -9,7 +9,7 @@ from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
 from django.db.models import Prefetch
 from assets.constants import AssignRequestKey
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey, AssetDataKey
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey, AssetDataKey
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
@@ -692,28 +692,36 @@ class ReceiptStrategy(BaseTransactionStrategy):
         return JsonResponse(response_data)
 
 
-def _validate_zone(asset, latitude, longitude, chosen_zone_id):
+def _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id):
     if chosen_zone_id:
         try:
-            zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
-            return zone, None
+            return WorkingZone.objects.get(id=chosen_zone_id, company=asset.company), None
         except WorkingZone.DoesNotExist:
             return None, JsonResponse({"error": "Zona no encontrada."}, status=400)
-    if asset.current_working_zone is not None:
-        zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
-        if zone_lat is not None and latitude != 0 and longitude != 0:
-            distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
-            if distance > MAX_ZONE_RADIUS_M:
-                return None, JsonResponse({"error": f"Estas demasiado lejos de {asset.current_working_zone}. Estas a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."}, status=400)
-        return asset.current_working_zone, None
-    nearby_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_types=[WorkingZone.ZoneType.OBRA])
+    if not latitude or not longitude:
+        return None, None
+    nearby_zones = find_zones_within_radius(latitude, longitude, asset.company)
     if len(nearby_zones) == 0:
-        return None, JsonResponse({"error": "No estas cerca de ninguna obra conocida."}, status=400)
-    elif len(nearby_zones) > 1:
-        return None, JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, _ in nearby_zones]}, status=200)
-    else:
-        detected_zone, _ = nearby_zones[0]
-        return detected_zone, None
+        return None, None
+    if len(nearby_zones) > 1:
+        current_id = asset.current_working_zone_id
+        if current_id is not None:
+            for z, _distance in nearby_zones:
+                if z.id == current_id:
+                    return z, None
+        return None, JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, _ in nearby_zones]}, status=409)
+    zone, _distance = nearby_zones[0]
+    return zone, None
+
+
+def _apply_worker_zone(asset, zone, latitude, longitude):
+    if zone is None:
+        return
+    if zone.location_confirmed_at is None and latitude and longitude:
+        confirm_zone_location(zone, latitude, longitude)
+    if asset.current_working_zone_id != zone.id:
+        asset.current_working_zone = zone
+        asset.save(update_fields=["current_working_zone"])
 
 
 class MachineHoursStrategy(BaseTransactionStrategy):
@@ -752,9 +760,11 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         if already_open:
             return JsonResponse({"error": "Ya tienes un fichaje abierto hoy para esta maquina. Pausa o finaliza primero."}, status=400)
 
-        detected_zone, err = _validate_zone(asset, latitude, longitude, chosen_zone_id)
+        resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
         if err:
             return err
+        _apply_worker_zone(asset, resolved_zone, latitude, longitude)
+        detected_zone = asset.current_working_zone
 
         now_str = self._now_str()
 
@@ -791,15 +801,23 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         employee = self.employee
         user = self.user
         today = _today_str()
+        latitude = self.data.get("latitude", 0)
+        longitude = self.data.get("longitude", 0)
+        chosen_zone_id = self.data.get("zone_id")
         tx = _open_machine_qs(asset, employee, today).first()
         if not tx:
             return JsonResponse({"error": "No hay ningún fichaje abierto para pausar."}, status=404)
         intervals = tx.data.get("intervals", [])
         if not intervals or intervals[-1].get("end") is not None:
             return JsonResponse({"error": "La maquina ya esta pausada."}, status=400)
+        if chosen_zone_id:
+            resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
+            if err:
+                return err
+            _apply_worker_zone(asset, resolved_zone, latitude, longitude)
         intervals[-1]["end"] = self._now_str()
         tx.data["intervals"] = intervals
-        tx.notes += f" | Pausa por {user.username} a las {intervals[-1]['end']}."
+        tx.notes += f" | Pausa por {user.username} a las {intervals[-1]['end']}. GPS: {latitude}, {longitude}."
         tx.save(update_fields=["data", "notes"])
         return JsonResponse({"success": True, "message": "Pausa registrada."})
 
@@ -817,13 +835,15 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         intervals = tx.data.get("intervals", [])
         if intervals and intervals[-1].get("end") is None:
             return JsonResponse({"error": "La maquina ya esta en marcha."}, status=400)
-        _, err = _validate_zone(asset, latitude, longitude, chosen_zone_id)
-        if err:
-            return err
+        if chosen_zone_id:
+            resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
+            if err:
+                return err
+            _apply_worker_zone(asset, resolved_zone, latitude, longitude)
         now_str = self._now_str()
         intervals.append({"start": now_str, "end": None})
         tx.data["intervals"] = intervals
-        tx.notes += f" | Reanudado por {user.username} a las {now_str}."
+        tx.notes += f" | Reanudado por {user.username} a las {now_str}. GPS: {latitude}, {longitude}."
         tx.save(update_fields=["data", "notes"])
         return JsonResponse({"success": True, "message": "Reanudado correctamente."})
 
@@ -846,9 +866,11 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         except AssetTransaction.MultipleObjectsReturned:
             tx = qs.order_by("-data__machine_start_time").first()
 
-        _, err = _validate_zone(asset, latitude, longitude, chosen_zone_id)
-        if err:
-            return err
+        if chosen_zone_id:
+            resolved_zone, err = _resolve_worker_zone(asset, latitude, longitude, chosen_zone_id)
+            if err:
+                return err
+            _apply_worker_zone(asset, resolved_zone, latitude, longitude)
 
         now_str = self._now_str()
         intervals = tx.data.get("intervals", [])
@@ -1185,9 +1207,6 @@ class MachineCheckView(APIView):
             asset = Asset.objects.select_related("asset_type", "current_working_zone").get(id=asset_id, company=employee.company)
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Maquina no encontrada."}, status=404)
-        has_permission = MachinePermission.objects.filter(employee=employee, asset=asset).exists()
-        if not has_permission:
-            return JsonResponse({"error": "No tienes permiso para operar esta maquina."}, status=403)
         today = _today_str()
         open_tx = _open_machine_qs(asset, employee, today).first()
         completed_tx = _closed_machine_qs(asset, employee, today).order_by("-data__machine_start_time").first()

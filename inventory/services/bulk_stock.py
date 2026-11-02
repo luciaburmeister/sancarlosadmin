@@ -222,4 +222,8 @@ def apply_bulk_stock(text: str, companies, *, user, note: str = "") -> BulkStock
             )
             for row in plan.changes
         ])
+        # bulk_create skips ItemTransaction.save(), which pushes stock to online stores.
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.schedule_stock_push(row.item.pk for row in plan.changes)
     return plan

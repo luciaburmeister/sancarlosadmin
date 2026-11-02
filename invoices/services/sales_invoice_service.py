@@ -1,5 +1,9 @@
 import logging
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
+from djmoney.money import Money
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -15,9 +19,77 @@ from configurator.services.export.service import ConfigurationExportService
 from invoices.constants import GENERIC_PRODUCT_TEMPLATE_LABEL
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 
+if TYPE_CHECKING:
+    from company.models import Company
+    from invoices.models import TaxType
+    from management.models import ProjectFile
+    from sales.models import Client
+
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class CreditNoteLine:
+    description: str
+    reference: str
+    quantity: Decimal  # positive: what is credited
+    net_total: Decimal  # positive, before tax
+    tax_type: "TaxType"
+    tax_rate: Decimal  # percent
+
+
 class SalesInvoiceService:
+
+    @classmethod
+    @transaction.atomic
+    def create_credit_note(
+        cls,
+        company: "Company",
+        client: "Client",
+        lines: list[CreditNoteLine],
+        project_file: "ProjectFile | None" = None,
+        date_issued: date | None = None,
+        notes: str = "",
+        payment_method: str | None = None,
+    ) -> SalesInvoice:
+        """A pro forma credit note: a negative invoice for returned or refunded ``lines``.
+
+        Issued like the ERP's manual credit notes, with ``finalize_invoice``,
+        and filed under the sale's expediente when it has one.
+        """
+        currency = SalesInvoice._meta.get_field("currency").default
+        invoice = SalesInvoice.objects.create(
+            company=company,
+            status=SalesInvoiceStatus.PROFORMA,
+            invoice_number=None,
+            date_issued=date_issued or timezone.localdate(),
+            client=client,
+            project_file=project_file,
+            notes=notes,
+            payment_method=resolve_sales_invoice_payment_method(client=client, explicit=payment_method),
+        )
+        bases = {}
+        for line in lines:
+            SalesInvoiceItem.objects.create(
+                invoice=invoice,
+                description=line.description,
+                reference=line.reference,
+                quantity=-line.quantity,
+                unit_price=Money((line.net_total / line.quantity).quantize(Decimal("0.01")), currency),
+                override_line_total=Money(-line.net_total, currency),
+            )
+            if line.tax_rate:
+                key = (line.tax_type, line.tax_rate)
+                bases[key] = bases.get(key, Decimal("0")) - line.net_total
+        ct = ContentType.objects.get_for_model(invoice)
+        for order, ((tax_type, rate), base) in enumerate(bases.items()):
+            AppliedTax.objects.create(
+                content_type=ct, object_id=invoice.pk, tax_type=tax_type,
+                selected_percentage=rate, base_amount=Money(base, currency), order=order,
+            )
+        invoice.recalculate_totals(save=False)
+        invoice.save(update_fields=["subtotal_amount", "tax_amount", "total_amount"])
+        return invoice
 
     @classmethod
     @transaction.atomic

@@ -12,6 +12,11 @@ class ItemType(models.TextChoices):
     FINISHED_PRODUCT = "FINISHED_PRODUCT", _("Finished Product")
     OWN_PRODUCTION = "OWN_PRODUCTION", _("Own Production")
 
+class OnlineSaleMode(models.TextChoices):
+    BUY = "buy", _("Buy")
+    QUOTE = "quote", _("Request a quote")
+    BOTH = "both", _("Buy or request a quote")
+
 class MovementType(models.TextChoices):
     IN = "IN", _("Stock In")
     OUT = "OUT", _("Stock Out")

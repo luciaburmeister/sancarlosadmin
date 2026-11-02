@@ -21451,6 +21451,993 @@ msgid_plural "Download file (%(counter)s invoices)"
 msgstr[0] "Descargar fichero (%(counter)s factura)"
 msgstr[1] "Descargar fichero (%(counter)s facturas)"
 
+# apps/shopify — Shopify store connection
+msgid "Shopify"
+msgstr "Shopify"
+
+msgid "Internal label, e.g. 'Fistex – Online store'."
+msgstr "Etiqueta interna, p. ej. 'Fistex – Tienda online'."
+
+msgid "Enter the store's myshopify.com address, e.g. my-store.myshopify.com."
+msgstr ""
+"Introduce la dirección myshopify.com de la tienda, p. ej. mi-"
+"tienda.myshopify.com."
+
+msgid "Shop domain"
+msgstr "Dominio de la tienda"
+
+msgid "The store's permanent myshopify.com address, not a custom domain."
+msgstr ""
+"La dirección myshopify.com permanente de la tienda, no un dominio propio."
+
+msgid "Inactive stores are not synchronised and their webhooks are ignored."
+msgstr "Las tiendas inactivas no se sincronizan y sus webhooks se ignoran."
+
+msgid "Access token expires at"
+msgstr "El token de acceso caduca el"
+
+msgid "Refresh token expires at"
+msgstr "El token de renovación caduca el"
+
+msgid "Granted scopes"
+msgstr "Permisos concedidos"
+
+msgid "Access the store granted when the app was installed."
+msgstr "Accesos que concedió la tienda al instalar la aplicación."
+
+msgid "Connected at"
+msgstr "Conectada el"
+
+msgid "Shopify store"
+msgstr "Tienda Shopify"
+
+msgid "Shopify stores"
+msgstr "Tiendas Shopify"
+
+msgid "Shopify returned no access token."
+msgstr "Shopify no devolvió ningún token de acceso."
+
+msgid "Store"
+msgstr "Tienda"
+
+msgid "Connection"
+msgstr "Conexión"
+
+msgid "Connected"
+msgstr "Conectada"
+
+msgid "Client ID"
+msgstr "ID de cliente"
+
+msgid "Shopify app"
+msgstr "Aplicación de Shopify"
+
+msgid "Shopify apps"
+msgstr "Aplicaciones de Shopify"
+
+msgid "The app this store installs to connect with the ERP."
+msgstr "La aplicación que instala esta tienda para conectarse con el ERP."
+
+msgid "Client secret"
+msgstr "Secreto de cliente"
+
+msgid ""
+"From the app's settings in the Dev Dashboard. Leave blank to keep the stored "
+"secret."
+msgstr ""
+"En la configuración de la aplicación en el Dev Dashboard. Déjalo en blanco "
+"para conservar el secreto guardado."
+
+msgid "Enter the app's client secret."
+msgstr "Introduce el secreto de cliente de la aplicación."
+
+msgid "Connect to Shopify"
+msgstr "Conectar con Shopify"
+
+msgid "Test connection"
+msgstr "Probar conexión"
+
+#, python-format
+msgid "Connected to %(shop)s."
+msgstr "Conectado a %(shop)s."
+
+msgid "SHOPIFY_APP_URL is not configured."
+msgstr "SHOPIFY_APP_URL no está configurado."
+
+msgid "Choose the Shopify app for this store first."
+msgstr "Elige primero la aplicación de Shopify de esta tienda."
+
+msgid "The store's connection expired. Connect it again."
+msgstr "La conexión de la tienda ha caducado. Vuelve a conectarla."
+
+msgid "Could not reach Shopify."
+msgstr "No se pudo contactar con Shopify."
+
+#, python-format
+msgid "Shopify refused the connection (HTTP %(status)s)."
+msgstr "Shopify rechazó la conexión (HTTP %(status)s)."
+
+msgid "Shopify rejected the store's token. Connect it again."
+msgstr "Shopify rechazó el token de la tienda. Vuelve a conectarla."
+
+msgid "Shopify kept throttling the request."
+msgstr "Shopify siguió limitando la petición."
+
+#, python-format
+msgid "Shopify API error (HTTP %(status)s): %(detail)s"
+msgstr "Error de la API de Shopify (HTTP %(status)s): %(detail)s"
+
+msgid "This Shopify connection attempt is invalid or expired. Start it again."
+msgstr ""
+"Este intento de conexión con Shopify no es válido o ha caducado. Vuelve a "
+"empezar."
+
+msgid "Shopify's reply could not be verified. The store was not connected."
+msgstr ""
+"No se pudo verificar la respuesta de Shopify. La tienda no se ha conectado."
+
+#, python-format
+msgid "%(store)s is now connected."
+msgstr "%(store)s ya está conectada."
+
+msgid "Ignored"
+msgstr "Ignorado"
+
+msgid "Shopify webhook event"
+msgstr "Evento de webhook de Shopify"
+
+msgid "Shopify webhook events"
+msgstr "Eventos de webhook de Shopify"
+
+msgid "Webhook ID"
+msgstr "ID del webhook"
+
+msgid "Event ID"
+msgstr "ID del evento"
+
+msgid "Topic"
+msgstr "Tema"
+
+msgid "API version"
+msgstr "Versión de la API"
+
+msgid "Triggered at"
+msgstr "Generado el"
+
+msgid "Payload"
+msgstr "Contenido"
+
+msgid "Attempts"
+msgstr "Intentos"
+
+msgid "Received at"
+msgstr "Recibido el"
+
+msgid "Processed at"
+msgstr "Procesado el"
+
+msgid "Sync webhooks"
+msgstr "Sincronizar webhooks"
+
+#, python-format
+msgid "Subscribed to: %(topics)s."
+msgstr "Suscrito a: %(topics)s."
+
+msgid "Webhooks are already up to date."
+msgstr "Los webhooks ya están al día."
+
+msgid "Process again"
+msgstr "Procesar de nuevo"
+
+#, python-format
+msgid "Processed %(count)s event."
+msgid_plural "Processed %(count)s events."
+msgstr[0] "Se ha procesado %(count)s evento."
+msgstr[1] "Se han procesado %(count)s eventos."
+
+#, python-format
+msgid "Shopify refused the %(topic)s subscription: %(detail)s"
+msgstr "Shopify rechazó la suscripción a %(topic)s: %(detail)s"
+
+#, python-format
+msgid "Webhooks could not be set up: %(error)s Use \"Sync webhooks\" to try again."
+msgstr ""
+"No se pudieron configurar los webhooks: %(error)s Usa \"Sincronizar "
+"webhooks\" para volver a intentarlo."
+
+msgid "Shopify location ID"
+msgstr "ID de ubicación de Shopify"
+
+msgid "Shopify location"
+msgstr "Ubicación de Shopify"
+
+msgid "Active in Shopify"
+msgstr "Activa en Shopify"
+
+msgid ""
+"ERP warehouse whose stock this location shows. Leave empty to not sync it."
+msgstr ""
+"Almacén del ERP cuyo stock muestra esta ubicación. Déjalo vacío para no "
+"sincronizarla."
+
+msgid "Shopify locations"
+msgstr "Ubicaciones de Shopify"
+
+msgid "Choose a warehouse of the store's company."
+msgstr "Elige un almacén de la empresa de la tienda."
+
+msgid "No SKU in Shopify"
+msgstr "Sin SKU en Shopify"
+
+msgid "Not in the ERP"
+msgstr "No está en el ERP"
+
+msgid "SKU used more than once"
+msgstr "SKU repetido"
+
+msgid "Shopify product ID"
+msgstr "ID de producto de Shopify"
+
+msgid "Shopify variant ID"
+msgstr "ID de variante de Shopify"
+
+msgid "Shopify inventory item ID"
+msgstr "ID de artículo de inventario de Shopify"
+
+msgid "SKU"
+msgstr "SKU"
+
+msgid "Variant"
+msgstr "Variante"
+
+msgid "ERP item"
+msgstr "Artículo del ERP"
+
+msgid "Synced at"
+msgstr "Sincronizado el"
+
+msgid "Shopify product link"
+msgstr "Vínculo de producto de Shopify"
+
+msgid "Shopify product links"
+msgstr "Vínculos de productos de Shopify"
+
+msgid "Locations and warehouses"
+msgstr "Ubicaciones y almacenes"
+
+msgid "Sync catalog"
+msgstr "Sincronizar catálogo"
+
+#, python-format
+msgid ""
+"Catalog synced: %(matched)s matched, %(not_in_erp)s not in the ERP, "
+"%(no_sku)s without SKU, %(ambiguous)s with a repeated SKU."
+msgstr ""
+"Catálogo sincronizado: %(matched)s vinculados, %(not_in_erp)s no están en el "
+"ERP, %(no_sku)s sin SKU, %(ambiguous)s con SKU repetido."
+
+msgid "Sync stock to Shopify"
+msgstr "Sincronizar stock con Shopify"
+
+msgid ""
+"Keep Shopify's stock equal to the ERP's: each linked product shows its mapped"
+" warehouse's stock minus reservations. Shopify's own stock edits are "
+"overwritten."
+msgstr ""
+"Mantiene el stock de Shopify igual al del ERP: cada producto vinculado "
+"muestra el stock de su almacén asignado menos las reservas. Los cambios de "
+"stock hechos en Shopify se sobrescriben."
+
+msgid "This warehouse already feeds another location of the store."
+msgstr "Este almacén ya abastece otra ubicación de la tienda."
+
+msgid "Synchronisation"
+msgstr "Sincronización"
+
+msgid "Push stock"
+msgstr "Enviar stock"
+
+msgid "Turn on \"Sync stock to Shopify\" for this store first."
+msgstr "Activa primero \"Sincronizar stock con Shopify\" en esta tienda."
+
+#, python-format
+msgid ""
+"Stock pushed: %(updated)s updated, %(unchanged)s already correct, "
+"%(not_tracked)s not tracked in Shopify."
+msgstr ""
+"Stock enviado: %(updated)s actualizados, %(unchanged)s ya correctos, "
+"%(not_tracked)s sin seguimiento de inventario en Shopify."
+
+#, python-format
+msgid "Shopify refused the stock update: %(detail)s"
+msgstr "Shopify rechazó la actualización de stock: %(detail)s"
+
+#, python-format
+msgid "Shopify could not stock the item at the location: %(detail)s"
+msgstr "Shopify no pudo dar de alta el artículo en la ubicación: %(detail)s"
+
+# apps/shopify — orders; sales — external orders
+msgid "One client per customer"
+msgstr "Un cliente por cada comprador"
+
+msgid "One client for all web orders"
+msgstr "Un único cliente para todos los pedidos web"
+
+msgid "Import orders"
+msgstr "Importar pedidos"
+
+msgid ""
+"Turn Shopify orders into ERP quotes: sent while unpaid, accepted (reserving "
+"stock) once paid, rejected when cancelled. Orders from before this is turned "
+"on are not imported."
+msgstr ""
+"Convierte los pedidos de Shopify en presupuestos del ERP: enviados mientras "
+"no se pagan, aceptados (reservando stock) al pagarse y rechazados si se "
+"cancelan. Los pedidos anteriores a activar esta opción no se importan."
+
+msgid "Clients for web orders"
+msgstr "Clientes de los pedidos web"
+
+msgid "Web client"
+msgstr "Cliente web"
+
+msgid ""
+"Client that receives every web order when using one client for all web "
+"orders."
+msgstr ""
+"Cliente al que se asignan todos los pedidos web cuando se usa un único "
+"cliente."
+
+msgid "Shipping item"
+msgstr "Artículo de envío"
+
+msgid "Service item for the shipping a customer pays, e.g. 'Portes'."
+msgstr ""
+"Artículo de servicio para el envío que paga el cliente, p. ej. 'Portes'."
+
+msgid "Tax type"
+msgstr "Tipo de impuesto"
+
+msgid "Tax that Shopify's tax rates are recorded as on quotes, e.g. IVA."
+msgstr ""
+"Impuesto con el que se registran en los presupuestos los tipos de Shopify, p."
+" ej. IVA."
+
+msgid "Orders checked until"
+msgstr "Pedidos revisados hasta"
+
+msgid ""
+"Orders updated after this are fetched by the periodic check, in case a "
+"webhook was missed."
+msgstr ""
+"La revisión periódica recupera los pedidos modificados después de esta fecha,"
+" por si se perdió algún webhook."
+
+msgid "Choose one of the store's company."
+msgstr "Elige uno de la empresa de la tienda."
+
+msgid "Choose the tax type to import orders."
+msgstr "Elige el tipo de impuesto para importar pedidos."
+
+msgid "Choose the client for web orders."
+msgstr "Elige el cliente de los pedidos web."
+
+msgid "Shopify customer ID"
+msgstr "ID de cliente de Shopify"
+
+msgid "Shopify customer link"
+msgstr "Vínculo de cliente de Shopify"
+
+msgid "Shopify customer links"
+msgstr "Vínculos de clientes de Shopify"
+
+msgid "Shopify order ID"
+msgstr "ID de pedido de Shopify"
+
+msgid "Payment status"
+msgstr "Estado del pago"
+
+msgid "Updated in Shopify"
+msgstr "Modificado en Shopify"
+
+msgid "Shopify total"
+msgstr "Total en Shopify"
+
+msgid "ERP total"
+msgstr "Total en el ERP"
+
+msgid "Totals match"
+msgstr "Totales coinciden"
+
+msgid ""
+"Whether the quote's total equals what Shopify charged; differences need "
+"review."
+msgstr ""
+"Si el total del presupuesto coincide con lo cobrado en Shopify; las "
+"diferencias deben revisarse."
+
+msgid "Shopify order"
+msgstr "Pedido de Shopify"
+
+msgid "Shopify orders"
+msgstr "Pedidos de Shopify"
+
+msgid "Sync again"
+msgstr "Sincronizar de nuevo"
+
+msgid "Orders synced."
+msgstr "Pedidos sincronizados."
+
+msgid "The order no longer exists in Shopify."
+msgstr "El pedido ya no existe en Shopify."
+
+msgid "Choose the store's tax type before importing orders."
+msgstr "Elige el tipo de impuesto de la tienda antes de importar pedidos."
+
+#, python-format
+msgid "Shopify %(order)s"
+msgstr "Shopify %(order)s"
+
+#, python-format
+msgid ""
+"These products are not linked to an ERP item: %(products)s. Fix their SKU, "
+"sync the catalog and process the order again."
+msgstr ""
+"Estos productos no están vinculados a un artículo del ERP: %(products)s. "
+"Corrige su SKU, sincroniza el catálogo y vuelve a procesar el pedido."
+
+msgid "The order charges shipping: choose the store's shipping item first."
+msgstr ""
+"El pedido cobra envío: elige primero el artículo de envío de la tienda."
+
+msgid "Shipping with different tax rates isn't supported yet."
+msgstr "Todavía no se admite un envío con distintos tipos de impuesto."
+
+msgid "A line with several taxes isn't supported yet."
+msgstr "Todavía no se admite una línea con varios impuestos."
+
+msgid "Choose the store's web client before importing orders."
+msgstr "Elige el cliente web de la tienda antes de importar pedidos."
+
+msgid "Prices from sales channel"
+msgstr "Precios del canal de venta"
+
+msgid ""
+"The prices come from an external sales channel (e.g. an online store), which "
+"already charged them: discount policies are not applied."
+msgstr ""
+"Los precios vienen de un canal de venta externo (p. ej. una tienda online) "
+"que ya los cobró: no se aplican políticas de descuento."
+
+msgid "The order's quote was rejected; it is not reopened automatically."
+msgstr "El presupuesto del pedido fue rechazado; no se reabre automáticamente."
+
+#, python-format
+msgid ""
+"The order changed after it was put on a delivery order. Update quote "
+"%(quote)s by hand."
+msgstr ""
+"El pedido cambió después de incluirse en un albarán. Actualiza a mano el "
+"presupuesto %(quote)s."
+
+#, python-format
+msgid ""
+"The order was cancelled after it was put on a delivery order. Review quote "
+"%(quote)s by hand."
+msgstr ""
+"El pedido se canceló después de incluirse en un albarán. Revisa a mano el "
+"presupuesto %(quote)s."
+
+#, python-format
+msgid "%(count)s order could not be imported."
+msgid_plural "%(count)s orders could not be imported."
+msgstr[0] "No se pudo importar %(count)s pedido."
+msgstr[1] "No se pudieron importar %(count)s pedidos."
+
+# apps/shopify — fulfillments; invoices — delivery orders from quotes
+msgid "ERP warehouse ships"
+msgstr "Envía el almacén del ERP"
+
+msgid "Shopify or a partner ships"
+msgstr "Envía Shopify o un socio logístico"
+
+msgid "Who ships web orders"
+msgstr "Quién envía los pedidos web"
+
+msgid ""
+"ERP warehouse: paid orders get a delivery order pending shipment, and "
+"dispatching it sends the tracking to Shopify. Shopify or a partner: each "
+"shipment made in Shopify creates a dispatched delivery order in the ERP, "
+"taking the stock out."
+msgstr ""
+"Almacén del ERP: los pedidos pagados reciben un albarán pendiente de envío y,"
+" al expedirlo, el seguimiento se envía a Shopify. Shopify o un socio: cada "
+"envío hecho en Shopify crea un albarán expedido en el ERP, que descuenta el "
+"stock."
+
+msgid "Email the customer when shipped"
+msgstr "Avisar al cliente por email al enviar"
+
+msgid ""
+"Shopify sends its shipping confirmation with the tracking link when the ERP "
+"dispatches an order."
+msgstr ""
+"Shopify envía su confirmación de envío con el enlace de seguimiento cuando el"
+" ERP expide un pedido."
+
+msgid "Shopify fulfillment ID"
+msgstr "ID de envío de Shopify"
+
+msgid "Delivery order"
+msgstr "Albarán"
+
+msgid "Shopify fulfillment"
+msgstr "Envío de Shopify"
+
+msgid "Shopify fulfillments"
+msgstr "Envíos de Shopify"
+
+msgid "Send shipments to Shopify"
+msgstr "Enviar expediciones a Shopify"
+
+#, python-format
+msgid ""
+"Shopify has less left to ship than delivery order %(number)s; check whether "
+"it was already fulfilled in Shopify."
+msgstr ""
+"En Shopify queda menos por enviar que en el albarán %(number)s; comprueba si "
+"ya se envió desde Shopify."
+
+#, python-format
+msgid "Shopify refused the fulfillment: %(detail)s"
+msgstr "Shopify rechazó el envío: %(detail)s"
+
+#, python-format
+msgid "A shipment contains a product that is not on quote %(quote)s."
+msgstr "Un envío contiene un producto que no está en el presupuesto %(quote)s."
+
+#, python-format
+msgid "Only %(remaining)s of %(item)s are left to deliver."
+msgstr "Solo quedan %(remaining)s de %(item)s por entregar."
+
+#, python-format
+msgid "%(count)s shipment could not be sent; see Shopify fulfillments."
+msgid_plural "%(count)s shipments could not be sent; see Shopify fulfillments."
+msgstr[0] ""
+"No se pudo enviar %(count)s expedición; revisa los envíos de Shopify."
+msgstr[1] ""
+"No se pudieron enviar %(count)s expediciones; revisa los envíos de Shopify."
+
+#, python-format
+msgid "%(count)s shipment sent to Shopify."
+msgid_plural "%(count)s shipments sent to Shopify."
+msgstr[0] "Se ha enviado %(count)s expedición a Shopify."
+msgstr[1] "Se han enviado %(count)s expediciones a Shopify."
+
+# apps/shopify — catalog push; inventory — sell online
+msgid "Sell online"
+msgstr "Vender online"
+
+msgid ""
+"Offer this item in the company's online stores: they create the product and "
+"keep its price and SKU up to date."
+msgstr ""
+"Ofrece este artículo en las tiendas online de la empresa: crean el producto y"
+" mantienen su precio y SKU al día."
+
+msgid "Create products in Shopify"
+msgstr "Crear productos en Shopify"
+
+msgid ""
+"Items marked 'Sell online' are created in Shopify as draft products, and "
+"their price, cost and SKU are kept up to date from the ERP, with the item's "
+"tax added when the store's prices include tax. Titles, descriptions and "
+"photos are edited in Shopify. Unticking 'Sell online' archives the product."
+msgstr ""
+"Los artículos marcados como 'Vender online' se crean en Shopify como "
+"productos en borrador, y su precio, coste y SKU se mantienen al día desde el "
+"ERP, sumando el impuesto del artículo cuando los precios de la tienda "
+"incluyen impuestos. Títulos, descripciones y fotos se editan en Shopify. "
+"Desmarcar 'Vender online' archiva el producto."
+
+msgid "Fingerprint of the price, cost and SKU last sent to Shopify."
+msgstr "Huella del precio, coste y SKU enviados por última vez a Shopify."
+
+msgid ""
+"A catalog push for this store is already running. Try again in a moment."
+msgstr ""
+"Ya se está enviando el catálogo de esta tienda. Vuelve a intentarlo en un "
+"momento."
+
+msgid "The SKU is used by more than one product in Shopify."
+msgstr "El SKU lo usa más de un producto en Shopify."
+
+msgid "The product with this SKU in Shopify could not be linked."
+msgstr "No se pudo vincular el producto de Shopify con este SKU."
+
+#, python-format
+msgid "Shopify refused to create the product: %(detail)s"
+msgstr "Shopify rechazó crear el producto: %(detail)s"
+
+#, python-format
+msgid "Shopify refused the product update: %(detail)s"
+msgstr "Shopify rechazó la actualización del producto: %(detail)s"
+
+msgid "Push catalog"
+msgstr "Enviar catálogo"
+
+msgid "Turn on \"Create products in Shopify\" for this store first."
+msgstr "Activa primero \"Crear productos en Shopify\" en esta tienda."
+
+msgid "By hand"
+msgstr "A mano"
+
+msgid "When the order is paid"
+msgstr "Al pagarse el pedido"
+
+msgid "When each shipment is dispatched"
+msgstr "Al expedirse cada envío"
+
+msgid "Review by hand"
+msgstr "Revisar a mano"
+
+msgid "Create a credit note"
+msgstr "Crear una factura rectificativa"
+
+msgid "Nothing to credit"
+msgstr "Nada que abonar"
+
+msgid "Waiting for the invoice"
+msgstr "Pendiente de la factura"
+
+msgid "To review"
+msgstr "Por revisar"
+
+msgid "Credit note created"
+msgstr "Rectificativa creada"
+
+msgid "Shopify refund"
+msgstr "Reembolso de Shopify"
+
+msgid "Shopify refunds"
+msgstr "Reembolsos de Shopify"
+
+msgid "Invoice web orders"
+msgstr "Facturar los pedidos web"
+
+msgid ""
+"By hand: staff invoice the delivery orders as usual. When paid: the whole "
+"order is invoiced at once. When dispatched: each shipment gets its own "
+"invoice."
+msgstr ""
+"A mano: el equipo factura los albaranes como siempre. Al pagarse: se factura "
+"el pedido entero de una vez. Al expedirse: cada envío tiene su propia "
+"factura."
+
+msgid "Issue invoices automatically"
+msgstr "Emitir las facturas automáticamente"
+
+msgid ""
+"Off: invoices wait as pro forma for review. On: they are numbered and sent to"
+" the tax agency, as when finalising one by hand."
+msgstr ""
+"Desactivado: las facturas esperan como proforma para revisarlas. Activado: se"
+" numeran y se envían a la AEAT, como al finalizar una a mano."
+
+msgid "Email invoices to the customer"
+msgstr "Enviar las facturas al cliente por correo"
+
+msgid "Sent from the company's invoice email once issued."
+msgstr "Se envían desde el correo de facturas de la empresa al emitirse."
+
+msgid "Record Shopify payments"
+msgstr "Registrar los cobros de Shopify"
+
+msgid "Issued invoices of orders paid in Shopify are marked as paid by card."
+msgstr ""
+"Las facturas emitidas de pedidos pagados en Shopify se marcan como cobradas "
+"con tarjeta."
+
+msgid "Refunds of invoiced goods"
+msgstr "Reembolsos de lo ya facturado"
+
+msgid ""
+"Review by hand: refunds are listed for staff to settle. Credit note: one is "
+"created for the refunded products and shipping, issued like the invoices."
+msgstr ""
+"Revisar a mano: los reembolsos quedan listados para que el equipo los "
+"resuelva. Rectificativa: se crea una por los productos y el envío "
+"reembolsados, emitida como las facturas."
+
+msgid "Invoicing orders placed since"
+msgstr "Facturando los pedidos realizados desde"
+
+msgid "Older orders are invoiced by hand, so nothing is billed twice."
+msgstr ""
+"Los pedidos anteriores se facturan a mano, para no facturar nada dos veces."
+
+msgid "Placed at"
+msgstr "Realizado el"
+
+msgid ""
+"The invoice of the whole order, when the store invoices orders once paid."
+msgstr ""
+"La factura del pedido entero, cuando la tienda factura los pedidos al "
+"pagarse."
+
+msgid "Refunded"
+msgstr "Reembolsado"
+
+msgid "Invoicing error"
+msgstr "Error de facturación"
+
+msgid ""
+"Why the order couldn't be invoiced automatically; it is retried every few "
+"minutes."
+msgstr ""
+"Por qué no se pudo facturar el pedido automáticamente; se reintenta cada "
+"pocos minutos."
+
+msgid "Shopify refund ID"
+msgstr "ID del reembolso en Shopify"
+
+msgid "Refunded at"
+msgstr "Reembolsado el"
+
+msgid "Catalog and stock"
+msgstr "Catálogo y stock"
+
+msgid "Invoice again"
+msgstr "Facturar de nuevo"
+
+msgid "Orders invoiced."
+msgstr "Pedidos facturados."
+
+msgid "The refund isn't for products or shipping; settle it by hand."
+msgstr ""
+"El reembolso no corresponde a productos ni al envío; resuélvelo a mano."
+
+msgid "Waiting until the refunded products are invoiced."
+msgstr "Pendiente de que se facturen los productos reembolsados."
+
+msgid "The refund includes shipping, but the store has no shipping item."
+msgstr ""
+"El reembolso incluye el envío, pero la tienda no tiene artículo de portes."
+
+msgid "Waiting until the refunded shipping is invoiced."
+msgstr "Pendiente de que se facture el envío reembolsado."
+
+msgid ""
+"The refund of %(refunded)s doesn't match the invoiced products and shipping "
+"(%(credited)s); it may include other amounts. Settle it by hand."
+msgstr ""
+"El reembolso de %(refunded)s no cuadra con los productos y el envío "
+"facturados (%(credited)s); puede incluir otros importes. Resuélvelo a mano."
+
+msgid "Refund of Shopify order %(order)s"
+msgstr "Reembolso del pedido de Shopify %(order)s"
+
+msgid "The refund includes %(product)s, which is not linked to an ERP item."
+msgstr ""
+"El reembolso incluye %(product)s, que no está vinculado a un artículo del "
+"ERP."
+
+msgid "Shopify order %(order)s"
+msgstr "Pedido de Shopify %(order)s"
+
+msgid "Simplified invoices are not supported yet."
+msgstr "Las facturas simplificadas aún no están soportadas."
+
+msgid "%(count)s order still needs attention."
+msgid_plural "%(count)s orders still need attention."
+msgstr[0] "%(count)s pedido sigue necesitando atención."
+msgstr[1] "%(count)s pedidos siguen necesitando atención."
+
+#, python-format
+msgid ""
+"%(time)s: %(created)s created as drafts, %(updated)s updated, %(unchanged)s "
+"already up to date."
+msgstr ""
+"%(time)s: %(created)s creados como borrador, %(updated)s actualizados, "
+"%(unchanged)s ya al día."
+
+#, python-format
+msgid "%(count)s item could not be pushed:"
+msgid_plural "%(count)s items could not be pushed:"
+msgstr[0] "No se pudo enviar %(count)s artículo:"
+msgstr[1] "No se pudieron enviar %(count)s artículos:"
+
+msgid "Last catalog push"
+msgstr "Último envío del catálogo"
+
+#, python-format
+msgid "Running since %(time)s…"
+msgstr "En curso desde %(time)s…"
+
+#, python-format
+msgid "%(time)s: failed. %(reason)s"
+msgstr "%(time)s: falló. %(reason)s"
+
+msgid "A catalog push for this store is already running."
+msgstr "Ya hay un envío del catálogo en curso para esta tienda."
+
+msgid ""
+"Catalog push started in the background. Its result appears under \"Catalog "
+"and stock\" once it finishes."
+msgstr ""
+"Envío del catálogo iniciado en segundo plano. Su resultado aparece en "
+"\"Catálogo y stock\" cuando termine."
+
+msgid "The catalog push could not be started: the task queue is unavailable."
+msgstr ""
+"No se pudo iniciar el envío del catálogo: la cola de tareas no está "
+"disponible."
+
+msgid "The task queue is unavailable; the push did not start."
+msgstr "La cola de tareas no está disponible; el envío no se inició."
+
+#, python-format
+msgid "%(archived)s archived as no longer sold online, %(restored)s restored."
+msgstr ""
+"%(archived)s archivados por dejar de venderse online, %(restored)s "
+"restaurados."
+
+msgid ""
+"Status the product had before the ERP archived it because the item stopped "
+"being sold online; restored when it is sold online again."
+msgstr ""
+"Estado que tenía el producto antes de que el ERP lo archivara porque el "
+"artículo dejó de venderse online; se restaura cuando vuelve a venderse "
+"online."
+
+msgid "Shipments"
+msgstr "Envíos"
+
+msgid "Goods are back in the warehouse"
+msgstr "La mercancía ha vuelto al almacén"
+
+msgid "Goods were lost"
+msgstr "La mercancía se perdió"
+
+msgid ""
+"Only shipments cancelled in Shopify and waiting for review can be resolved."
+msgstr ""
+"Solo se pueden resolver los envíos cancelados en Shopify pendientes de "
+"revisión."
+
+msgid "Cancelled in Shopify, to review"
+msgstr "Cancelado en Shopify, por revisar"
+
+msgid "Goods back in the warehouse"
+msgstr "Mercancía de vuelta en el almacén"
+
+msgid "Goods lost on the way"
+msgstr "Mercancía perdida en el transporte"
+
+msgid "Cancellation"
+msgstr "Cancelación"
+
+msgid ""
+"Set when the shipment is cancelled in Shopify. Staff then record whether the "
+"goods are back in the warehouse or were lost, and the order can be shipped "
+"again."
+msgstr ""
+"Se marca cuando el envío se cancela en Shopify. El equipo indica entonces si "
+"la mercancía ha vuelto al almacén o se perdió, y el pedido se puede volver a "
+"enviar."
+
+msgid "Cancelled in Shopify at"
+msgstr "Cancelado en Shopify el"
+
+msgid "This shipment has no cancellation to review."
+msgstr "Este envío no tiene ninguna cancelación por revisar."
+
+#, python-format
+msgid ""
+"Delivery order %(number)s is invoiced on %(invoice)s: cancel that invoice or "
+"issue a credit note first."
+msgstr ""
+"El albarán %(number)s está facturado en %(invoice)s: anula esa factura o "
+"emite una rectificativa primero."
+
+#, python-format
+msgid "Replacement for %(number)s."
+msgstr "Reposición de %(number)s."
+
+#, python-format
+msgid "Delivery order %(number)s has no more of these goods left to replace."
+msgstr "Al albarán %(number)s no le queda más de esta mercancía por reponer."
+
+#, python-format
+msgid "Delivery order %(number)s replaces lost goods and is not invoiced."
+msgstr "El albarán %(number)s repone mercancía perdida y no se factura."
+
+msgid "Replacement for"
+msgstr "Reposición de"
+
+msgid ""
+"The delivery order whose goods were lost or damaged on the way. This one "
+"ships them again free of charge and is not invoiced."
+msgstr ""
+"El albarán cuya mercancía se perdió o dañó en el transporte. Este la vuelve a"
+" enviar sin coste y no se factura."
+
+#, python-format
+msgid "%(count)s shipment resolved."
+msgid_plural "%(count)s shipments resolved."
+msgstr[0] "%(count)s envío resuelto."
+msgstr[1] "%(count)s envíos resueltos."
+
+msgid ""
+"The store's prices include tax, but the item has no tax. Give it one, or set "
+"the company's default taxes."
+msgstr ""
+"Los precios de la tienda incluyen impuestos, pero el artículo no tiene "
+"ninguno. Asígnale uno o define los impuestos por defecto de la empresa."
+
+msgid "Ships to"
+msgstr "Se envía a"
+
+msgid "The client address the order's delivery orders ship to."
+msgstr "La dirección del cliente a la que se envían los albaranes del pedido."
+
+msgid "The order has no expediente to invoice."
+msgstr "El pedido no tiene expediente que facturar."
+
+#, python-format
+msgid "Expediente %(reference)s has nothing left to invoice."
+msgstr "Al expediente %(reference)s no le queda nada por facturar."
+
+msgid "Off"
+msgstr "Desactivado"
+
+msgid "Alongside buying"
+msgstr "Junto a la compra"
+
+msgid "Instead of buying"
+msgstr "En lugar de la compra"
+
+msgid "Quote requests"
+msgstr "Solicitudes de presupuesto"
+
+msgid ""
+"Alongside buying: each item's 'Sold online as' decides whether customers buy "
+"it, request a quote or both. Instead of buying: customers can only request "
+"quotes. Requests arrive as draft quotes."
+msgstr ""
+"Junto a la compra: el campo 'Se vende online como' de cada artículo decide si"
+" los clientes lo compran, piden presupuesto o ambas cosas. En lugar de la "
+"compra: los clientes solo pueden pedir presupuesto. Las solicitudes llegan "
+"como presupuestos en borrador."
+
+msgid "This product can't be quoted."
+msgstr "No se puede pedir presupuesto de este producto."
+
+#, python-format
+msgid "Web quote request: %(product)s"
+msgstr "Solicitud de presupuesto web: %(product)s"
+
+msgid "Sold online as"
+msgstr "Se vende online como"
+
+msgid ""
+"Buy: customers check out at the ERP price. Request a quote: customers ask for"
+" a price and receive a draft quote. Applies in online stores that take quote "
+"requests alongside buying."
+msgstr ""
+"Comprar: los clientes pagan al precio del ERP. Pedir presupuesto: los "
+"clientes piden un precio y reciben un presupuesto en borrador. Se aplica en "
+"las tiendas online que aceptan solicitudes de presupuesto junto a la compra."
+
+msgid "Buy"
+msgstr "Comprar"
+
+msgid "Request a quote"
+msgstr "Pedir presupuesto"
+
+msgid "Buy or request a quote"
+msgstr "Comprar o pedir presupuesto"
+
 msgid "%(first)s min · %(second)s min"
 msgstr "%(first)s min · %(second)s min"
 

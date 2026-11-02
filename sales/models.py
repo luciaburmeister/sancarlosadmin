@@ -1019,6 +1019,15 @@ class Quote(Timestampable, CompanyOwnedModel):
         verbose_name=_("Estimated delivery date"),
     )
 
+    prices_from_channel = models.BooleanField(
+        default=False,
+        verbose_name=_("Prices from sales channel"),
+        help_text=_(
+            "The prices come from an external sales channel (e.g. an online store), "
+            "which already charged them: discount policies are not applied."
+        ),
+    )
+
     objects = QuoteQuerySet.as_manager()
 
     class Meta:
@@ -1087,8 +1096,11 @@ class Quote(Timestampable, CompanyOwnedModel):
         registry = DiscountLevelRegistry()
         discount_breakdown = []
 
+        # A sales channel already charged its prices: no discount rule applies.
+        apply_discounts = not self.prices_from_channel
+
         # Phase 1: PRE_SUBTOTAL handlers (e.g. line-item %) mutate records first.
-        for handler in registry.pre_subtotal_handlers():
+        for handler in registry.pre_subtotal_handlers() if apply_discounts else ():
             _, breakdown = handler.run(self, totals=None)
             discount_breakdown += breakdown
 
@@ -1103,7 +1115,7 @@ class Quote(Timestampable, CompanyOwnedModel):
 
         # Phase 3: POST_SUBTOTAL handlers each subtract from their own base.
         total_basket_discount = Decimal("0.00")
-        for handler in registry.post_subtotal_handlers():
+        for handler in registry.post_subtotal_handlers() if apply_discounts else ():
             amount, breakdown = handler.run(self, totals)
             total_basket_discount += amount
             discount_breakdown += breakdown
@@ -1774,6 +1786,18 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         related_name="delivery_orders",
         verbose_name=_("Sales Invoice")
     )
+    replaces = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="replacements",
+        verbose_name=_("Replacement for"),
+        help_text=_(
+            "The delivery order whose goods were lost or damaged on the way. This one ships them "
+            "again free of charge and is not invoiced."
+        ),
+    )
     configuration = models.ForeignKey(
         "configurator.Configuration",
         on_delete=models.SET_NULL,
@@ -1953,6 +1977,10 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
                 self.return_inventory(dispatch_undone=True)
 
         super().save(*args, **kwargs)
+
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.delivery_order_saved(self)
 
         self._original_status = self.status
         self._original_project_file_id = self.project_file_id

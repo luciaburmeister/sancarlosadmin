@@ -168,6 +168,7 @@ class InventoryItemResource(resources.ModelResource):
             "min_stock",
             "metadata_schema",
             "metadata",
+            "sell_online",
             "stock_on_hand",
             "incoming_quantity",
             "reserved_quantity",

@@ -1,5 +1,7 @@
 import logging
+from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -19,6 +21,10 @@ from invoices.models import (
     AppliedTax, PinnedLineTotalMixin, SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus,
 )
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
+
+if TYPE_CHECKING:
+    from management.models import ProjectFile
+    from sales.models import ClientAddress
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +395,132 @@ class DeliveryOrderService:
         )
 
         return delivery_order
+
+    @staticmethod
+    def proposed_items(deliverable_items: list[dict]) -> list[dict]:
+        """``create_delivery_order`` lines shipping all that is left of each deliverable item."""
+        return [
+            {
+                "source_content_type_id": item["source_content_type_id"],
+                "source_object_id": item["source_object_id"],
+                "description": item["description"],
+                "quantity": item["remaining_quantity"],
+                "unit_price": item["unit_price"],
+                "discount_percentage": item.get("discount_percentage", Decimal("0.00")),
+                "reference": item.get("reference", ""),
+            }
+            for item in deliverable_items
+            if item["remaining_quantity"] != 0  # negative lines are deliverable too
+        ]
+
+    @classmethod
+    @transaction.atomic
+    def deliver_remaining(
+        cls,
+        project_file: "ProjectFile",
+        quantities: dict[tuple[int, int], Decimal] | None = None,
+        external_id: str = "",
+        delivery_address: "ClientAddress | None" = None,
+    ) -> DeliveryOrder | None:
+        """A delivery order for what the expediente still has to deliver.
+
+        The lines are the ones the delivery order wizard proposes, created
+        with ``create_delivery_order``; for orders placed elsewhere, such as
+        an online store. ``quantities`` maps ``(source content type id,
+        source object id)`` to the quantity to ship; by default all that is
+        left ships. It ships to ``delivery_address``, else to the client's
+        default shipping address. Returns None when nothing is left.
+        """
+        items_data = cls.proposed_items(cls.get_deliverable_items(project_file))
+        if quantities is not None:
+            for item in items_data:
+                remaining = item["quantity"]
+                item["quantity"] = Decimal(quantities.get((item["source_content_type_id"], item["source_object_id"]), 0))
+                if abs(item["quantity"]) > abs(remaining) or (item["quantity"] and (item["quantity"] > 0) != (remaining > 0)):
+                    raise ValidationError(
+                        _("Only %(remaining)s of %(item)s are left to deliver.")
+                        % {"remaining": remaining, "item": item["description"]}
+                    )
+            items_data = [item for item in items_data if item["quantity"]]
+        if not items_data:
+            return None
+        delivery_order = cls.create_delivery_order(
+            project_file=project_file,
+            company=project_file.company,
+            client=project_file.client,
+            items_data=items_data,
+        )
+        delivery_order.external_id = external_id
+        if delivery_address is not None:
+            delivery_order.delivery_address = delivery_address
+        delivery_order.save(update_fields=["external_id", "delivery_address", "updated_at"])
+        return delivery_order
+
+    @classmethod
+    @transaction.atomic
+    def create_replacement(
+        cls, delivery_order: DeliveryOrder, quantities: dict[int, Decimal] | None = None, date: date | None = None
+    ) -> DeliveryOrder | None:
+        """A delivery order shipping again goods of ``delivery_order`` that were lost or damaged.
+
+        ``quantities`` maps inventory item ids to the quantity to ship again;
+        by default everything not replaced yet. The goods leave the warehouse
+        again, free of charge (100 % discount), and the replacement is never
+        invoiced: the original delivery order still carries the sale.
+        """
+        left = cls.replaceable_quantities(delivery_order)
+        wanted = left if quantities is None else {item_id: Decimal(qty) for item_id, qty in quantities.items() if qty}
+        for item_id, quantity in wanted.items():
+            if quantity <= 0 or quantity > left.get(item_id, Decimal("0")):
+                raise ValidationError(
+                    _("Delivery order %(number)s has no more of these goods left to replace.")
+                    % {"number": delivery_order.number}
+                )
+        if not wanted:
+            return None
+        from invoices.services.sales_invoice_service import SalesInvoiceService
+
+        next_do = SalesInvoiceService._generate_next_delivery_order_data(delivery_order.company)
+        replacement = DeliveryOrder.objects.create(
+            company=delivery_order.company,
+            number=next_do['number'],
+            incremental_id=next_do['incremental_id'],
+            date=date or timezone.localdate(),
+            client=delivery_order.client,
+            project_file=delivery_order.project_file,
+            delivery_address=delivery_order.delivery_address,
+            external_id=delivery_order.external_id,
+            replaces=delivery_order,
+            status=DeliveryOrderStatus.DRAFT,
+            notes=_("Replacement for %(number)s.") % {"number": delivery_order.number},
+        )
+        lines = {line.inventory_item_id: line for line in delivery_order.items.top_level().order_by("pk")}
+        for item_id, quantity in wanted.items():
+            line = lines[item_id]
+            DeliveryOrderItem.objects.create(
+                delivery_order=replacement,
+                inventory_item_id=item_id,
+                description=line.description,
+                reference=line.reference,
+                quantity=quantity,
+                unit_price=line.unit_price,
+                discount_percentage=Decimal("100"),
+            )
+        replacement.recalculate_totals()
+        return replacement
+
+    @staticmethod
+    def replaceable_quantities(delivery_order: DeliveryOrder) -> dict[int, Decimal]:
+        """Per inventory item id, how much of the delivery order's goods is not replaced yet."""
+        left = {}
+        for line in delivery_order.items.top_level().filter(inventory_item__isnull=False):
+            left[line.inventory_item_id] = left.get(line.inventory_item_id, Decimal("0")) + line.quantity
+        replaced = DeliveryOrderItem.objects.filter(
+            delivery_order__replaces=delivery_order, parent_line__isnull=True
+        ).exclude(delivery_order__status=DeliveryOrderStatus.CANCELLED)
+        for line in replaced:
+            left[line.inventory_item_id] = left.get(line.inventory_item_id, Decimal("0")) - line.quantity
+        return {item_id: quantity for item_id, quantity in left.items() if quantity > 0}
 
     @classmethod
     def _fill_shipping_defaults(cls, delivery_order):
@@ -773,6 +905,10 @@ class DeliveryOrderService:
         AdvanceInvoiceService.check_no_proforma_advance(project_file_ids)
 
         for do in delivery_orders:
+            if do.replaces_id:
+                raise ValidationError(
+                    _("Delivery order %(number)s replaces lost goods and is not invoiced.") % {"number": do.number}
+                )
             if cls.has_active_invoice(do):
                 raise ValidationError(
                     _("Delivery order %(number)s is already invoiced (%(invoice)s).") % {

@@ -19,6 +19,7 @@ import sys
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
 from datetime import timedelta
+from cryptography.fernet import Fernet
 
 # override=True so .env edits take effect on dev-server autoreload —
 # reloaded children inherit the parent's env, which would otherwise win.
@@ -53,6 +54,7 @@ if not DEBUG:
 STATIC_URL = "/static/"
 
 ALLOWED_HOSTS = ["*"]
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 
 # Application definition
 
@@ -109,6 +111,7 @@ INSTALLED_APPS = [
     "feedback",
     'corsheaders',
     "apps.einvoicing",
+    "apps.shopify",
     'banking',
     "finance",
     "payroll",
@@ -421,6 +424,12 @@ CELERY_TASK_ROUTES = {name: {"queue": CELERY_PDF_QUEUE} for name in CELERY_PDF_T
 
 # E-invoicing: disable AEAT submissions in tests / staging
 AEAT_SUBMISSIONS_ENABLED = os.getenv("AEAT_SUBMISSIONS_ENABLED", "True") == "True"
+
+ENCRYPTION_KEYS = [key.strip() for key in os.getenv("ENCRYPTION_KEYS", "").split(",") if key.strip()]
+if TESTING:
+    ENCRYPTION_KEYS = [Fernet.generate_key().decode()]
+
+SHOPIFY_APP_URL = os.getenv("SHOPIFY_APP_URL", BACKEND_URL)
 
 
 

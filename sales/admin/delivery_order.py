@@ -265,7 +265,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     # the stock (see DeliveryOrderFulfillmentService).
     readonly_fields = [
         "status", "subtotal_amount", "lines_total_display",
-        "taxable_base_display", "discount_amount", "tax_amount", "total_amount",
+        "taxable_base_display", "discount_amount", "tax_amount", "total_amount", "replaces",
     ]
     list_filter_submit = True
 
@@ -287,7 +287,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("status", "lines_total_display"),
                 ("discount_amount", "taxable_base_display"),
                 ("tax_amount", "total_amount"),
-                "sales_invoice",
+                ("sales_invoice", "replaces"),
                 "notes",
             )
         }),

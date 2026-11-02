@@ -168,6 +168,17 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 "(art. 78.Tres.3º Ley 37/1992 del IVA)."
                 if self.sales_invoice.is_intercompany else None
             ),
+            # A credit note (factura rectificativa) reverses a whole issued invoice
+            "is_credit_note": self.sales_invoice.is_credit_note,
+            "rectified_invoice_number": (
+                self.sales_invoice.rectifies.invoice_number if self.sales_invoice.is_credit_note else None
+            ),
+            "rectified_invoice_date": (
+                self.sales_invoice.rectifies.date_issued if self.sales_invoice.is_credit_note else None
+            ),
+            "rectification_code": self.sales_invoice.rectification_code or None,
+            "rectification_reason": self.sales_invoice.get_rectification_reason_display() or None,
+            "rectification_detail": self.sales_invoice.rectification_detail or None,
             "document_type_label": self.sales_invoice.get_document_type_display(),
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),

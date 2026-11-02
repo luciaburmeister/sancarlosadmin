@@ -224,6 +224,9 @@
         {% if reconnect_account %}
         <input type="hidden" name="bank_account_id" value="{{ reconnect_account.pk }}">
         {% endif %}
+        {% if next_url %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
 
         <div class="company-selector">
             <label for="companySelect">{% trans "Company" %}</label>

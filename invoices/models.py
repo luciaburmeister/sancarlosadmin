@@ -1084,6 +1084,47 @@ class SalesInvoiceDocumentType(models.TextChoices):
     # Charges a group company what we paid for it (suplido): no VAT, never
     # sent to AEAT nor journalized, numbered in its own series
     INTERCOMPANY = "intercompany", _("Debit Note")
+    # Factura rectificativa: reverses a whole issued invoice, as its exact
+    # negative mirror, numbered in its own series
+    CREDIT_NOTE = "credit_note", _("Credit Note")
+
+
+class RectificationCode(models.TextChoices):
+    """AEAT's tipo_factura for a factura rectificativa."""
+
+    R1 = "R1", _("R1 - Error based on law or art. 80.1, 80.2 and 80.6 LIVA")
+    R2 = "R2", _("R2 - Customer's insolvency (art. 80.3 LIVA)")
+    R3 = "R3", _("R3 - Uncollectible debt (art. 80.4 LIVA)")
+    R4 = "R4", _("R4 - Other causes")
+
+
+class RectificationReason(models.TextChoices):
+    INCORRECT_AMOUNT = "incorrect_amount", _("Incorrect amount")
+    INCORRECT_VAT = "incorrect_vat", _("Incorrect VAT")
+    CUSTOMER_DETAILS = "customer_details", _("Incorrect customer details")
+    SERVICE_CANCELLATION = "service_cancellation", _("Service cancellation")
+    PRODUCT_RETURN = "product_return", _("Product return")
+    DISCOUNT = "discount", _("Discount not applied")
+    OTHER = "other", _("Other")
+
+
+class SalesInvoiceQuerySet(models.QuerySet):
+    def live(self):
+        """
+        Invoices that currently bill their items: not cancelled, not a
+        credit note, and not reversed by a credit note. A delivery order,
+        configuration or work entry billed only by others is free to bill again.
+        """
+        return self.exclude(
+            status=SalesInvoiceStatus.CANCELLED,
+        ).exclude(
+            document_type=SalesInvoiceDocumentType.CREDIT_NOTE,
+        ).exclude(
+            pk__in=SalesInvoice.objects.filter(
+                document_type=SalesInvoiceDocumentType.CREDIT_NOTE,
+                rectifies__isnull=False,
+            ).exclude(status=SalesInvoiceStatus.CANCELLED).values("rectifies"),
+        )
 
 
 class SalesInvoice(CompanyOwnedModel, Payable):
@@ -1243,7 +1284,39 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         help_text=_("Stores each applied discount rule with its base and amount."),
     )
 
+    rectifies = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="rectifications",
+        verbose_name=_("Rectifies"),
+        help_text=_("On a credit note: the issued invoice it reverses."),
+    )
+    rectification_code = models.CharField(
+        max_length=2,
+        choices=RectificationCode.choices,
+        blank=True,
+        default="",
+        verbose_name=_("Rectification type"),
+    )
+    rectification_reason = models.CharField(
+        max_length=30,
+        choices=RectificationReason.choices,
+        blank=True,
+        default="",
+        verbose_name=_("Rectification reason"),
+    )
+    rectification_detail = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("Rectification detail"),
+        help_text=_("Why the invoice is being rectified, in your own words."),
+    )
+
     history = HistoricalRecords()
+
+    objects = SalesInvoiceQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Sales Invoice")
@@ -1264,10 +1337,22 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             # later deducted from.
             models.CheckConstraint(
                 condition=(
-                    Q(document_type__in=[SalesInvoiceDocumentType.INVOICE, SalesInvoiceDocumentType.INTERCOMPANY])
+                    Q(document_type__in=[
+                        SalesInvoiceDocumentType.INVOICE,
+                        SalesInvoiceDocumentType.INTERCOMPANY,
+                        SalesInvoiceDocumentType.CREDIT_NOTE,
+                    ])
                     | Q(project_file__isnull=False)
                 ),
                 name='salesinv_advance_has_project_file',
+            ),
+            # A credit note always says which invoice it reverses, and only it does
+            models.CheckConstraint(
+                condition=(
+                    Q(document_type=SalesInvoiceDocumentType.CREDIT_NOTE, rectifies__isnull=False)
+                    | (~Q(document_type=SalesInvoiceDocumentType.CREDIT_NOTE) & Q(rectifies__isnull=True))
+                ),
+                name='salesinv_credit_note_rectifies',
             ),
             models.CheckConstraint(
                 condition=Q(advance_percentage__isnull=True) | Q(
@@ -1306,6 +1391,19 @@ class SalesInvoice(CompanyOwnedModel, Payable):
     @property
     def is_intercompany(self):
         return self.document_type == SalesInvoiceDocumentType.INTERCOMPANY
+
+    @property
+    def is_credit_note(self):
+        return self.document_type == SalesInvoiceDocumentType.CREDIT_NOTE
+
+    @property
+    def live_rectification(self):
+        """The credit note reversing this invoice, if any (a cancelled one doesn't count)."""
+        return self.rectifications.exclude(status=SalesInvoiceStatus.CANCELLED).first()
+
+    @property
+    def is_reversed(self):
+        return self.rectifications.exclude(status=SalesInvoiceStatus.CANCELLED).exists()
 
     def _assign_proforma_number(self):
         # Same sequence rules as the invoice number: per company, never
@@ -1473,6 +1571,14 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             # Nothing to collect (e.g. goods fully covered by advances), and a
             # zero payment cannot be registered: settled as is.
             new_status = InvoicePaymentStatus.PAID
+        elif self.total_amount.amount < 0:
+            # A credit note: settled by negative allocations (an offset or a refund)
+            if total_applied <= self.total_amount.amount:
+                new_status = InvoicePaymentStatus.PAID
+            elif total_applied >= 0:
+                new_status = InvoicePaymentStatus.UNPAID
+            else:
+                new_status = InvoicePaymentStatus.PARTIAL
         elif total_applied <= 0:
             new_status = InvoicePaymentStatus.UNPAID
         elif total_applied >= self.total_amount.amount:
@@ -1905,8 +2011,9 @@ class SalesInvoiceItem(PinnedLineTotalMixin):
 
         self.compute_line_total()
 
-        # A deduction takes an advance off the invoice, it never adds to it.
-        if self.advance_line_id and self.line_total.amount > 0:
+        # A deduction takes an advance off the invoice, it never adds to it;
+        # only a credit note gives it back, reversing the invoice that deducted it.
+        if self.advance_line_id and self.line_total.amount > 0 and not self.invoice.is_credit_note:
             raise ValidationError(_("An advance deduction line cannot have a positive total."))
         if self._state.adding and not self.business_unit_id:
             from accounting.models import BusinessUnit

@@ -32,9 +32,14 @@ class PaymentMethod(models.TextChoices):
     CONFIRMING = "confirming", _("Confirming")
     # No money moves: another group company paid for us (IntercompanyPayment)
     INTERCOMPANY = "intercompany", _("Paid by another company")
+    # No money moves: a credit note offsets the invoice it reverses (or another of the client's)
+    COMPENSATION = "compensation", _("Compensation")
+
+# Settlements that moved no money through any bank
+NO_MONEY_METHODS = (PaymentMethod.INTERCOMPANY, PaymentMethod.COMPENSATION)
 
 # What a person can pick when registering a payment by hand
-MANUAL_PAYMENT_METHODS = [choice for choice in PaymentMethod.choices if choice[0] != PaymentMethod.INTERCOMPANY]
+MANUAL_PAYMENT_METHODS = [choice for choice in PaymentMethod.choices if choice[0] not in NO_MONEY_METHODS]
 
 class PaymentCreatedBy(models.TextChoices):
     MANUAL = "manual", _("Manual")

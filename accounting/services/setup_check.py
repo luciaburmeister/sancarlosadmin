@@ -5,8 +5,7 @@ What a company still needs before its invoices can be journalized.
 OK, a warning (works, but something will need attention) or missing
 (journalizing fails until it's fixed). Read-only: it never changes data.
 """
-from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Min, Q
@@ -18,27 +17,7 @@ from accounting.models import (
     AccountRole, BusinessUnit, CompanyAccount, CompanyChartOfAccounts, EntryStatus, FiscalYear, IncomeType,
 )
 from accounting.services.journal_generator import LEDGER_CURRENCY
-
-OK, WARNING, MISSING = "ok", "warning", "missing"
-
-
-@dataclass
-class Check:
-    label: str
-    status: str
-    detail: str = ""
-    url: Optional[str] = None
-
-
-@dataclass
-class Section:
-    title: str
-    checks: List[Check] = field(default_factory=list)
-
-    @property
-    def status(self):
-        statuses = {check.status for check in self.checks}
-        return MISSING if MISSING in statuses else WARNING if WARNING in statuses else OK
+from general.onboarding.checks import MISSING, OK, WARNING, Check, Section
 
 
 class AccountingSetupCheck:
@@ -47,6 +26,10 @@ class AccountingSetupCheck:
         self.chart = CompanyChartOfAccounts.objects.filter(company=company).select_related("template").first()
 
     def run(self) -> List[Section]:
+        return self.configuration() + [self._pending(), self._payments()]
+
+    def configuration(self) -> List[Section]:
+        """What the company configures, leaving out the invoices and payments still to journalize."""
         return [
             self._chart(),
             self._fiscal_year(),
@@ -54,8 +37,6 @@ class AccountingSetupCheck:
             self._roles(),
             self._taxes(),
             self._business_units(),
-            self._pending(),
-            self._payments(),
         ]
 
     def is_ready(self, sections=None):

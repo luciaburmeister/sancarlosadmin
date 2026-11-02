@@ -443,6 +443,13 @@ class CompanyAdmin(ModelAdmin):
     def get_urls(self):
         from django.urls import path
         from accounting.views import AccountingSetupView
+        from company.views.onboarding import (
+            NewCompanyView,
+            OnboardingFinishView,
+            OnboardingOverviewView,
+            OnboardingStartView,
+            OnboardingStepView,
+        )
         from company.views.switch_company import (
             SetActiveCompaniesView,
             SwitchActiveCompanyView,
@@ -464,6 +471,31 @@ class CompanyAdmin(ModelAdmin):
                 self.admin_site.admin_view(AccountingSetupView.as_view(model_admin=self)),
                 name="company_company_accounting_setup",
             ),
+            path(
+                "onboarding/",
+                self.admin_site.admin_view(OnboardingStartView.as_view(model_admin=self)),
+                name="company_company_onboarding_start",
+            ),
+            path(
+                "onboarding/new/",
+                self.admin_site.admin_view(NewCompanyView.as_view(model_admin=self)),
+                name="company_company_onboarding_new",
+            ),
+            path(
+                "<int:pk>/onboarding/",
+                self.admin_site.admin_view(OnboardingOverviewView.as_view(model_admin=self)),
+                name="company_company_onboarding",
+            ),
+            path(
+                "<int:pk>/onboarding/finish/",
+                self.admin_site.admin_view(OnboardingFinishView.as_view(model_admin=self)),
+                name="company_company_onboarding_finish",
+            ),
+            path(
+                "<int:pk>/onboarding/<slug:step>/",
+                self.admin_site.admin_view(OnboardingStepView.as_view(model_admin=self)),
+                name="company_company_onboarding_step",
+            ),
         ] + super().get_urls()
 
     readonly_fields = ("terms_import_hint",)
@@ -472,7 +504,7 @@ class CompanyAdmin(ModelAdmin):
         BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline,
         AssetPlanningNotificationRecipientInline, EmailReplyToInline,
     ]
-    list_display = ("name", "is_active")
+    list_display = ("name", "is_active", "onboarding_completed_at")
     list_filter = ("is_active",)
     search_fields = ("name",)
     ordering = ("name",)
@@ -488,7 +520,8 @@ class CompanyAdmin(ModelAdmin):
                 "address",
                 ("email",
                 "phone"),
-                "is_active"
+                "is_active",
+                "enabled_modules",
 
             )
         }),
@@ -519,7 +552,7 @@ class CompanyAdmin(ModelAdmin):
                 ("unmatched_po_digest_grace_hours", "unmatched_po_digest_start_date"),
                 ("purchase_order_notification_emails"),
                 ("asset_plan_draft_notification_emails"),
-                ("invoice_number_format", "proforma_number_format", "debit_note_number_format"),
+                ("invoice_number_format", "proforma_number_format", "debit_note_number_format", "credit_note_number_format"),
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",
                 "asset_reception_product",
@@ -569,14 +602,32 @@ class CompanyAdmin(ModelAdmin):
             """
         )
 
-    actions_row = ["install_chart_action", "accounting_setup_action"]
-    actions_detail = ["accounting_setup_action"]
+    actions_list = ["new_company_action"]
+    actions_row = ["install_chart_action", "onboarding_action", "accounting_setup_action"]
+    actions_detail = ["onboarding_action", "accounting_setup_action"]
 
     @action(description=_("Accounting setup"), url_path="accounting-setup-action", icon="fact_check")
     def accounting_setup_action(self, request, object_id: int):
         from django.urls import reverse
 
         return redirect(reverse("admin:company_company_accounting_setup", args=[object_id]))
+
+    @action(
+        description=_("Setup"), url_path="onboarding-action", icon="checklist",
+        permissions=["onboard_company"],
+    )
+    def onboarding_action(self, request, object_id: int):
+        return redirect("admin:company_company_onboarding", object_id)
+
+    def has_onboard_company_permission(self, request, object_id=None):
+        return request.user.has_perm("company.can_onboard_company")
+
+    @action(description=_("New company"), url_path="new-company", icon="add_business", permissions=["new_company"])
+    def new_company_action(self, request):
+        return redirect("admin:company_company_onboarding_new")
+
+    def has_new_company_permission(self, request):
+        return request.user.is_superuser
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

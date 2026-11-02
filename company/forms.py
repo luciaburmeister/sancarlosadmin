@@ -3,6 +3,8 @@ from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminSplitDateTimeWidget
 
+from general.onboarding.forms import UnfoldFormMixin
+
 from .models import EmployeeDocument, MachineDocument, CompanyDocument, Employee
 
 class BaseDocumentForm(forms.ModelForm):
@@ -62,3 +64,34 @@ class DriverTrackingFilterForm(forms.Form):
             "admin/js/admin/DateTimeShortcuts.js",
             "admin/js/core.js",
         ]
+
+
+class NewCompanyForm(UnfoldFormMixin, forms.Form):
+    """What staff give to create a company's shell and invite its first admin."""
+
+    name = forms.CharField(label=_("Commercial Name"), max_length=100)
+    legal_name = forms.CharField(label=_("Legal Name"), max_length=100)
+    tax_identifier = forms.CharField(label=_("Tax Identifier"), max_length=20)
+    constituted_country = forms.ChoiceField(label=_("Country"), initial="ES")
+    logo = forms.ImageField(label=_("Logo"))
+    chart_template = forms.ModelChoiceField(label=_("Chart of accounts"), queryset=None)
+    modules = forms.MultipleChoiceField(
+        label=_("Modules"), required=False, widget=forms.CheckboxSelectMultiple,
+        help_text=_("Optional areas the company uses; decides which setup steps it is shown."),
+    )
+    admin_email = forms.EmailField(label=_("Admin email"))
+    admin_first_name = forms.CharField(label=_("Admin first name"), max_length=50)
+    admin_last_name = forms.CharField(label=_("Admin last name"), max_length=50)
+
+    def __init__(self, *args, **kwargs):
+        from django_countries import countries
+
+        from accounting.models import ChartOfAccountsTemplate
+        from company.models import CompanyModule
+
+        super().__init__(*args, **kwargs)
+        self.fields["constituted_country"].choices = list(countries)
+        templates = ChartOfAccountsTemplate.objects.order_by("-is_default", "name")
+        self.fields["chart_template"].queryset = templates
+        self.fields["chart_template"].initial = templates.filter(is_default=True).first()
+        self.fields["modules"].choices = CompanyModule.choices

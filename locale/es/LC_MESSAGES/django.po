@@ -8807,7 +8807,7 @@ msgstr "Rechazado"
 #, fuzzy
 #| msgid "Credit"
 msgid "Credit Note"
-msgstr "Crédito"
+msgstr "Abono"
 
 msgid "Invoice number"
 msgstr "Número de factura"
@@ -8853,7 +8853,7 @@ msgstr ""
 #| msgctxt "djangoql field"
 #| msgid "rectifies"
 msgid "Rectifies"
-msgstr "rectifica_a"
+msgstr "Rectifica a"
 
 msgid "Original invoice this credit note rectifies."
 msgstr ""
@@ -18352,6 +18352,169 @@ msgid "Cancel invoice"
 msgstr "Anular factura"
 
 #, fuzzy
+#, python-format
+msgid "%(amount)s is more than %(invoice)s or %(credit_note)s have open."
+msgstr "%(amount)s es más de lo que %(invoice)s o %(credit_note)s tienen pendiente."
+
+#, python-format
+msgid "%(amount)s of %(credit_note)s offset against %(invoice)s."
+msgstr "%(amount)s de %(credit_note)s compensados con %(invoice)s."
+
+#, python-format
+msgid "%(credit_note)s offset against %(invoice)s"
+msgstr "%(credit_note)s compensado con %(invoice)s"
+
+#, python-format
+msgid "%(number)s is a credit note: it cannot be cancelled."
+msgstr "%(number)s es un abono: no se puede anular."
+
+#, python-format
+msgid "%(number)s is already reversed by credit note %(credit_note)s."
+msgstr "%(number)s ya está rectificada por el abono %(credit_note)s."
+
+#, python-format
+msgid "%(number)s is being cancelled at the AEAT: it cannot be reversed."
+msgstr "%(number)s se está anulando en la AEAT: no se puede rectificar."
+
+msgid "A credit note is offset against an invoice."
+msgstr "Un abono se compensa con una factura."
+
+msgid "Choose the rectification type."
+msgstr "Elige el tipo de rectificación."
+
+msgid "Choose why the invoice is being rectified."
+msgstr "Elige por qué se rectifica la factura."
+
+msgid "Compensation"
+msgstr "Compensación"
+
+msgid "Credit Note Number Format"
+msgstr "Formato de número de abono"
+
+#, python-format
+msgid "Credit note %(credit_note)s issued, reversing %(invoice)s."
+msgstr "Abono %(credit_note)s emitido, rectificando %(invoice)s."
+
+#, python-format
+msgid "Credit note rectifying %(number)s (%(date)s). Reason: %(reason)s."
+msgstr "Factura rectificativa de %(number)s (%(date)s). Motivo: %(reason)s."
+
+msgid "Credit notes"
+msgstr "Abonos"
+
+msgid "Credit notes cannot be duplicated."
+msgstr "Los abonos no se pueden duplicar."
+
+msgid "Credit notes need a number format different from invoices' and debit notes'."
+msgstr "Los abonos necesitan un formato de número distinto del de las facturas y las notas de cargo."
+
+msgid "Detail"
+msgstr "Detalle"
+
+msgid "Discount not applied"
+msgstr "Descuento no aplicado"
+
+msgid "Explain why the invoice is being rectified."
+msgstr "Explica por qué se rectifica la factura."
+
+msgid "Format pattern for credit notes (facturas rectificativas) reversing an issued invoice, a sequence separate from invoice numbers. It must differ from the invoice and debit note formats. Available placeholders: {year}, {number}. Default: R-{year}-{number}"
+msgstr "Formato de los abonos (facturas rectificativas) que rectifican una factura emitida, una serie distinta de la de facturas. Debe ser distinto de los formatos de facturas y notas de cargo. Marcadores disponibles: {year}, {number}. Por defecto: R-{year}-{number}"
+
+msgid "Incorrect VAT"
+msgstr "IVA incorrecto"
+
+msgid "Incorrect amount"
+msgstr "Importe incorrecto"
+
+msgid "Incorrect customer details"
+msgstr "Datos del cliente incorrectos"
+
+msgid "Issue credit note"
+msgstr "Emitir abono"
+
+msgid "Issues a credit note (factura rectificativa) reversing the whole invoice: every line, discount and tax, negated. It is numbered, booked and sent to the AEAT and the client straight away. What the invoice still has to collect is offset against it; what the client already paid stays on the credit note as owed to them. The reversed items can be invoiced again."
+msgstr "Emite un abono (factura rectificativa) que rectifica la factura entera: cada línea, descuento e impuesto, en negativo. Se numera, se contabiliza y se envía a la AEAT y al cliente en el momento. Lo que la factura tenía pendiente de cobro se compensa con él; lo que el cliente ya pagó queda en el abono como deuda con él. Los conceptos rectificados se pueden volver a facturar."
+
+msgid "No money moved in this payment: a credit note offset the invoice."
+msgstr "Este pago no movió dinero: un abono compensó la factura."
+
+msgid "Offset"
+msgstr "Compensar"
+
+msgid "Offset against invoice"
+msgstr "Compensar con factura"
+
+msgid "On a credit note: the issued invoice it reverses."
+msgstr "En un abono: la factura emitida que rectifica."
+
+#, python-format
+msgid "Only invoices can be reversed; %(number)s is a %(type)s."
+msgstr "Solo se pueden rectificar facturas; %(number)s es un/a %(type)s."
+
+msgid "Only issued invoices and credit notes can be offset."
+msgstr "Solo se pueden compensar facturas y abonos emitidos."
+
+#, python-format
+msgid "Only issued invoices can be reversed; %(number)s is %(status)s."
+msgstr "Solo se pueden rectificar facturas emitidas; %(number)s está en estado %(status)s."
+
+msgid "Printed on the credit note with the reason. Required for \"Other\"."
+msgstr "Se imprime en el abono junto al motivo. Obligatorio para \"Otro\"."
+
+msgid "Product return"
+msgstr "Devolución de mercancía"
+
+msgid "R1 - Error based on law or art. 80.1, 80.2 and 80.6 LIVA"
+msgstr "R1 - Error fundado en derecho y art. 80 Uno, Dos y Seis LIVA"
+
+msgid "R2 - Customer's insolvency (art. 80.3 LIVA)"
+msgstr "R2 - Concurso de acreedores (art. 80 Tres LIVA)"
+
+msgid "R3 - Uncollectible debt (art. 80.4 LIVA)"
+msgstr "R3 - Crédito incobrable (art. 80 Cuatro LIVA)"
+
+msgid "R4 - Other causes"
+msgstr "R4 - Resto de causas"
+
+msgid "Rectification"
+msgstr "Rectificación"
+
+msgid "Rectification detail"
+msgstr "Detalle de la rectificación"
+
+msgid "Rectification reason"
+msgstr "Motivo de la rectificación"
+
+msgid "Rectification type"
+msgstr "Tipo de rectificativa"
+
+msgid "Rectification type (AEAT)"
+msgstr "Tipo de rectificativa (AEAT)"
+
+msgid "Reverse (credit note)"
+msgstr "Rectificar (abono)"
+
+msgid "Reverse invoice"
+msgstr "Rectificar factura"
+
+msgid "Reversed by"
+msgstr "Rectificada por"
+
+msgid "Service cancellation"
+msgstr "Cancelación del servicio"
+
+msgid "Settles one of the client's open invoices with what this credit note still owes them, up to the smaller of the two balances. No money moves."
+msgstr "Liquida una de las facturas pendientes del cliente con lo que este abono aún le debe, hasta el menor de los dos saldos. No se mueve dinero."
+
+msgid "The credit note and the invoice must be the same client's, in the same currency."
+msgstr "El abono y la factura deben ser del mismo cliente y en la misma moneda."
+
+msgid "What the client is still owed on this credit note settles this invoice, up to its balance."
+msgstr "Lo que este abono aún debe al cliente liquida esta factura, hasta su saldo."
+
+msgid "Why the invoice is being rectified, in your own words."
+msgstr "Por qué se rectifica la factura, con tus palabras."
+
 #~ msgid "orange stripe — no truck assigned yet"
 #~ msgstr "Aún sin camión asignado"
 

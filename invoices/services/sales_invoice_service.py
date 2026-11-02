@@ -180,7 +180,7 @@ class SalesInvoiceService:
         if due_date_is_automatic:
             sales_invoice.due_date = sales_invoice.default_due_date(sales_invoice.date_issued)
             update_fields.append('due_date')
-        next_invoice = cls._generate_next_invoice_data(company)
+        next_invoice = cls._generate_next_invoice_data(company, sales_invoice.document_type)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']
         sales_invoice.save(update_fields=update_fields)
@@ -289,7 +289,10 @@ class SalesInvoiceService:
     @staticmethod
     def _retotalled_at_finalize(sales_invoice):
         """Whether finalize recalculates the pro forma's totals: an advance,
-        or an invoice deducting advances (the checks read its totals)."""
+        or an invoice deducting advances (the checks read its totals). A
+        credit note is the mirror of its invoice, totals included."""
+        if sales_invoice.is_credit_note:
+            return False
         return (
             sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE
             or sales_invoice.items.filter(advance_line__isnull=False).exists()
@@ -307,9 +310,14 @@ class SalesInvoiceService:
           AdvanceDeductionService.check_for_finalize); an invoice deducting
           nothing is only checked when its expedientes have advances to
           deduct, so a manual credit note (negative total) is issued as before.
+        - A credit note is the mirror of the invoice it reverses, which
+          CreditNoteService checked when it built it: it gives back what that
+          invoice billed and deducted, so it is not held to either rule.
         """
         from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 
+        if sales_invoice.is_credit_note:
+            return
         if sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE:
             AdvanceInvoiceService.check_cap(sales_invoice)
         else:
@@ -318,14 +326,27 @@ class SalesInvoiceService:
     @classmethod
     def validate_for_cancel(cls, sales_invoice):
         """
-        Raises ValidationError if the invoice cannot be cancelled. Only an
-        advance can be refused:
-        - while another invoice (a pro forma included) deducts it: that
-          invoice is cancelled, or its deductions removed, first;
-        - while payments are allocated to it: they are removed first, so the
-          money stays as the client's credit (a refund needs a corrective
-          invoice).
+        Raises ValidationError if the invoice cannot be cancelled:
+        - a credit note: cancelling it would bill again what its invoice
+          billed, after that invoice was offset against it;
+        - an invoice a credit note reverses: it is already undone;
+        - an advance, while another invoice (a pro forma included) deducts
+          it: that invoice is cancelled, or its deductions removed, first;
+        - an advance, while payments are allocated to it: they are removed
+          first, so the money stays as the client's credit (a refund needs a
+          corrective invoice).
         """
+        if sales_invoice.is_credit_note:
+            raise ValidationError(
+                _("%(number)s is a credit note: it cannot be cancelled.")
+                % {"number": sales_invoice.display_number}
+            )
+        rectification = sales_invoice.live_rectification
+        if rectification:
+            raise ValidationError(
+                _("%(number)s is already reversed by credit note %(credit_note)s.")
+                % {"number": sales_invoice.display_number, "credit_note": rectification.display_number}
+            )
         if sales_invoice.document_type != SalesInvoiceDocumentType.ADVANCE:
             return
         deducting = [
@@ -447,7 +468,10 @@ class SalesInvoiceService:
 
         Advance invoices and invoices deducting advances are refused
         (ValidationError): a copy would bill or deduct the advance twice.
+        So are credit notes: a negative copy reverses nothing.
         """
+        if sales_invoice.is_credit_note:
+            raise ValidationError(_("Credit notes cannot be duplicated."))
         if (
             sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE
             or sales_invoice.items.filter(advance_line__isnull=False).exists()
@@ -544,17 +568,22 @@ class SalesInvoiceService:
         """
         Generates the next sequential invoice number and incremental ID for a company.
         Uses the company's invoice_number_format (default: INV-{year}-{number}).
-        Debit notes are their own series, in debit_note_number_format.
+        Debit notes are their own series, in debit_note_number_format, and so
+        are credit notes, in credit_note_number_format.
         """
         year = timezone.now().year
+        own_series = {
+            SalesInvoiceDocumentType.INTERCOMPANY: company.debit_note_number_format or "SUP-{year}-{number}",
+            SalesInvoiceDocumentType.CREDIT_NOTE: company.credit_note_number_format or "R-{year}-{number}",
+        }
 
         # Lock for update - only consider finalized invoices
         issued = SalesInvoice.objects.filter(company=company, incremental_id__isnull=False)
-        if document_type == SalesInvoiceDocumentType.INTERCOMPANY:
-            issued = issued.filter(document_type=SalesInvoiceDocumentType.INTERCOMPANY)
-            fmt = company.debit_note_number_format or "SUP-{year}-{number}"
+        if document_type in own_series:
+            issued = issued.filter(document_type=document_type)
+            fmt = own_series[document_type]
         else:
-            issued = issued.exclude(document_type=SalesInvoiceDocumentType.INTERCOMPANY)
+            issued = issued.exclude(document_type__in=own_series)
             fmt = company.invoice_number_format or "INV-{year}-{number}"
         last_invoice = issued.select_for_update().order_by('-incremental_id').first()
 

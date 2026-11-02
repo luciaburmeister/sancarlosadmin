@@ -6,7 +6,7 @@ Expected Excel columns:
     company         | client_cif      | client_name    | base_amount
     iva_percentage  | iva_amount      | retention      | total
 
-Client is matched by CIF (tax_identifier). If not found, a new
+Client is matched by CIF (tax_identifier) within the row's company. If not found, a new
 Client is auto-created with the client_name value.
 Company is matched by name (case-insensitive).
 Duplicates (same company + invoice_number) are silently skipped.
@@ -27,6 +27,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 
 from company.models import Company
+from core.services.client_service import get_or_create_client
 from invoices.models import (
     AppliedTax,
     InvoicePaymentStatus,
@@ -124,41 +125,6 @@ def _clean_cif(value) -> str:
     return str(value).strip().upper()
 
 
-def _find_or_create_client(cif: str, name: str, company: Company) -> Client | None:
-    """
-    Find a client by CIF (tax_identifier). If not found, create one.
-    Returns None only if CIF is empty.
-    """
-    if not cif:
-        return None
-
-    # Try to find existing client by CIF within the company
-    client = Client.objects.filter(
-        tax_identifier__iexact=cif,
-        company=company,
-    ).first()
-
-    if client:
-        return client
-
-    # Also try without company filter (cross-company match)
-    client = Client.objects.filter(
-        tax_identifier__iexact=cif,
-    ).first()
-
-    if client:
-        return client
-
-    # Auto-create client
-    client_name = name.strip() if name else f"Client {cif}"
-    client = Client.objects.create(
-        name=client_name,
-        tax_identifier=cif,
-        company=company,
-    )
-    return client
-
-
 def _find_company(name: str) -> Company | None:
     """
     Find a company by name (case-insensitive).
@@ -235,9 +201,13 @@ def import_sales_invoices_from_excel(
     file_obj: BinaryIO,
     default_year: int | None = None,
     sheet_name: str | None = None,
+    company: Company | None = None,
 ) -> ImportResult:
     """
     Import sales invoices from an Excel file.
+
+    With ``company``, every row is imported into it and the company column is
+    ignored: what a user who may only see that company imports with.
 
     Automatically handles multi-IVA invoices: when the same invoice_number +
     client_cif appears on multiple rows (each with a different IVA rate),
@@ -378,6 +348,7 @@ def import_sales_invoices_from_excel(
     # ---- Phase 2: Create invoices from groups ----
     iva_tax_type = _get_iva_tax_type()
     irpf_tax_type = _get_irpf_tax_type()
+    forced_company = company
     company_cache: dict[str, Company | None] = {}
     client_cache: dict[tuple[str, int], Client | None] = {}
 
@@ -389,7 +360,7 @@ def import_sales_invoices_from_excel(
 
         # --- Company ---
         if group.company_name not in company_cache:
-            company_cache[group.company_name] = _find_company(group.company_name)
+            company_cache[group.company_name] = forced_company or _find_company(group.company_name)
         company = company_cache[group.company_name]
 
         if not company:
@@ -405,7 +376,7 @@ def import_sales_invoices_from_excel(
         # --- Client ---
         cache_key = (cif, company.pk)
         if cache_key not in client_cache:
-            client_cache[cache_key] = _find_or_create_client(
+            client_cache[cache_key] = get_or_create_client(
                 cif, group.client_name, company
             )
         client = client_cache[cache_key]

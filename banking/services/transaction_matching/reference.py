@@ -28,11 +28,12 @@ def find_referenced_documents(transaction, direction) -> list:
 
     if direction == PaymentDirection.INBOUND:
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
+        # Credit notes are paid by us, never to us
         qs = SalesInvoice.objects.filter(
             company=transaction.company,
             payment_reference__in=refs,
             payment_status__in=UNPAID_STATUSES,
-        ).exclude(status="cancelled").select_related("client")
+        ).exclude(status="cancelled").exclude(document_type="credit_note").select_related("client")
         model = SalesInvoice
     else:
         Invoice = apps.get_model("invoices", "Invoice")

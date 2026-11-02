@@ -15,7 +15,7 @@ from api._serializers import (
 )
 from api._utils import CompanyAPIView, parse_date_or_error
 from api.billing.serializers import advance_block_reason
-from invoices.models import SalesInvoice, SalesInvoiceDocumentType, SalesInvoiceStatus
+from invoices.models import SalesInvoice, SalesInvoiceDocumentType
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from management.models import ProjectFile, ProjectFileStatus
 from production.services.ticket_cancel import cancel_tickets_for_project_file
@@ -55,11 +55,11 @@ class ProjectFileListCreateView(CompanyAPIView):
             )
 
         open_qs = base_qs.exclude(status__in=["completed", "cancelled"])
-        # An advance alone, or a cancelled invoice, does not make it "invoiced".
-        has_invoice = SalesInvoice.objects.filter(
+        # An advance alone, or a cancelled or reversed invoice, does not make it "invoiced".
+        has_invoice = SalesInvoice.objects.live().filter(
             project_file_id=OuterRef("pk"),
             document_type=SalesInvoiceDocumentType.INVOICE,
-        ).exclude(status=SalesInvoiceStatus.CANCELLED)
+        )
         in_progress_qs = open_qs.filter(~Exists(has_invoice))
         invoiced_open_qs = open_qs.filter(Exists(has_invoice))
 

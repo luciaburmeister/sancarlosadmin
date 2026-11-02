@@ -707,24 +707,25 @@ class DeliveryOrderService:
     def get_invoiceable_delivery_orders(cls, project_file):
         """
         Returns delivery orders linked to a ProjectFile that are not billed
-        yet: no invoice, or only a cancelled one (see has_active_invoice).
+        yet: no invoice, or only a cancelled or reversed one (see has_active_invoice).
         """
         return DeliveryOrder.objects.filter(
-            Q(sales_invoice__isnull=True)
-            | Q(sales_invoice__status=SalesInvoiceStatus.CANCELLED),
             project_file=project_file,
+        ).exclude(
+            sales_invoice__in=SalesInvoice.objects.live(),
         ).exclude(
             status=DeliveryOrderStatus.CANCELLED,
         ).order_by('date', 'number')
 
     @staticmethod
     def has_active_invoice(delivery_order):
-        """Whether the delivery order is billed: linked to an invoice that is
-        not cancelled. A cancelled invoice bills nothing, so its delivery
-        order can be invoiced again; the new invoice takes over the link."""
+        """Whether the delivery order is billed: linked to a live invoice. A
+        cancelled invoice, or one a credit note reversed, bills nothing, so
+        its delivery order can be invoiced again; the new invoice takes over
+        the link."""
         return bool(
             delivery_order.sales_invoice_id
-            and delivery_order.sales_invoice.status != SalesInvoiceStatus.CANCELLED
+            and SalesInvoice.objects.live().filter(pk=delivery_order.sales_invoice_id).exists()
         )
 
     @classmethod

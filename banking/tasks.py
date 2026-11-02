@@ -35,7 +35,7 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
         selected = TransactionMatcher.get_selected_allocations(
             recon.suggested_allocations,
         )
-        auto_confirmed = TransactionMatcher.auto_confirm_if_referenced(recon)
+        auto_confirmed = TransactionMatcher.auto_confirm(recon)
         logger.info(
             "Matcher ran for transaction %s: %d suggestion(s), unmatched=%s, auto_confirmed=%s",
             bank_transaction_id,

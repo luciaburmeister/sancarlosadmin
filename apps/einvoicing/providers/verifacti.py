@@ -182,6 +182,19 @@ class VerifactiProvider(EInvoicingProvider):
             "importe_total": str(self._importe_total(lineas)),
         }
 
+        # A credit note reverses its invoice by differences: negative amounts
+        original = invoice.rectifies if invoice.is_credit_note else None
+        if original is not None:
+            payload["tipo_factura"] = invoice.rectification_code or "R1"
+            payload["tipo_rectificativa"] = "I"
+            # R1-R4 carry the date of the operation the original invoice billed
+            payload["fecha_operacion"] = original.date_issued.strftime(_DATE_FMT)
+            payload["facturas_rectificadas"] = [{
+                "serie": account.invoice_serie,
+                "numero": original.invoice_number or str(original.pk),
+                "fecha_expedicion": original.date_issued.strftime(_DATE_FMT),
+            }]
+
         # Client identification
         client = invoice.client
         if client:
@@ -348,7 +361,10 @@ class VerifactiProvider(EInvoicingProvider):
         )
 
     def _build_description(self, invoice: SalesInvoice) -> str:
-        """Build a summary description from the invoice items."""
+        """Build a summary description from the invoice items; a credit
+        note's says which invoice it rectifies and why (its notes)."""
+        if invoice.is_credit_note and invoice.notes:
+            return invoice.notes[:250]
         items = invoice.items.all()[:5]
         parts = [item.description[:80] for item in items]
         desc = " | ".join(parts)

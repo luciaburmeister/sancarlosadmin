@@ -1,0 +1,20 @@
+{% load i18n unfold %}{# A step's form: pass `form` and `submit_label`. #}
+<form method="post" enctype="multipart/form-data" novalidate
+      class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700">
+    {% csrf_token %}
+    <div class="px-4 py-4 flex flex-col gap-4">
+        {% if form.non_field_errors %}
+            <div class="p-3 rounded-md border border-red-200 bg-red-50 text-sm text-red-600 dark:bg-red-500/10 dark:border-red-500/30 dark:text-red-400">
+                {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+            </div>
+        {% endif %}
+        {% for field in form %}
+            {% include "unfold/helpers/field.html" with field=field %}
+        {% endfor %}
+    </div>
+    <div class="px-4 py-3 border-t border-base-200 dark:border-base-700 flex justify-end">
+        {% component "unfold/components/button.html" with submit=1 %}
+            {{ submit_label|default:_("Save") }}
+        {% endcomponent %}
+    </div>
+</form>

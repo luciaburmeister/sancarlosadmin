@@ -1,0 +1,30 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; margin: 0; padding: 0; }
+    .container { padding: 40px; max-width: 640px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    h2 { color: #2c3e50; border-bottom: 2px solid #68A7A5; padding-bottom: 10px; margin-top: 0; }
+    .button { display: inline-block; padding: 12px 24px; background-color: #68A7A5; color: #ffffff !important; text-decoration: none; border-radius: 6px; font-weight: 600; }
+    .footer { margin-top: 40px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>{% blocktrans with company=company.name %}Welcome to {{ company }}{% endblocktrans %}</h2>
+    <p>{% blocktrans with name=user.first_name %}Hi {{ name }},{% endblocktrans %}</p>
+    <p>{% blocktrans with company=company.name %}You now have access to {{ company }} in the ERP.{% endblocktrans %}</p>
+    {% if set_password %}
+      <p>{% blocktrans with username=user.username %}Your username is <strong>{{ username }}</strong>. Choose a password to get in:{% endblocktrans %}</p>
+      <p><a class="button" href="{{ link }}">{% trans "Choose my password" %}</a></p>
+      <p>{% trans "The link works once and expires in a few days. If it has expired, use “Forgot your password?” on the login page." %}</p>
+    {% else %}
+      <p>{% trans "Sign in with your usual username and password:" %}</p>
+      <p><a class="button" href="{{ link }}">{% trans "Sign in" %}</a></p>
+    {% endif %}
+    <div class="footer">{% trans "If you weren't expecting this email, you can ignore it." %}</div>
+  </div>
+</body>
+</html>

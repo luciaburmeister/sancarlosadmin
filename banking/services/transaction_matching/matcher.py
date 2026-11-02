@@ -17,7 +17,7 @@ from banking.models import (
     ReconciliationMethod,
     ReconciliationStatus,
 )
-from banking.services.transaction_matching import candidates, reference
+from banking.services.transaction_matching import candidates, direct_debit, reference
 from banking.services.transaction_matching.amount_matching import _remaining, match_amount
 from banking.services.transaction_matching.counterparty import (
     find_counterparty,
@@ -58,10 +58,12 @@ class TransactionMatcher:
         """
         Run the matching pipeline and create a BankReconciliation suggestion.
         Never creates a Payment — that only happens on confirmation (human,
-        or auto_confirm_if_referenced).
+        or auto_confirm).
 
         Invoices whose payment reference is in the concept come first and
-        selected; amount matching still runs and fills the alternatives.
+        selected; with none, so does the one invoice a direct debit charge
+        collects (its exact amount, on its due date). Amount
+        matching still runs and fills the alternatives.
         A payment already registered for this movement (it expects the
         reference in the concept) goes before them all: the movement is that
         payment, so confirming links it instead of creating one.
@@ -70,6 +72,10 @@ class TransactionMatcher:
         self.counterparty = (
             referenced and reference.counterparty_of(referenced)
         ) or find_counterparty(self.transaction, self.direction)
+        pinned, pinned_confidence = referenced, "reference"
+        if not referenced:
+            charged = direct_debit.find_charged_invoice(self.transaction)
+            pinned, pinned_confidence = ([charged], "direct_debit") if charged else ([], None)
         candidate_documents = self._get_candidate_documents()
         self.result = match_amount(
             self.transaction,
@@ -89,24 +95,24 @@ class TransactionMatcher:
             {
                 "allocations": self._serialize_docs(docs),
                 "confidence": self.result.confidence,
-                "is_selected": idx == 0 and self.result.has_match and not referenced,
+                "is_selected": idx == 0 and self.result.has_match and not pinned,
             }
             for idx, docs in enumerate(all_combos)
             if docs  # skip empty
         ]
         unmatched_amount = self.result.unmatched_amount
 
-        if referenced:
-            referenced_allocations = self._serialize_docs(referenced)
+        if pinned:
+            pinned_allocations = self._serialize_docs(pinned)
             suggested_allocations = [
                 {
-                    "allocations": referenced_allocations,
-                    "confidence": "reference",
+                    "allocations": pinned_allocations,
+                    "confidence": pinned_confidence,
                     "is_selected": True,
                 },
-                *(combo for combo in suggested_allocations if combo["allocations"] != referenced_allocations),
+                *(combo for combo in suggested_allocations if combo["allocations"] != pinned_allocations),
             ]
-            remaining = sum((_remaining(doc) for doc in referenced), Decimal("0"))
+            remaining = sum((_remaining(doc) for doc in pinned), Decimal("0"))
             unmatched_amount = max(Decimal("0"), abs(self.transaction.amount.amount) - remaining)
 
         payment_combos, selected_payment = self._existing_payment_combos(
@@ -135,13 +141,14 @@ class TransactionMatcher:
         return reconciliation
 
     @staticmethod
-    def auto_confirm_if_referenced(reconciliation: BankReconciliation) -> bool:
+    def auto_confirm(reconciliation: BankReconciliation) -> bool:
         """
         Confirm a suggestion with no human when the payer named the invoices
         by payment reference, whatever the amount: less than owed pays them
         partially (in the order written); more settles them and leaves the
-        excess on the payment as the client's/provider's credit. Returns
-        whether it confirmed.
+        excess on the payment as the client's/provider's credit. A direct
+        debit charge is confirmed only while its invoice still owes exactly
+        the amount charged. Returns whether it confirmed.
         """
         selected = next(
             (combo for combo in reconciliation.suggested_allocations if combo.get("is_selected")),
@@ -154,6 +161,13 @@ class TransactionMatcher:
             if not payment or payment.amount.amount != abs(txn.amount.amount):
                 return False
             TransactionMatcher.confirm_existing_payment(txn, payment, user=None, method=ReconciliationMethod.AUTO)
+            return True
+        if selected and selected.get("confidence") == "direct_debit":
+            [allocation] = selected["allocations"]
+            invoice = apps.get_model("invoices", "Invoice").objects.filter(pk=allocation["object_id"]).first()
+            if not invoice or invoice.amount_remaining_decimal != abs(reconciliation.bank_transaction.amount.amount):
+                return False
+            TransactionMatcher.confirm(reconciliation, selected["allocations"], user=None)
             return True
         if not selected or selected.get("confidence") != "reference":
             return False
@@ -321,6 +335,8 @@ class TransactionMatcher:
             raise ValueError(_("The payment belongs to another company."))
         if payment.method == PaymentMethod.INTERCOMPANY:
             raise ValueError(_("No money moved in this payment: another company paid, from its own bank."))
+        if payment.method == PaymentMethod.COMPENSATION:
+            raise ValueError(_("No money moved in this payment: a credit note offset the invoice."))
         if BankReconciliation.objects.filter(payment=payment).exists():
             raise ValueError(_("This payment is already linked to a bank transaction."))
         reconciliation = BankReconciliation.objects.select_for_update().filter(bank_transaction=txn).first()

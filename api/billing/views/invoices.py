@@ -29,8 +29,9 @@ class QuoteInvoiceView(CompanyAPIView):
         try:
             with transaction.atomic():
                 for config in configs:
+                    # A cancelled or reversed invoice no longer bills it
                     existing = (
-                        SalesInvoice.objects.filter(configuration=config)
+                        SalesInvoice.objects.live().filter(configuration=config)
                         .order_by("-id")
                         .first()
                     )

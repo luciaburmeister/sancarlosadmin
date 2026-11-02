@@ -725,8 +725,9 @@ class ProjectFileInvoiceService:
                 Q(invoice__project_file=project_file)
                 | Q(project_file=project_file, invoice__project_file__isnull=True),
                 advance_line__isnull=True,
+                # A credit note and the invoice it reverses add up to nothing
+                invoice__in=SalesInvoice.objects.live(),
             )
-            .exclude(invoice__status=SalesInvoiceStatus.CANCELLED)
             .exclude(invoice__document_type=SalesInvoiceDocumentType.ADVANCE)
             .select_related("invoice")
         )
@@ -1299,6 +1300,27 @@ class ProjectFileInvoiceService:
         ids = cls.work_entry_ids_from_source_ids(source_ids)
         if ids:
             WorkEntry.objects.filter(pk__in=ids, is_locked=False).update(is_locked=True)
+
+    @classmethod
+    def unlock_work_entries(cls, source_ids, exclude_invoice=None):
+        """Unlock the WorkEntries referenced by the given source ids that no
+        live invoice (see SalesInvoiceQuerySet.live) other than
+        ``exclude_invoice`` still bills, so they can be priced and billed again."""
+        from management.models import WorkEntry
+
+        ids = cls.work_entry_ids_from_source_ids(source_ids)
+        if not ids:
+            return
+        still_billed = SalesInvoiceItem.objects.filter(
+            source_id__in=[line_sources.source_id(line_sources.WORK_ENTRY, pk) for pk in ids],
+            invoice__in=SalesInvoice.objects.live(),
+        )
+        if exclude_invoice is not None:
+            still_billed = still_billed.exclude(invoice=exclude_invoice)
+        still_billed = set(still_billed.values_list("source_id", flat=True))
+        to_unlock = [pk for pk in ids if line_sources.source_id(line_sources.WORK_ENTRY, pk) not in still_billed]
+        if to_unlock:
+            WorkEntry.objects.filter(pk__in=to_unlock).update(is_locked=False)
 
     @classmethod
     def _compute_per_config_taxes(cls, project_file):

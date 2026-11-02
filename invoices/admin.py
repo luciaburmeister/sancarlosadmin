@@ -91,6 +91,8 @@ from invoices.views.invoice.collections_forecast_view import (
 )
 from invoices.views.invoice.payments_forecast_view import PaymentsForecastView
 from invoices.services.sales_invoice_service import SalesInvoiceService
+from invoices.services.credit_notes import CreditNoteService
+from invoices.forms.invoice.credit_note_forms import OffsetCreditNoteForm, ReverseInvoiceForm
 from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.services.discounts import (
@@ -1435,7 +1437,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display", "payment_reference_display", "intercompany_display")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display", "payment_reference_display", "intercompany_display", "rectification_display")
 
     def get_queryset(self, request):
         from payments.mixins import annotate_amount_remaining, annotate_forecast_date
@@ -1494,10 +1496,47 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = super().get_fieldsets(request, obj)
-        if obj is not None and obj.pk is not None and _is_advance_related(obj):
-            general, *rest = fieldsets
-            return (general, (_("Advances"), {"fields": ("advances_display",)}), *rest)
-        return fieldsets
+        if obj is None or obj.pk is None:
+            return fieldsets
+        general, *rest = fieldsets
+        extra = []
+        if _is_advance_related(obj):
+            extra.append((_("Advances"), {"fields": ("advances_display",)}))
+        if obj.is_credit_note or obj.rectifications.exists():
+            extra.append((_("Rectification"), {"fields": ("rectification_display",)}))
+        return (general, *extra, *rest)
+
+    @display(description=_("Rectification"))
+    def rectification_display(self, obj):
+        """A credit note: the invoice it reverses and why. An invoice: the
+        credit notes reversing it."""
+        def link(invoice):
+            return format_html(
+                '<a href="{}" class="text-primary-600 font-medium">{}</a>',
+                reverse("admin:invoices_salesinvoice_change", args=[invoice.pk]),
+                invoice.display_number,
+            )
+
+        if not obj or not obj.pk:
+            return "—"
+        if obj.is_credit_note:
+            return format_html(
+                "{} {} ({})<br>{}: {}<br>{}",
+                _("Reverses"),
+                link(obj.rectifies),
+                obj.get_rectification_code_display(),
+                _("Reason"),
+                obj.get_rectification_reason_display(),
+                obj.rectification_detail,
+            )
+        credit_notes = obj.rectifications.order_by("pk")
+        if not credit_notes:
+            return "—"
+        return format_html(
+            "{} {}",
+            _("Reversed by"),
+            format_html_join(", ", "{}", ((link(note),) for note in credit_notes)),
+        )
 
     def has_delete_permission(self, request, obj=None):
         if obj and obj.status == SalesInvoiceStatus.FINAL and not request.user.is_superuser:
@@ -1699,6 +1738,8 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 "run_invoice_matcher_detail_action",
                 "remove_advances_detail_action",
                 "reapply_advances_detail_action",
+                "reverse_invoice_detail_action",
+                "offset_credit_note_detail_action",
             ],
         },
         {
@@ -1874,6 +1915,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             SalesInvoiceDocumentType.INVOICE: "default",
             SalesInvoiceDocumentType.ADVANCE: "info",
             SalesInvoiceDocumentType.INTERCOMPANY: "warning",
+            SalesInvoiceDocumentType.CREDIT_NOTE: "danger",
         },
     )
     def get_document_type_label(self, obj):
@@ -2149,6 +2191,96 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     @action(description=_("Apply Credit"), icon="account_balance_wallet", permissions=["apply_credit"])
     def apply_credit_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_apply_credit", args=[object_id]))
+
+    def has_reverse_invoice_permission(self, request, object_id=None):
+        if not self.has_change_permission(request):
+            return False
+        if not object_id:
+            return True
+        invoice = SalesInvoice.objects.filter(pk=object_id).first()
+        return bool(invoice) and CreditNoteService.can_reverse(invoice)
+
+    @action(
+        description=_("Reverse (credit note)"), icon="undo",
+        permissions=["reverse_invoice"],
+        dialog={
+            "title": _("Reverse invoice"),
+            "description": _(
+                "Issues a credit note (factura rectificativa) reversing the whole invoice: "
+                "every line, discount and tax, negated. It is numbered, booked and sent to "
+                "the AEAT and the client straight away. What the invoice still has to "
+                "collect is offset against it; what the client already paid stays on the "
+                "credit note as owed to them. The reversed items can be invoiced again."
+            ),
+            "form_class": ReverseInvoiceForm,
+            "form_submit_text": _("Issue credit note"),
+        },
+    )
+    def reverse_invoice_detail_action(self, request, form, object_id):
+        invoice = get_object_or_404(self.get_queryset(request), pk=object_id)
+        try:
+            credit_note = CreditNoteService.reverse(
+                invoice,
+                code=form.cleaned_data["code"],
+                reason=form.cleaned_data["reason"],
+                detail=form.cleaned_data["detail"],
+                reply_to=sender_reply_to(request.user),
+                cc_emails=sender_cc(request.user),
+            )
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+            return self._dialog_redirect(object_id)
+        self.message_user(
+            request,
+            _("Credit note %(credit_note)s issued, reversing %(invoice)s.")
+            % {"credit_note": credit_note.invoice_number, "invoice": invoice.invoice_number},
+        )
+        return self._dialog_redirect(credit_note.pk)
+
+    def has_offset_credit_note_permission(self, request, object_id=None):
+        if not self.has_change_permission(request):
+            return False
+        if not object_id:
+            return True
+        credit_note = SalesInvoice.objects.filter(pk=object_id).first()
+        return bool(
+            credit_note
+            and credit_note.is_credit_note
+            and credit_note.status == SalesInvoiceStatus.FINAL
+            and credit_note.amount_remaining_decimal < 0
+        )
+
+    @action(
+        description=_("Offset against invoice"), icon="swap_horiz",
+        permissions=["offset_credit_note"],
+        dialog={
+            "title": _("Offset against invoice"),
+            "description": _(
+                "Settles one of the client's open invoices with what this credit note "
+                "still owes them, up to the smaller of the two balances. No money moves."
+            ),
+            "form_class": OffsetCreditNoteForm,
+            "form_submit_text": _("Offset"),
+        },
+    )
+    def offset_credit_note_detail_action(self, request, form, object_id):
+        credit_note = get_object_or_404(self.get_queryset(request), pk=object_id)
+        invoice = form.cleaned_data["invoice"]
+        amount = min(invoice.amount_remaining_decimal, -credit_note.amount_remaining_decimal)
+        try:
+            CreditNoteService.offset(invoice, credit_note, amount)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+        else:
+            self.message_user(
+                request,
+                _("%(amount)s of %(credit_note)s offset against %(invoice)s.") % {
+                    "amount": number_format(amount, 2),
+                    "credit_note": credit_note.invoice_number,
+                    "invoice": invoice.invoice_number,
+                },
+            )
+        return self._dialog_redirect(object_id)
 
     @action(description=_("Send Email"), icon="mail")
     def send_email_row_action(self, request, object_id):

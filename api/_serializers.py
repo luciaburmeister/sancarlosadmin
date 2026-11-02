@@ -174,7 +174,7 @@ def serialize_presupuesto(quote, include_products=True):
             serialize_product_config(c, stage_summary=stage_summaries.get(c.id))
             for c in configs
         ]
-        invoiced_count = SalesInvoice.objects.filter(
+        invoiced_count = SalesInvoice.objects.live().filter(
             configuration_id__in=config_ids
         ).values("configuration_id").distinct().count()
         data["is_invoiced"] = bool(config_ids) and invoiced_count >= len(config_ids)

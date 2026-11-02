@@ -7,3 +7,9 @@ from general.email import EmailDocument, register
 class DocumentReminderEmail(EmailDocument):
     key = "document_reminder"
     label = _("Document Expiration Reminder")
+
+
+@register
+class OnboardingInviteEmail(EmailDocument):
+    key = "onboarding_invite"
+    label = _("Company Invitation")

@@ -88,7 +88,7 @@ class PaymentReferenceMatchingTests(TestCase):
     def _confirm(self, txn):
         recon = TransactionMatcher(txn).run()
         self.assertEqual(self._selected(recon)["confidence"], "reference")
-        self.assertTrue(TransactionMatcher.auto_confirm_if_referenced(recon))
+        self.assertTrue(TransactionMatcher.auto_confirm(recon))
         recon.refresh_from_db()
         txn.refresh_from_db()
         return recon
@@ -160,7 +160,7 @@ class PaymentReferenceMatchingTests(TestCase):
         self.assertFalse(
             any(c["confidence"] == "reference" for c in recon.suggested_allocations)
         )
-        self.assertFalse(TransactionMatcher.auto_confirm_if_referenced(recon))
+        self.assertFalse(TransactionMatcher.auto_confirm(recon))
 
     def test_paid_invoice_is_ignored(self):
         invoice = self._purchase_invoice()
@@ -175,7 +175,7 @@ class PaymentReferenceMatchingTests(TestCase):
         recon = TransactionMatcher(self._txn("-121.00", self._concept(invoice), ext_id="t1")).run()
         self._confirm(self._txn("-121.00", self._concept(invoice), ext_id="t2"))
 
-        self.assertFalse(TransactionMatcher.auto_confirm_if_referenced(recon))
+        self.assertFalse(TransactionMatcher.auto_confirm(recon))
         self.assertEqual(Payment.objects.count(), 1)
 
     def test_cancelled_invoice_is_ignored(self):
@@ -199,4 +199,4 @@ class PaymentReferenceMatchingTests(TestCase):
         recon = TransactionMatcher(self._txn("121.00", "TRANSFERENCIA")).run()
         self.assertTrue(recon.suggested_allocations)
         self.assertNotEqual(self._selected(recon)["confidence"], "reference")
-        self.assertFalse(TransactionMatcher.auto_confirm_if_referenced(recon))
+        self.assertFalse(TransactionMatcher.auto_confirm(recon))

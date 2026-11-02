@@ -6,7 +6,7 @@ Expected Excel columns:
     description     | base_amount              | iva_percentage | iva_amount
     retention       | total                    | company
 
-Provider is matched by CIF (tax_identifier). If not found, a new
+Provider is matched by CIF (tax_identifier) within the row's company. If not found, a new
 Provider is auto-created with the provider_name value.
 Company is matched by name (case-insensitive).
 Duplicates (same provider + invoice_number) are silently skipped.
@@ -23,6 +23,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 
 from company.models import Company
+from core.services.provider_service import get_or_create_provider
 from invoices.models import (
     AppliedTax,
     Invoice,
@@ -123,41 +124,6 @@ def _clean_cif(value) -> str:
     return str(value).strip().upper()
 
 
-def _find_or_create_provider(cif: str, name: str, company: Company) -> Provider | None:
-    """
-    Find a provider by CIF (tax_identifier). If not found, create one.
-    Returns None only if CIF is empty.
-    """
-    if not cif:
-        return None
-
-    # Try to find existing provider by CIF (case-insensitive)
-    provider = Provider.objects.filter(
-        tax_identifier__iexact=cif,
-        company=company,
-    ).first()
-
-    if provider:
-        return provider
-
-    # Also try without company filter (cross-company match)
-    provider = Provider.objects.filter(
-        tax_identifier__iexact=cif,
-    ).first()
-
-    if provider:
-        return provider
-
-    # Auto-create provider
-    provider_name = name.strip() if name else f"Provider {cif}"
-    provider = Provider.objects.create(
-        name=provider_name,
-        tax_identifier=cif,
-        company=company,
-    )
-    return provider
-
-
 def _find_company(name: str) -> Company | None:
     """Find a company by name (case-insensitive)."""
     if not name:
@@ -203,6 +169,7 @@ def import_invoices_from_excel(
     default_year: int | None = None,
     sheet_name: str | None = None,
     multi_iva_mode: bool = False,
+    company: Company | None = None,
 ) -> ImportResult:
     """
     Import invoices from an Excel file with the generic format.
@@ -214,6 +181,8 @@ def import_invoices_from_excel(
         multi_iva_mode: If True, groups rows by invoice_number + provider_cif
             and creates one invoice with multiple IVA tax lines per group.
             Use this for sheets like '2 TIPO IVA EXP' and '3 TIPO IVA EXP'.
+        company: Import every row into this company, ignoring the company
+            column: what a user who may only see that company imports with.
 
     Returns:
         ImportResult with summary and per-row details.
@@ -259,11 +228,11 @@ def import_invoices_from_excel(
         return result
 
     if multi_iva_mode:
-        _import_multi_iva(ws, col_map, result, default_year)
+        _import_multi_iva(ws, col_map, result, default_year, company)
         wb.close()
         return result
 
-    _import_single_iva(ws, col_map, result, default_year)
+    _import_single_iva(ws, col_map, result, default_year, company)
     wb.close()
     return result
 
@@ -276,7 +245,7 @@ def _get_cell(row, col_map, col_name):
     return None
 
 
-def _import_single_iva(ws, col_map: dict, result: ImportResult, default_year: int | None):
+def _import_single_iva(ws, col_map: dict, result: ImportResult, default_year: int | None, forced_company=None):
     """
     Import invoices where each row is a single invoice with one IVA rate.
     This is the original import logic.
@@ -308,7 +277,7 @@ def _import_single_iva(ws, col_map: dict, result: ImportResult, default_year: in
         # --- Company ---
         company_name = str(_get_cell(row, col_map, "company") or "").strip()
         if company_name not in company_cache:
-            company_cache[company_name] = _find_company(company_name)
+            company_cache[company_name] = forced_company or _find_company(company_name)
         company = company_cache[company_name]
 
         if not company:
@@ -327,7 +296,7 @@ def _import_single_iva(ws, col_map: dict, result: ImportResult, default_year: in
 
         cache_key = (cif, company.pk)
         if cache_key not in provider_cache:
-            provider_cache[cache_key] = _find_or_create_provider(cif, provider_name, company)
+            provider_cache[cache_key] = get_or_create_provider(cif, provider_name, company)
         provider = provider_cache[cache_key]
 
         if not provider:
@@ -482,7 +451,7 @@ class _InvoiceGroup:
     iva_lines: list[_IvaLine] = field(default_factory=list)
 
 
-def _import_multi_iva(ws, col_map: dict, result: ImportResult, default_year: int | None):
+def _import_multi_iva(ws, col_map: dict, result: ImportResult, default_year: int | None, forced_company=None):
     """
     Import invoices from a multi-IVA sheet where the same invoice appears
     on multiple rows, each with a different IVA rate.
@@ -563,7 +532,7 @@ def _import_multi_iva(ws, col_map: dict, result: ImportResult, default_year: int
 
         # --- Company ---
         if group.company_name not in company_cache:
-            company_cache[group.company_name] = _find_company(group.company_name)
+            company_cache[group.company_name] = forced_company or _find_company(group.company_name)
         company = company_cache[group.company_name]
 
         if not company:
@@ -579,7 +548,7 @@ def _import_multi_iva(ws, col_map: dict, result: ImportResult, default_year: int
         # --- Provider ---
         cache_key = (cif, company.pk)
         if cache_key not in provider_cache:
-            provider_cache[cache_key] = _find_or_create_provider(
+            provider_cache[cache_key] = get_or_create_provider(
                 cif, group.provider_name, company
             )
         provider = provider_cache[cache_key]

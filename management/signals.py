@@ -20,26 +20,14 @@ def sales_invoice_deleting_unlock_work_entries(sender, instance, **kwargs):
     Runs pre_delete because the invoice's items (which carry the
     ``work_entry_<id>`` source ids) cascade away with it.
     """
-    from invoices.models import SalesInvoiceItem
     from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
-    from management.models import WorkEntry
 
-    prefix = ProjectFileInvoiceService.WORK_ENTRY_SOURCE_PREFIX
     own_source_ids = list(
-        instance.items.filter(source_id__startswith=prefix).values_list("source_id", flat=True)
+        instance.items.filter(
+            source_id__startswith=ProjectFileInvoiceService.WORK_ENTRY_SOURCE_PREFIX,
+        ).values_list("source_id", flat=True)
     )
-    ids = ProjectFileInvoiceService.work_entry_ids_from_source_ids(own_source_ids)
-    if not ids:
-        return
-
-    still_referenced = set(
-        SalesInvoiceItem.objects.filter(
-            source_id__in=[f"{prefix}{pk}" for pk in ids],
-        ).exclude(invoice=instance).values_list("source_id", flat=True)
-    )
-    to_unlock = [pk for pk in ids if f"{prefix}{pk}" not in still_referenced]
-    if to_unlock:
-        WorkEntry.objects.filter(pk__in=to_unlock).update(is_locked=False)
+    ProjectFileInvoiceService.unlock_work_entries(own_source_ids, exclude_invoice=instance)
 
 
 @receiver(post_save, sender="sales.Quote")

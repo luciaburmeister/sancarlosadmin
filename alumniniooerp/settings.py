@@ -1199,6 +1199,14 @@ UNFOLD = {
                 "collapsible": True,
                 "items": [
                     {
+                        "title": _("Company setup"),
+                        "icon": "checklist",
+                        "link": reverse_lazy("admin:company_company_onboarding_start"),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.can_onboard_company"
+                        ),
+                    },
+                    {
                         "title": _("Company"),
                         "icon": "domain",
                         "link": reverse_lazy("admin:company_company_changelist"),

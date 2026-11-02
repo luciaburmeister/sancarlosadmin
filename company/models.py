@@ -39,6 +39,18 @@ class DocumentLanguage(models.TextChoices):
     FR = "fr", "Français"
 
 
+class CompanyModule(models.TextChoices):
+    """Optional areas of the ERP a company uses. Only decides which onboarding
+    steps it is shown; it does not switch features on or off."""
+
+    INVENTORY = "inventory", _("Inventory")
+    PRODUCTION = "production", _("Production")
+    ASSETS = "assets", _("Assets")
+    PURCHASING = "purchasing", _("Purchasing")
+    PAYROLL = "payroll", _("Payroll")
+    EINVOICING = "einvoicing", _("E-invoicing")
+
+
 class Company(models.Model):
     name = models.CharField(max_length=100,verbose_name=_("Commercial Name"))
     legal_name = models.CharField(max_length=100, blank=True,verbose_name=_("Legal Name"))
@@ -243,6 +255,18 @@ class Company(models.Model):
             "{year}, {number}. Default: SUP-{year}-{number}"
         ),
     )
+    credit_note_number_format = models.CharField(
+        max_length=100,
+        default="R-{year}-{number}",
+        blank=True,
+        verbose_name=_("Credit Note Number Format"),
+        help_text=_(
+            "Format pattern for credit notes (facturas rectificativas) reversing "
+            "an issued invoice, a sequence separate from invoice numbers. It "
+            "must differ from the invoice and debit note formats. Available "
+            "placeholders: {year}, {number}. Default: R-{year}-{number}"
+        ),
+    )
     require_asset_on_project_file = models.BooleanField(
         default=False,
         verbose_name=_("Require asset on project files"),
@@ -280,18 +304,39 @@ class Company(models.Model):
         verbose_name=_("Claude API key"),
         help_text=_("Stored encrypted. Set it from the company form."),
     )
+    enabled_modules = ArrayField(
+        base_field=models.CharField(max_length=20, choices=CompanyModule.choices),
+        default=list,
+        blank=True,
+        verbose_name=_("Modules"),
+        help_text=_("Optional areas this company uses; decides which setup steps it is shown."),
+    )
+    onboarding_completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Setup completed"),
+        help_text=_("When the company finished its setup. Empty while it is still being set up."),
+    )
 
     def __str__(self):
         return self.name
 
     def clean(self):
         super().clean()
-        # Both series are numbered on their own: one shared format would
+        # Every series is numbered on its own: a shared format would
         # repeat invoice numbers within the company
+        invoice_format = self.invoice_number_format or "INV-{year}-{number}"
         debit_note_format = self.debit_note_number_format or "SUP-{year}-{number}"
-        if debit_note_format == (self.invoice_number_format or "INV-{year}-{number}"):
+        credit_note_format = self.credit_note_number_format or "R-{year}-{number}"
+        if debit_note_format == invoice_format:
             raise ValidationError({
                 "debit_note_number_format": _("Debit notes need a number format different from invoices'."),
+            })
+        if credit_note_format in (invoice_format, debit_note_format):
+            raise ValidationError({
+                "credit_note_number_format": _(
+                    "Credit notes need a number format different from invoices' and debit notes'."
+                ),
             })
 
     def set_claude_api_key(self, plaintext: str) -> None:
@@ -350,6 +395,9 @@ class Company(models.Model):
 
     class Meta:
         verbose_name = _("Company")
+        permissions = [
+            ("can_onboard_company", _("Can complete the setup of their company")),
+        ]
 
 
 class CompanyDefaultTax(models.Model):

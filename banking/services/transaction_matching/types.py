@@ -16,7 +16,7 @@ class MatchResult:
     """Result of the amount-matching step."""
     documents: list = field(default_factory=list)
     unmatched_amount: Decimal = Decimal("0.00")
-    confidence: str = "none"  # "exact", "close", or "none" ("reference" is set by TransactionMatcher)
+    confidence: str = "none"  # "exact", "close", or "none" ("reference" and "direct_debit" are set by TransactionMatcher)
     alternatives: list = field(default_factory=list)  # list of doc-lists
 
     @property

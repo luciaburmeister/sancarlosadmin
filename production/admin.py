@@ -283,7 +283,8 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             from configurator.models import Configuration
             config = Configuration.objects.get(pk=ticket.object_id)
 
-            existing = SalesInvoice.objects.filter(configuration=config).first()
+            # A cancelled or reversed invoice no longer bills it
+            existing = SalesInvoice.objects.live().filter(configuration=config).first()
             if existing:
                 self.message_user(request, _("An invoice already exists for this configuration."), level="warning")
                 return redirect(reverse("admin:invoices_salesinvoice_change", args=[existing.id]))

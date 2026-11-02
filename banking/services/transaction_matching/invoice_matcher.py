@@ -24,6 +24,7 @@ from banking.services.transaction_matching.types import (
     PAYMENT_DATE_TOLERANCE_DAYS,
 )
 from payments.models import (
+    NO_MONEY_METHODS,
     Payment,
     PaymentAllocation,
     PaymentCreatedBy,
@@ -269,11 +270,11 @@ class InvoiceMatcher:
         Matches by amount within 2% tolerance.
         """
         tolerance = approx_amount * Decimal("0.02")
-        # A settlement by another company moved no money through our bank
+        # A settlement by another company, or a credit note's offset, moved no money through our bank
         allocs = PaymentAllocation.objects.filter(
             content_type=invoice_ct,
             object_id=invoice.pk,
-        ).exclude(payment__method=PaymentMethod.INTERCOMPANY).select_related("payment")
+        ).exclude(payment__method__in=NO_MONEY_METHODS).select_related("payment")
 
         for alloc in allocs:
             payment = alloc.payment

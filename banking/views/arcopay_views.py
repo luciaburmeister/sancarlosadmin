@@ -5,6 +5,9 @@ Flow:
     2. InitiateConsentView — calls /consent/get/, redirects to bank auth
     3. ConsentDoneView — user returns here after bank auth → redirects to BankAccount
     4. SyncAccountsView — manually trigger transaction sync
+
+A flow started with ``?company_id=…&next=…`` (the company setup does) is locked
+to that company and returns to ``next`` when the bank is done.
 """
 import logging
 from http import HTTPStatus
@@ -15,6 +18,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
@@ -23,9 +27,34 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from banking.services.arcopay_import import ArcopayService
 from company.models import Company,BankAccount
-from core.admin.company_access import get_user_companies
+from core.admin.company_access import get_user_allowed_companies, get_user_companies
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_next(request, url):
+    """`url` if it's a page on this site to send the user back to, else ""."""
+    if url and url_has_allowed_host_and_scheme(url, {request.get_host()}, require_https=request.is_secure()):
+        return url
+    return ""
+
+
+def _connect_url(request):
+    """The connect page again, keeping the company and return page it was started with."""
+    params = {key: request.POST[key] for key in ("company_id", "next") if request.POST.get(key)}
+    url = reverse("admin:banking_connect_bank")
+    return f"{url}?{urlencode(params)}" if params else url
+
+
+def _allowed_company(request, company_id):
+    """One of the user's companies, switched on in the header or not."""
+    if not str(company_id).isdigit():
+        return None
+    return get_user_allowed_companies(request.user).filter(pk=company_id).first()
+
+
+def _done(request, next_url, default, *args):
+    return redirect(next_url) if next_url else redirect(default, *args)
 
 
 class ConnectBankView(UnfoldModelAdminViewMixin, TemplateView):
@@ -37,6 +66,10 @@ class ConnectBankView(UnfoldModelAdminViewMixin, TemplateView):
 
     def get(self, request, *args, **kwargs):
         self.companies = get_user_companies(request.user)
+        company_id = request.GET.get("company_id", "")
+        if company_id:
+            company = _allowed_company(request, company_id)
+            self.companies = [company] if company else []
         if not self.companies:
             messages.error(request, _("No active company found."))
             return redirect("admin:banking_banktransaction_changelist")
@@ -69,6 +102,7 @@ class ConnectBankView(UnfoldModelAdminViewMixin, TemplateView):
             "error_message": error_message,
             "initiate_url": reverse("admin:banking_initiate_consent"),
             "reconnect_account": reconnect_account,
+            "next_url": _safe_next(self.request, self.request.GET.get("next", "")),
         })
         return context
 
@@ -84,18 +118,17 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
         company_id = request.POST.get("company_id", "")
         if not company_id:
             messages.error(request, _("Please select a company."))
-            return redirect("admin:banking_connect_bank")
+            return redirect(_connect_url(request))
 
-        user_companies = get_user_companies(request.user)
-        company = next((c for c in user_companies if str(c.pk) == str(company_id)), None)
+        company = _allowed_company(request, company_id)
         if not company:
             messages.error(request, _("You don't have access to that company."))
-            return redirect("admin:banking_connect_bank")
+            return redirect(_connect_url(request))
 
         bank_service = request.POST.get("bank_service", "")
         if not bank_service:
             messages.error(request, _("Please select a bank."))
-            return redirect("admin:banking_connect_bank")
+            return redirect(_connect_url(request))
 
         # Optional: reconnect flow started from a specific bank account.
         # Threaded through the callback URL so the new token/consent can be
@@ -108,7 +141,7 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
             ).first()
             if not bank_account:
                 messages.error(request, _("That bank account does not belong to the selected company."))
-                return redirect("admin:banking_connect_bank")
+                return redirect(_connect_url(request))
 
         # Build callback + redirect URLs
         backend_url = settings.BACKEND_URL.rstrip("/")
@@ -137,7 +170,7 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
 
             if not follow_url:
                 messages.error(request, _("Arcopay did not return a consent URL."))
-                return redirect("admin:banking_connect_bank")
+                return redirect(_connect_url(request))
 
             # Store in session so ConsentDoneView can retrieve the token
             request.session["arcopay_consent_id"] = consent_id
@@ -146,6 +179,9 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
                 request.session["arcopay_bank_account_id"] = str(bank_account.pk)
             if token:
                 request.session["arcopay_token"] = token
+            next_url = _safe_next(request, request.POST.get("next", ""))
+            if next_url:
+                request.session["arcopay_next"] = next_url
 
             logger.info(
                 "Arcopay consent initiated: consentId=%s, token=%s, bank=%s, company=%s",
@@ -160,7 +196,7 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
                 request,
                 _("Failed to connect to bank: %(error)s") % {"error": str(e)},
             )
-            return redirect("admin:banking_connect_bank")
+            return redirect(_connect_url(request))
 
     def get(self, request):
         return redirect("admin:banking_connect_bank")
@@ -192,6 +228,7 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
         session_token = request.session.pop("arcopay_token", "")
         session_company_id = request.session.pop("arcopay_company_id", "") or company_id
         session_bank_account_id = request.session.pop("arcopay_bank_account_id", "")
+        next_url = _safe_next(request, request.session.pop("arcopay_next", ""))
 
         # 200 = new consent granted, 402 = consent already valid
         is_success = (
@@ -208,14 +245,13 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
                 )
             else:
                 messages.info(request, _("Bank connection process completed."))
-            return redirect("admin:banking_banktransaction_changelist")
+            return _done(request, next_url, "admin:banking_banktransaction_changelist")
 
         # Resolve the company
         company = None
         cid = session_company_id or company_id
         if cid:
-            user_companies = get_user_companies(request.user)
-            company = next((c for c in user_companies if str(c.pk) == str(cid)), None)
+            company = _allowed_company(request, cid)
 
         # Reconnect flow: the consent belongs to a specific account. The
         # callback should already have bound the token; if it didn't arrive
@@ -239,9 +275,7 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
                     _("Bank re-connected for %(bank)s. Transactions will import on the next sync.")
                     % {"bank": account.bank_name or account.iban},
                 )
-                return redirect(
-                    reverse("admin:company_bankaccount_change", args=[account.pk])
-                )
+                return _done(request, next_url, "admin:company_bankaccount_change", account.pk)
 
         qs = BankAccount.objects.filter(company=company) if company else BankAccount.objects.all()
         max_pk_before = qs.exclude(nuek_token="").aggregate(max_pk=Max("pk"))["max_pk"] or 0
@@ -270,15 +304,13 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
                 request,
                 _("Bank connected successfully! Your transactions are being imported."),
             )
-            return redirect(
-                reverse("admin:company_bankaccount_change", args=[latest_account.pk])
-            )
+            return _done(request, next_url, "admin:company_bankaccount_change", latest_account.pk)
         else:
             messages.success(
                 request,
                 _("Bank authorization completed. The account will appear shortly once processing finishes."),
             )
-            return redirect("admin:banking_banktransaction_changelist")
+            return _done(request, next_url, "admin:banking_banktransaction_changelist")
 
 
 class SyncAccountsView(UnfoldModelAdminViewMixin, View):

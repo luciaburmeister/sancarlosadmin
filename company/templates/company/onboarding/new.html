@@ -1,0 +1,14 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+<div class="mb-6 flex flex-col gap-4 max-w-3xl">
+    <div>
+        <h1 class="text-xl font-semibold">{% trans "New company" %}</h1>
+        <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark">
+            {% trans "Creates the company with its chart of accounts installed, a default business unit and this year's fiscal year, and emails the admin an invitation to complete the setup." %}
+        </p>
+    </div>
+    {% include "company/onboarding/_form.html" with submit_label=_("Create and invite") %}
+</div>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block title %}{% trans "Company setup" %} · {{ company }}{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-col gap-4 max-w-4xl">
+    <div class="rounded-lg border p-4 flex items-center gap-3
+        {% if ready %}border-green-200 bg-green-50 dark:bg-green-500/10 dark:border-green-500/30
+        {% else %}border-amber-200 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30{% endif %}">
+        <span class="material-symbols-outlined {% if ready %}text-green-600{% else %}text-amber-500{% endif %}">
+            {% if ready %}check_circle{% else %}pending{% endif %}
+        </span>
+        <div class="grow">
+            <p class="font-semibold">{{ company }}</p>
+            <p class="text-sm">
+                {% if company.onboarding_completed_at %}
+                    {% blocktrans with date=company.onboarding_completed_at|date:"SHORT_DATE_FORMAT" %}Set up on {{ date }}. You can come back to any step.{% endblocktrans %}
+                {% elif ready %}
+                    {% trans "Everything required is in place. Warnings can wait; finish when you're ready." %}
+                {% else %}
+                    {% trans "Go through the steps below. Everything is saved as you go, so you can stop and come back." %}
+                {% endif %}
+            </p>
+        </div>
+        {% if not company.onboarding_completed_at %}
+        <form method="post" action="{{ finish_url }}">
+            {% csrf_token %}
+            {% component "unfold/components/button.html" with submit=1 %}{% trans "Finish setup" %}{% endcomponent %}
+        </form>
+        {% endif %}
+    </div>
+
+    <ol class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700 divide-y divide-base-200 dark:divide-base-700">
+        {% for step, url in steps %}
+        <li>
+            <a href="{{ url }}" class="px-4 py-3 flex items-center gap-3 hover:bg-base-50 dark:hover:bg-base-800">
+                <span class="w-6 text-sm text-font-subtle-light dark:text-font-subtle-dark">{{ forloop.counter }}</span>
+                {% if step.status == "ok" %}
+                    <span class="material-symbols-outlined text-green-600">check_circle</span>
+                {% elif step.status == "warning" %}
+                    <span class="material-symbols-outlined text-amber-500">warning</span>
+                {% elif step.required %}
+                    <span class="material-symbols-outlined text-red-600">cancel</span>
+                {% else %}
+                    <span class="material-symbols-outlined text-amber-500">radio_button_unchecked</span>
+                {% endif %}
+                <span class="grow">
+                    <span class="font-semibold">{{ step.title }}</span>
+                    {% if not step.required %}<span class="text-xs text-font-subtle-light dark:text-font-subtle-dark">· {% trans "optional" %}</span>{% endif %}
+                    <span class="block text-sm text-font-subtle-light dark:text-font-subtle-dark">{{ step.description }}</span>
+                </span>
+                <span class="material-symbols-outlined text-font-subtle-light">chevron_right</span>
+            </a>
+        </li>
+        {% endfor %}
+    </ol>
+</div>
+{% endblock %}

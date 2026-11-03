@@ -5,6 +5,7 @@ small and easy to find:
 - client.py          → Client + address/contact/bank-account admins & inlines
 - quote.py           → Quote, quote items, photos, configuration groups
 - delivery_order.py  → Delivery orders (export + send email actions)
+- delivery_order_return.py → Returns of goods from delivery orders + return reasons
 - shipping_agency.py → Shipping agencies used by delivery orders
 - discount_policy.py → Discount policies and rules
 - commissionist_agent.py → Commissionist agents
@@ -46,4 +47,9 @@ from .delivery_order import (
     DeliveryOrderItemAdmin,
     DeliveryOrderItemInline,
     IdentityCodeDeliveryInline,
+)
+from .delivery_order_return import (
+    DeliveryOrderReturnAdmin,
+    DeliveryOrderReturnInline,
+    ReturnReasonAdmin,
 )

@@ -13,7 +13,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from sales.models import DeliveryOrderStatus
+from sales.models import DELIVERY_ORDER_STOCK_OUT_STATUSES, DeliveryOrderStatus
+from sales.services.delivery_order_return_service import DeliveryOrderReturnService
 
 S = DeliveryOrderStatus
 
@@ -47,6 +48,16 @@ class DeliveryOrderFulfillmentService:
                     "current": delivery_order.get_status_display(),
                     "target": S(target).label,
                 }
+            )
+        if (
+            delivery_order.is_stock_out
+            and target not in DELIVERY_ORDER_STOCK_OUT_STATUSES
+            and DeliveryOrderReturnService.has_received_returns(delivery_order)
+        ):
+            # Leaving these statuses gives every line's stock back; goods a
+            # return already brought back would come in twice.
+            raise ValidationError(
+                _("Part of this delivery order has been returned. Cancel its received returns first.")
             )
         delivery_order.status = target
         for name, value in fields.items():

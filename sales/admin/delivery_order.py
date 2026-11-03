@@ -19,6 +19,7 @@ from core.admin.email_log import EmailLogInline
 from company.forms import BaseDocumentForm
 from inventory.models import ItemIdentityCode
 from sales.models import (
+    DELIVERY_ORDER_STOCK_OUT_STATUSES,
     DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
     DeliveryOrderDocument, DeliveryOrderDocumentType, ClientAddress,
 )
@@ -32,6 +33,7 @@ from sales.services.delivery_order_fulfillment_service import (
     PREVIOUS_STATUS,
     DeliveryOrderFulfillmentService,
 )
+from sales.admin.delivery_order_return import DeliveryOrderReturnInline
 from sales.views.delivery_order_identity_codes_view import (
     DeliveryOrderLinkIdentityCodesView,
     DeliveryOrderUnlinkIdentityCodeView,
@@ -258,6 +260,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         DeliveryOrderComponentInline,
         DeliveryOrderAppliedTaxInline,
         DeliveryOrderIdentityCodeInline,
+        DeliveryOrderReturnInline,
         DeliveryOrderDocumentInline,
         EmailLogInline,
     ]
@@ -319,6 +322,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "undo_status_detail_action",
                 "cancel_detail_action",
                 "reopen_detail_action",
+                "register_return_detail_action",
             ],
         },
         {
@@ -636,6 +640,16 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def has_reopen_permission(self, request, object_id=None):
         return self._status_in(request, object_id, [DeliveryOrderStatus.CANCELLED])
+
+    @action(description=_("Register Return"), icon="assignment_return", permissions=["register_return"])
+    def register_return_detail_action(self, request, object_id):
+        url = reverse("admin:sales_deliveryorderreturn_add")
+        return redirect(f"{url}?delivery_order={object_id}")
+
+    def has_register_return_permission(self, request, object_id=None):
+        if not request.user.has_perm("sales.add_deliveryorderreturn"):
+            return False
+        return self._status_in(request, object_id, list(DELIVERY_ORDER_STOCK_OUT_STATUSES))
 
 
 @admin.register(DeliveryOrderItem)

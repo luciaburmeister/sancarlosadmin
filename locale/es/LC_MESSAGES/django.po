@@ -22730,3 +22730,104 @@ msgid "Working hours have changed. Reload the calendar before planning again."
 msgstr ""
 "El horario laboral ha cambiado. Vuelve a cargar el calendario antes de "
 "planificar de nuevo."
+
+msgid "Puts goods back in stock"
+msgstr "Devuelve la mercancía al stock"
+
+msgid "Untick for reasons whose goods must not count as stock again (damaged or defective, say): the return is still recorded, but no stock moves."
+msgstr "Desmárcalo en los motivos cuya mercancía no debe volver a contar como stock (dañada o defectuosa, por ejemplo): la devolución se registra igualmente, pero no se mueve stock."
+
+msgid "Return Reason"
+msgstr "Motivo de devolución"
+
+msgid "Return Reasons"
+msgstr "Motivos de devolución"
+
+msgid "Received on"
+msgstr "Recibida el"
+
+msgid "Returns"
+msgstr "Devoluciones"
+
+msgid "Delivery order line"
+msgstr "Línea del albarán"
+
+msgid "Quantity returned"
+msgstr "Cantidad devuelta"
+
+msgid "Stock returned"
+msgstr "Stock devuelto"
+
+msgid "Whether this line's goods are currently back in the warehouse."
+msgstr "Si la mercancía de esta línea está actualmente de vuelta en el almacén."
+
+msgid "Return line"
+msgstr "Línea de devolución"
+
+msgid "Return lines"
+msgstr "Líneas de devolución"
+
+msgid "This line is not on the returned delivery order."
+msgstr "Esta línea no pertenece al albarán devuelto."
+
+msgid "Return the whole line it belongs to; component lines are not returned on their own."
+msgstr "Devuelve la línea completa a la que pertenece; las líneas de componentes no se devuelven por separado."
+
+msgid "Only goods of a dispatched or delivered delivery order can be returned."
+msgstr "Solo se puede devolver mercancía de un albarán expedido o entregado."
+
+msgid "%(line)s moved no stock, so there is nothing to return."
+msgstr "%(line)s no movió stock, así que no hay nada que devolver."
+
+msgid "%(line)s: %(requested)s units returned but only %(available)s are still out."
+msgstr "%(line)s: se devuelven %(requested)s unidades pero solo quedan %(available)s fuera."
+
+msgid "A return in status “%(current)s” cannot move to “%(target)s”."
+msgstr "Una devolución en estado «%(current)s» no puede pasar a «%(target)s»."
+
+msgid "Add at least one line before receiving the return."
+msgstr "Añade al menos una línea antes de recibir la devolución."
+
+msgid "Part of this delivery order has been returned. Cancel its received returns first."
+msgstr "Parte de este albarán ya se ha devuelto. Cancela primero sus devoluciones recibidas."
+
+msgid "shipped"
+msgstr "expedido"
+
+msgid "Returned line"
+msgstr "Línea devuelta"
+
+msgid "Returned lines"
+msgstr "Líneas devueltas"
+
+msgid "Return %(number)s created as a draft."
+msgstr "Devolución %(number)s creada como borrador."
+
+msgid "Mark as Received"
+msgstr "Marcar como recibida"
+
+msgid "Return %(number)s received; its goods are back in stock."
+msgstr "Devolución %(number)s recibida; su mercancía ha vuelto al stock."
+
+msgid "Cancel Return"
+msgstr "Cancelar devolución"
+
+msgid "Return %(number)s cancelled; any stock it brought back has left again."
+msgstr "Devolución %(number)s cancelada; el stock que había devuelto ha vuelto a salir."
+
+msgid "Return %(number)s reopened as a draft."
+msgstr "Devolución %(number)s reabierta como borrador."
+
+msgid "Returned"
+msgstr "Devuelto"
+
+msgid "Register Return"
+msgstr "Registrar devolución"
+
+msgctxt "goods return"
+msgid "Return"
+msgstr "Devolución"
+
+msgctxt "goods return"
+msgid "Reason"
+msgstr "Motivo"

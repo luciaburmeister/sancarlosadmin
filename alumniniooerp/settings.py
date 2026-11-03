@@ -749,6 +749,22 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Returns"),
+                        "icon": "assignment_return",
+                        "link": reverse_lazy("admin:sales_deliveryorderreturn_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_deliveryorderreturn"
+                        ),
+                    },
+                    {
+                        "title": _("Return Reasons"),
+                        "icon": "rule",
+                        "link": reverse_lazy("admin:sales_returnreason_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_returnreason"
+                        ),
+                    },
+                    {
                         "title": _("Receival Slips"),
                         "icon": "receipt",
                         "link": reverse_lazy("admin:configurator_receivalslip_changelist"),

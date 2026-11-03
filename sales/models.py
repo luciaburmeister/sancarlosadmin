@@ -13,6 +13,7 @@ from djmoney.money import Money
 from materials.models import Material
 from timestamps.models import Timestampable
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import pgettext_lazy
 from company.models import CompanyOwnedModel
 from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
@@ -2549,6 +2550,152 @@ class DeliveryOrderItem(PinnedLineTotalMixin, Timestampable):
 
     def __str__(self):
         return f"{self.item_number or ''} {self.description} ({self.quantity})"
+
+
+
+class ReturnReason(Timestampable, CompanyOwnedModel):
+    """Why goods came back, kept per company so each one names its own."""
+
+    name = models.CharField(max_length=150, verbose_name=_("Name"))
+    restocks = models.BooleanField(
+        default=True,
+        verbose_name=_("Puts goods back in stock"),
+        help_text=_(
+            "Untick for reasons whose goods must not count as stock again "
+            "(damaged or defective, say): the return is still recorded, but "
+            "no stock moves."
+        ),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Return Reason")
+        verbose_name_plural = _("Return Reasons")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "name"], name="uniq_return_reason_company_name"),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class DeliveryOrderReturnStatus(models.TextChoices):
+    DRAFT = "draft", _("Draft")
+    RECEIVED = "received", _("Received")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class DeliveryOrderReturn(Timestampable, CompanyOwnedModel):
+    """Goods sent back from one delivery order.
+
+    Its status only changes through DeliveryOrderReturnService: stock comes
+    back in when it is received and leaves again if a received return is
+    cancelled.
+    """
+
+    number = models.CharField(max_length=50, blank=True, verbose_name=_("Number"))
+    incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Incremental ID"))
+    delivery_order = models.ForeignKey(
+        DeliveryOrder,
+        on_delete=models.PROTECT,
+        related_name="returns",
+        verbose_name=_("Delivery Order"),
+    )
+    date = models.DateField(default=timezone.localdate, verbose_name=_("Date"))
+    status = models.CharField(
+        max_length=20,
+        choices=DeliveryOrderReturnStatus.choices,
+        default=DeliveryOrderReturnStatus.DRAFT,
+        verbose_name=_("Status"),
+    )
+    received_at = models.DateField(null=True, blank=True, verbose_name=_("Received on"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    class Meta:
+        verbose_name = pgettext_lazy("goods return", "Return")
+        verbose_name_plural = _("Returns")
+        ordering = ["-date", "-number"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "number"], name="uniq_do_return_company_number"),
+        ]
+
+    def __str__(self):
+        return f"{self.number or _('Draft')} - {self.delivery_order.number}"
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.delivery_order_id:
+            self.company_id = self.delivery_order.company_id
+        if not self.number:
+            last_id = (
+                DeliveryOrderReturn.objects.filter(company_id=self.company_id, incremental_id__isnull=False)
+                .select_for_update()
+                .aggregate(max_id=Max("incremental_id"))["max_id"]
+            )
+            self.incremental_id = (last_id or 0) + 1
+            self.number = f"RET-{timezone.now().year}-{self.incremental_id:05d}"
+        super().save(*args, **kwargs)
+
+    @property
+    def is_editable(self):
+        return self.status == DeliveryOrderReturnStatus.DRAFT
+
+
+class DeliveryOrderReturnItem(Timestampable):
+    """How much of one delivery order line came back, and why."""
+
+    delivery_order_return = models.ForeignKey(
+        DeliveryOrderReturn,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name=pgettext_lazy("goods return", "Return"),
+    )
+    delivery_order_item = models.ForeignKey(
+        DeliveryOrderItem,
+        on_delete=models.PROTECT,
+        related_name="return_lines",
+        verbose_name=_("Delivery order line"),
+    )
+    # Whole units: stock moves in whole units (ItemTransaction.quantity_change).
+    quantity = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        verbose_name=_("Quantity returned"),
+    )
+    reason = models.ForeignKey(
+        ReturnReason,
+        on_delete=models.PROTECT,
+        related_name="return_lines",
+        verbose_name=pgettext_lazy("goods return", "Reason"),
+    )
+    # Set when receiving actually put the goods back, so cancelling only
+    # takes out again what came in, even if the reason's setting changed.
+    stock_returned = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name=_("Stock returned"),
+        help_text=_("Whether this line's goods are currently back in the warehouse."),
+    )
+
+    class Meta:
+        verbose_name = _("Return line")
+        verbose_name_plural = _("Return lines")
+
+    def __str__(self):
+        return f"{self.delivery_order_item.description} ({self.quantity})"
+
+    def clean(self):
+        super().clean()
+        line = self.delivery_order_item if self.delivery_order_item_id else None
+        ret = self.delivery_order_return if self.delivery_order_return_id else None
+        if line is None or ret is None:
+            return
+        if line.delivery_order_id != ret.delivery_order_id:
+            raise ValidationError({"delivery_order_item": _("This line is not on the returned delivery order.")})
+        if line.is_component:
+            raise ValidationError({
+                "delivery_order_item": _("Return the whole line it belongs to; component lines are not returned on their own."),
+            })
 
 
 class ConversionThresholds(models.Model):

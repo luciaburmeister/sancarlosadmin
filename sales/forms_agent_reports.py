@@ -1,12 +1,28 @@
 from datetime import timedelta
 
+from django import forms
+from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from unfold.widgets import UnfoldAdminSelectWidget
 
 from configurator.forms import ConfigurationExportForm
 from core.forms.unfold_date_filters import DateRangeFilterForm
 
 
+class AgentReportFormat(models.TextChoices):
+    PDF = "pdf", _("PDF")
+    XLSX = "xlsx", _("Excel")
+
+
 class AgentReportExportForm(DateRangeFilterForm, ConfigurationExportForm):
+    file_format = forms.ChoiceField(
+        label=_("Format"),
+        choices=AgentReportFormat.choices,
+        initial=AgentReportFormat.PDF,
+        widget=UnfoldAdminSelectWidget,
+    )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Reports are run at month end close, so default to the last closed month.

@@ -250,6 +250,8 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
             ):
                 continue
 
+        is_standing_pool = bool(project_file and project_file.is_standing_task_pool)
+
         # Build (item, stage) pairs this employee can work.
         pairs = []
         for ii, item in enumerate(items):
@@ -266,7 +268,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                         raw = v if isinstance(v, dict) else {}
                         break
                 status = (raw.get("status") or "pending") if isinstance(raw, dict) else "pending"
-                is_assigned = item.id in assigned_item_ids
+                is_assigned = is_standing_pool or item.id in assigned_item_ids
                 # Employees only see assigned tasks; in-progress/done always show.
                 if status == "pending" and not is_assigned:
                     continue

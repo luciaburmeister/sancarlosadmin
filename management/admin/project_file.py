@@ -512,6 +512,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ("status", MultipleChoicesDropdownFilter),
         ("delivery_status", MultipleChoicesDropdownFilter),
         ("production_status", MultipleChoicesDropdownFilter),
+        "is_standing_task_pool",
         ProjectFileInvoicingFilter,
         ProjectFileCreatedByFilter,
         ("company", AutocompleteSelectMultipleFilter),
@@ -551,6 +552,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                 ("show_production_status", "show_delivery_status"),
                 "description",
                 "notification_email",
+                "is_standing_task_pool",
             )
         }),
         (_("Pending Delivery"), {

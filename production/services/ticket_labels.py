@@ -41,6 +41,7 @@ def build_ticket_labels(*, ticket, config, project_file) -> TicketLabels:
                 if hasattr(start_date, "strftime")
                 else start_date
             ),
+            "is_standing_task_pool": project_file.is_standing_task_pool,
         }
 
     return TicketLabels(

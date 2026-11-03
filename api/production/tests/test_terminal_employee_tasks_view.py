@@ -11,8 +11,10 @@ from rest_framework.test import APIClient
 from api.production.views.terminal import _build_task_results
 from company.models import Company, CompanyUser, Employee
 from configurator.models import Configuration, ConfigurationItem, ConfigurationStatus, ProductTemplate
+from management.models import ProjectFile
 from production.models import PlannedProductionSession, ProductionItem, ProductionTicket
 from production.services.session_scheduler import get_or_create_resource_for_target
+from sales.models import Client
 
 User = get_user_model()
 
@@ -141,6 +143,55 @@ class TerminalEmployeeTasksViewPlannedInfoTest(TestCase):
         stages = self._get()
         self.assertEqual(stages[self.item_a.id]["planned_date"], past_day.isoformat())
         self.assertEqual(stages[self.item_a.id]["planned_order"], 1)
+
+
+class TerminalEmployeeTasksViewStandingTaskPoolTest(TestCase):
+    """A ProjectFile marked is_standing_task_pool (e.g. a recurring monthly
+    internal shop-tasks expediente) must expose its pending stages to every
+    employee who can work them, without requiring the manager to assign
+    each item to each employee first."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = Company.objects.create(name="Test Co")
+        cls.worker = Employee.objects.create(
+            company=cls.company, first_name="Jose", last_name="Murillo",
+            hired_at=date(2020, 1, 1), can_work_on_production=True, is_active=True,
+        )
+        cls.client_obj = Client.objects.create(name="Taller", company=cls.company)
+        cls.product = ProductTemplate.objects.create(
+            name="Tarea interna", company=cls.company, production_stages=["taller"],
+        )
+        cls.config = Configuration.objects.create(
+            company=cls.company, product=cls.product, status=ConfigurationStatus.CONVERTED,
+        )
+        ConfigurationItem.objects.create(configuration=cls.config, unit_price=0)
+        ct = ContentType.objects.get_for_model(Configuration)
+        cls.ticket = ProductionTicket.objects.create(
+            company=cls.company, content_type=ct, object_id=cls.config.id,
+        )
+        cls.item = ProductionItem.objects.create(
+            ticket=cls.ticket, company=cls.company,
+            planning={"taller": {"status": "pending"}},
+        )
+        # Deliberately NOT assigned to cls.worker.
+
+    def test_pending_stage_hidden_by_default(self):
+        results = _build_task_results(self.worker, self.company)
+        self.assertEqual(results, [])
+
+    def test_pending_stage_visible_once_project_file_is_standing_pool(self):
+        project_file = ProjectFile.objects.create(
+            company=self.company, name="Tareas Taller Octubre", client=self.client_obj,
+            is_standing_task_pool=True,
+        )
+        self.ticket.project_file = project_file
+        self.ticket.save(update_fields=["project_file"])
+
+        results = _build_task_results(self.worker, self.company)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["next_stage"]["is_assigned"])
+        self.assertTrue(results[0]["expediente"]["is_standing_task_pool"])
 
 
 class TerminalEmployeeTasksViewQueryCountTest(TestCase):

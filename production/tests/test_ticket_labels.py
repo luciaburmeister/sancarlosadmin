@@ -56,6 +56,7 @@ class BuildTicketLabelsTest(TestCase):
             "start_date": self.project_file.start_date.strftime("%Y-%m-%d")
             if hasattr(self.project_file.start_date, "strftime")
             else self.project_file.start_date,
+            "is_standing_task_pool": False,
         })
 
     def test_falls_back_to_config_name_without_quote(self):

@@ -112,6 +112,16 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         default=ProjectFileStatus.NEW,
         verbose_name=_("Status")
     )
+    is_standing_task_pool = models.BooleanField(
+        default=False,
+        verbose_name=_("Standing task pool"),
+        help_text=_(
+            "Internal/non-client expediente (e.g. a recurring monthly shop-tasks "
+            "file) whose pending stages are always available to clock in for "
+            "every employee who can work them, without needing per-employee "
+            "assignment."
+        ),
+    )
     delivery_status = models.CharField(
         max_length=25,
         choices=ProjectFileDeliveryStatus.choices,

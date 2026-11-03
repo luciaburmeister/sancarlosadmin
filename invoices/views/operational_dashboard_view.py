@@ -76,22 +76,29 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         # ── Cache ──────────────────────────────────────────────────
         company_pk = selected_company.pk if selected_company else 0
-        cache_key = f"op_dash:{company_pk}:{date_from.isoformat()}:{date_to.isoformat()}"
+        cache_key = f"op_dash:v3:{company_pk}:{date_from.isoformat()}:{date_to.isoformat()}"
         cached = cache.get(cache_key)
 
         if cached:
-            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data = cached
+            invoicing_data, production_data, tax_data, payment_data, purchasing_without_tax_data, collections_and_payments_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data = cached
         else:
             invoicing_data = self._compute_invoicing(selected_company, date_from, date_to)
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
             tax_data = self._compute_tax_summary(selected_company, date_from, date_to)
             payment_data = self._compute_payment_invoicing(selected_company, date_from, date_to)
+            purchasing_without_tax_data = self._compute_purchasing_without_tax(selected_company, date_from, date_to)
+            collections_and_payments_data = self._compute_collections_and_payments(selected_company, date_from, date_to)
             cash_data = self._compute_tax_periods(selected_company, date_from, date_to)
             ar_aging_data = self._compute_ar_aging(selected_company)
             ap_aging_data = self._compute_ap_aging(selected_company)
             bank_balances_data = self._compute_bank_balances(selected_company)
             loan_data = self._compute_loan_data(selected_company)
-            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data), _CACHE_TTL)
+            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, purchasing_without_tax_data, collections_and_payments_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data), _CACHE_TTL)
+
+        sales_vs_purchases_data = self._compute_sales_vs_purchases(invoicing_data, purchasing_without_tax_data)
+        collections_vs_payments_data = self._compute_collections_vs_payments(collections_and_payments_data)
+        sales_vs_collections_data = self._compute_sales_vs_collections(invoicing_data, collections_and_payments_data)
+        purchases_vs_payments_data = self._compute_purchases_vs_payments(purchasing_without_tax_data, collections_and_payments_data)
 
         ctx.update({
             "title": _("Operational Dashboard"),
@@ -105,6 +112,11 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "production": production_data,
             "taxes": tax_data,
             "payment": payment_data,
+            "purchasing_without_tax": purchasing_without_tax_data,
+            "sales_vs_purchases": sales_vs_purchases_data,
+            "collections_vs_payments": collections_vs_payments_data,
+            "sales_vs_collections": sales_vs_collections_data,
+            "purchases_vs_payments": purchases_vs_payments_data,
             "tax_periods": cash_data,
             "bank_balances": bank_balances_data,
             "loans": loan_data,
@@ -126,6 +138,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 "monthly_final": [],
                 "monthly_proforma": [],
                 "top_clients": [],
+                "monthly_final_with_tax": [],
                 "final_total_with_tax": Decimal("0.00"),
                 "total_paid": Decimal("0.00"),
                 "pending_to_collect": Decimal("0.00"),
@@ -176,9 +189,19 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         )
 
         top_clients = list(
-            base_qs.values("client__name")
+            base_qs.filter(status=SalesInvoiceStatus.FINAL)
+            .values("client__name")
             .annotate(total=Coalesce(Sum(taxable_base), zero, output_field=field))
             .order_by("-total")[:10]
+        )
+
+        # ── With taxes (mirrors the without-taxes block above, by date_issued) ──
+        monthly_final_with_tax = list(
+            base_qs.filter(status=SalesInvoiceStatus.FINAL)
+            .annotate(month=TruncMonth("date_issued"))
+            .values("month")
+            .annotate(total=Coalesce(Sum("total_amount"), zero, output_field=field))
+            .order_by("month")
         )
 
         final_qs = base_qs.filter(status=SalesInvoiceStatus.FINAL)
@@ -255,6 +278,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "monthly_final": monthly_final,
             "monthly_proforma": monthly_proforma,
             "top_clients": top_clients,
+            "monthly_final_with_tax": monthly_final_with_tax,
             "final_total_with_tax": final_total_with_tax,
             "total_paid": total_paid,
             "pending_to_collect": pending_to_collect,
@@ -485,8 +509,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 "partial_count": 0,
                 "unpaid_total": Decimal("0.00"),
                 "unpaid_count": 0,
-                "monthly": [],
-                "top_providers": [],
             }
 
         zero = Value(Decimal("0.00"))
@@ -527,21 +549,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             count=Count("id"),
         )
 
-        monthly = list(
-            base_qs
-            .annotate(month=TruncMonth("due_date"))
-            .values("month")
-            .annotate(total=Coalesce(Sum("total_amount"), zero, output_field=field))
-            .order_by("month")
-        )
-
-        top_providers = list(
-            base_qs
-            .values("provider__name")
-            .annotate(total=Coalesce(Sum("total_amount"), zero, output_field=field))
-            .order_by("-total")[:10]
-        )
-
         outstanding_qs = Invoice.objects.filter(
             company=company,
             due_date__lte=date_to,
@@ -572,12 +579,180 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "partial_count": partial_agg["count"],
             "unpaid_total": unpaid_agg["total"],
             "unpaid_count": unpaid_agg["count"],
-            "monthly": monthly,
-            "top_providers": top_providers,
             "outstanding_providers": outstanding_providers,
             "cumulative_debt": cumulative_purchase_debt["total"],
             "cumulative_debt_count": cumulative_purchase_debt["count"],
         }
+
+    # ── Purchasing without taxes helpers ────────────────────────────
+
+    @staticmethod
+    def _compute_purchasing_without_tax(company, date_from, date_to):
+        """Aggregate purchase invoices without VAT, by invoice date (date_issued)."""
+        if not company:
+            return {
+                "total": Decimal("0.00"),
+                "count": 0,
+                "monthly": [],
+                "monthly_with_tax": [],
+                "top_providers": [],
+            }
+
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+
+        base_qs = Invoice.objects.filter(
+            company=company,
+            date_issued__gte=date_from,
+            date_issued__lte=date_to,
+        )
+
+        total_agg = base_qs.aggregate(
+            total=Coalesce(Sum("net_amount"), zero, output_field=field),
+            count=Count("id"),
+        )
+
+        monthly = list(
+            base_qs
+            .annotate(month=TruncMonth("date_issued"))
+            .values("month")
+            .annotate(total=Coalesce(Sum("net_amount"), zero, output_field=field))
+            .order_by("month")
+        )
+
+        monthly_with_tax = list(
+            base_qs
+            .annotate(month=TruncMonth("date_issued"))
+            .values("month")
+            .annotate(total=Coalesce(Sum("total_amount"), zero, output_field=field))
+            .order_by("month")
+        )
+
+        top_providers = list(
+            base_qs
+            .values("provider__id", "provider__name")
+            .annotate(total=Coalesce(Sum("net_amount"), zero, output_field=field))
+            .order_by("-total")[:10]
+        )
+
+        return {
+            "total": total_agg["total"],
+            "count": total_agg["count"],
+            "monthly": monthly,
+            "monthly_with_tax": monthly_with_tax,
+            "top_providers": top_providers,
+        }
+
+    # ── Collections & payments helpers (real cash movements) ────────
+
+    @staticmethod
+    def _compute_collections_and_payments(company, date_from, date_to):
+        """
+        Real money received from clients and paid to providers, by the date
+        the payment was registered (not invoice date, not due date). Only
+        CONFIRMED and RECONCILED payments count — DRAFT hasn't happened yet
+        and CANCELLED was reversed.
+        """
+        if not company:
+            return {
+                "monthly_collections": [],
+                "monthly_payments": [],
+            }
+
+        from payments.models import Payment, PaymentAllocation, PaymentStatus
+
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+        real_statuses = [PaymentStatus.CONFIRMED, PaymentStatus.RECONCILED]
+
+        sales_ct = ContentType.objects.get_for_model(SalesInvoice)
+        purchase_ct = ContentType.objects.get_for_model(Invoice)
+
+        collections_qs = PaymentAllocation.objects.filter(
+            content_type=sales_ct,
+            payment__company=company,
+            payment__status__in=real_statuses,
+            payment__payment_date__gte=date_from,
+            payment__payment_date__lte=date_to,
+        )
+        payments_qs = PaymentAllocation.objects.filter(
+            content_type=purchase_ct,
+            payment__company=company,
+            payment__status__in=real_statuses,
+            payment__payment_date__gte=date_from,
+            payment__payment_date__lte=date_to,
+        )
+
+        monthly_collections = list(
+            collections_qs
+            .annotate(month=TruncMonth("payment__payment_date"))
+            .values("month")
+            .annotate(total=Coalesce(Sum("amount_applied"), zero, output_field=field))
+            .order_by("month")
+        )
+        monthly_payments = list(
+            payments_qs
+            .annotate(month=TruncMonth("payment__payment_date"))
+            .values("month")
+            .annotate(total=Coalesce(Sum("amount_applied"), zero, output_field=field))
+            .order_by("month")
+        )
+
+        return {
+            "monthly_collections": monthly_collections,
+            "monthly_payments": monthly_payments,
+        }
+
+    # ── Combined chart helpers ───────────────────────────────────────
+
+    @staticmethod
+    def _align_monthly_series(series_a, series_b):
+        """Align two {month, total} lists on the same months, filling gaps with 0."""
+        by_month_a = {entry["month"]: entry["total"] for entry in series_a}
+        by_month_b = {entry["month"]: entry["total"] for entry in series_b}
+        months = sorted(set(by_month_a) | set(by_month_b))
+        zero = Decimal("0.00")
+
+        return (
+            months,
+            [by_month_a.get(month, zero) for month in months],
+            [by_month_b.get(month, zero) for month in months],
+        )
+
+    @staticmethod
+    def _compute_sales_vs_purchases(invoicing_data, purchasing_without_tax_data):
+        """Economic analysis: finalized sales vs purchases, both without VAT, by date_issued."""
+        labels, sales, purchases = OperationalDashboardView._align_monthly_series(
+            invoicing_data["monthly_final"], purchasing_without_tax_data["monthly"],
+        )
+        return {"labels": labels, "sales": sales, "purchases": purchases}
+
+    @staticmethod
+    def _compute_collections_vs_payments(collections_and_payments_data):
+        """Financial analysis: real money collected from clients vs paid to providers."""
+        labels, collections, payments = OperationalDashboardView._align_monthly_series(
+            collections_and_payments_data["monthly_collections"],
+            collections_and_payments_data["monthly_payments"],
+        )
+        return {"labels": labels, "collections": collections, "payments": payments}
+
+    @staticmethod
+    def _compute_sales_vs_collections(invoicing_data, collections_and_payments_data):
+        """Financial analysis: finalized sales with VAT (invoiced) vs real collections."""
+        labels, sales, collections = OperationalDashboardView._align_monthly_series(
+            invoicing_data["monthly_final_with_tax"],
+            collections_and_payments_data["monthly_collections"],
+        )
+        return {"labels": labels, "sales": sales, "collections": collections}
+
+    @staticmethod
+    def _compute_purchases_vs_payments(purchasing_without_tax_data, collections_and_payments_data):
+        """Financial analysis: purchases with VAT (invoiced) vs real payments made."""
+        labels, purchases, payments = OperationalDashboardView._align_monthly_series(
+            purchasing_without_tax_data["monthly_with_tax"],
+            collections_and_payments_data["monthly_payments"],
+        )
+        return {"labels": labels, "purchases": purchases, "payments": payments}
 
     @staticmethod
     def _compute_tax_periods(company, date_from, date_to):

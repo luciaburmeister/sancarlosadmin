@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import date
 
 from django.core.exceptions import ValidationError
-from django.utils.translation import gettext as _
+from django.db import models
+from django.utils.translation import gettext as _, gettext_lazy
 from sepaxml import SepaDD
 from sepaxml.validation import ValidationError as SepaValidationError
 
@@ -24,6 +25,14 @@ SCHEMA = "pain.008.001.02"
 # Same pattern the schema checks, so a bad IBAN skips its invoice instead of
 # failing the whole file
 IBAN_RE = re.compile(r"[A-Z]{2}[0-9]{2}[a-zA-Z0-9]{1,30}")
+
+
+class SepaScheme(models.TextChoices):
+    """Direct debit scheme, written as the file's local instrument. It must
+    match what the clients signed: a B2B mandate is also registered by the
+    client with their bank, and B2B collections cannot be refunded."""
+    CORE = "CORE", gettext_lazy("CORE (consumers and businesses)")
+    B2B = "B2B", gettext_lazy("B2B (businesses only)")
 
 
 @dataclass
@@ -71,10 +80,11 @@ def _skip_reason(invoice, company, account):
     return None
 
 
-def build_direct_debit_xml(invoices, *, creditor_account, collection_date: date):
+def build_direct_debit_xml(invoices, *, creditor_account, collection_date: date, scheme=SepaScheme.CORE):
     """
     Build the SEPA file charging what is left to pay of each invoice on
-    ``collection_date`` into ``creditor_account``.
+    ``collection_date`` into ``creditor_account``, under ``scheme`` (CORE
+    or B2B, see SepaScheme).
 
     Returns ``(xml_bytes, skipped)``, ``skipped`` listing the invoices left
     out and why. Raises ValidationError when the creditor data is missing
@@ -103,7 +113,7 @@ def build_direct_debit_xml(invoices, *, creditor_account, collection_date: date)
             "creditor_id": creditor_id,
             "currency": "EUR",
             "batch": False,
-            "instrument": "CORE",
+            "instrument": SepaScheme(scheme).value,
         },
         schema=SCHEMA,
     )

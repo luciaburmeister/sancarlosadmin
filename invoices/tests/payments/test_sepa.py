@@ -47,9 +47,9 @@ class SepaFixtureMixin:
             date_issued=date(2026, 10, 1), total_amount=Money(total, "EUR"), **fields,
         )
 
-    def _build(self, invoices):
+    def _build(self, invoices, **kwargs):
         return sepa.build_direct_debit_xml(
-            invoices, creditor_account=self.creditor_account, collection_date=COLLECTION_DATE,
+            invoices, creditor_account=self.creditor_account, collection_date=COLLECTION_DATE, **kwargs,
         )
 
 
@@ -80,6 +80,11 @@ class BuildDirectDebitXmlTests(SepaFixtureMixin, TestCase):
         self.assertEqual(transaction.findtext(".//p:DtOfSgntr", namespaces=NS), "2025-03-01")
         self.assertEqual(transaction.findtext(".//p:DbtrAcct//p:IBAN", namespaces=NS), DEBTOR_IBAN)
         self.assertIn(first.payment_reference, transaction.findtext(".//p:Ustrd", namespaces=NS))
+
+    def test_b2b_scheme_is_written_as_the_local_instrument(self):
+        xml, _skipped = self._build([self._invoice()], scheme=sepa.SepaScheme.B2B)
+        root = ET.fromstring(xml)
+        self.assertEqual(root.findtext(".//p:PmtInf//p:LclInstrm/p:Cd", namespaces=NS), "B2B")
 
     def test_collects_only_what_is_left_to_pay(self):
         invoice = self._invoice("121.00")
@@ -173,18 +178,37 @@ class SepaDirectDebitAdminTests(SepaFixtureMixin, TestCase):
         collection_date = date.today() + timedelta(days=10)
         response = self.client.post(
             f"{self.url}?ids={invoice.pk}",
-            {"creditor_account": self.creditor_account.pk, "collection_date": collection_date.strftime("%d/%m/%Y")},
+            {
+                "creditor_account": self.creditor_account.pk,
+                "scheme": "CORE",
+                "collection_date": collection_date.strftime("%d/%m/%Y"),
+            },
         )
         self.assertEqual(response.status_code, 200, getattr(response, "context", None) and response.context["form"].errors)
         self.assertEqual(response["Content-Type"], "application/xml")
-        self.assertIn(f"SEPA_{collection_date:%Y%m%d}.xml", response["Content-Disposition"])
+        self.assertIn(f"SEPA_CORE_{collection_date:%Y%m%d}.xml", response["Content-Disposition"])
         self.assertIn(invoice.payment_reference.encode(), response.content)
+
+    def test_post_downloads_a_b2b_file(self):
+        invoice = self._invoice()
+        collection_date = date.today() + timedelta(days=10)
+        response = self.client.post(
+            f"{self.url}?ids={invoice.pk}",
+            {
+                "creditor_account": self.creditor_account.pk,
+                "scheme": "B2B",
+                "collection_date": collection_date.strftime("%d/%m/%Y"),
+            },
+        )
+        self.assertEqual(response.status_code, 200, getattr(response, "context", None) and response.context["form"].errors)
+        self.assertIn(f"SEPA_B2B_{collection_date:%Y%m%d}.xml", response["Content-Disposition"])
+        self.assertIn(b"<Cd>B2B</Cd>", response.content)
 
     def test_collection_date_too_soon_is_rejected(self):
         invoice = self._invoice()
         response = self.client.post(
             f"{self.url}?ids={invoice.pk}",
-            {"creditor_account": self.creditor_account.pk, "collection_date": date.today().strftime("%d/%m/%Y")},
+            {"creditor_account": self.creditor_account.pk, "scheme": "CORE", "collection_date": date.today().strftime("%d/%m/%Y")},
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context["form"].errors)

@@ -6,6 +6,7 @@ from django.utils.translation import gettext_lazy as _
 from unfold.widgets import UnfoldAdminDateWidget, UnfoldAdminSelectWidget
 
 from company.models import BankAccount
+from invoices.sepa import SepaScheme
 
 # Days the bank needs between receiving the file and charging the client
 MIN_BUSINESS_DAYS_AHEAD = 2
@@ -24,6 +25,13 @@ class SepaDirectDebitForm(forms.Form):
         queryset=BankAccount.objects.none(),
         label=_("Collect into"),
         widget=UnfoldAdminSelectWidget(),
+    )
+    scheme = forms.ChoiceField(
+        choices=SepaScheme.choices,
+        initial=SepaScheme.CORE,
+        label=_("Scheme"),
+        widget=UnfoldAdminSelectWidget(),
+        help_text=_("Must match the mandates the clients signed: B2B only for businesses that registered the mandate with their bank."),
     )
     collection_date = forms.DateField(
         label=_("Collection date"),

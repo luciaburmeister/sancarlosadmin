@@ -22831,3 +22831,19 @@ msgstr "Devolución"
 msgctxt "goods return"
 msgid "Reason"
 msgstr "Motivo"
+
+#: invoices/sepa.py
+msgid "CORE (consumers and businesses)"
+msgstr "CORE (particulares y empresas)"
+
+#: invoices/sepa.py
+msgid "B2B (businesses only)"
+msgstr "B2B (solo empresas)"
+
+#: invoices/sepa.py
+msgid "Scheme"
+msgstr "Esquema"
+
+#: invoices/sepa.py
+msgid "Must match the mandates the clients signed: B2B only for businesses that registered the mandate with their bank."
+msgstr "Debe coincidir con los mandatos firmados por los clientes: B2B solo para empresas que hayan registrado el mandato en su banco."

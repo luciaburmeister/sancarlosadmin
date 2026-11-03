@@ -29,3 +29,19 @@ msgstr "Facture"
 
 msgid "Advance Invoice"
 msgstr "Facture d'acompte"
+
+#: invoices/sepa.py
+msgid "CORE (consumers and businesses)"
+msgstr "CORE (particuliers et entreprises)"
+
+#: invoices/sepa.py
+msgid "B2B (businesses only)"
+msgstr "B2B (entreprises uniquement)"
+
+#: invoices/sepa.py
+msgid "Scheme"
+msgstr "Schéma"
+
+#: invoices/sepa.py
+msgid "Must match the mandates the clients signed: B2B only for businesses that registered the mandate with their bank."
+msgstr "Doit correspondre aux mandats signés par les clients : B2B uniquement pour les entreprises ayant enregistré le mandat auprès de leur banque."

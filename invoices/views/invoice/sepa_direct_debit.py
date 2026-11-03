@@ -61,15 +61,17 @@ class SepaDirectDebitAdminView(UnfoldModelAdminViewMixin, FormView):
 
     def form_valid(self, form):
         collection_date = form.cleaned_data["collection_date"]
+        scheme = form.cleaned_data["scheme"]
         try:
             xml, _skipped = sepa.build_direct_debit_xml(
                 self.invoices,
                 creditor_account=form.cleaned_data["creditor_account"],
                 collection_date=collection_date,
+                scheme=scheme,
             )
         except ValidationError as e:
             form.add_error(None, e)
             return self.form_invalid(form)
         response = HttpResponse(xml, content_type="application/xml")
-        response["Content-Disposition"] = f'attachment; filename="SEPA_{collection_date:%Y%m%d}.xml"'
+        response["Content-Disposition"] = f'attachment; filename="SEPA_{scheme}_{collection_date:%Y%m%d}.xml"'
         return response

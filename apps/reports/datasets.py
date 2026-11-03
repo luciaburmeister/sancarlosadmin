@@ -45,6 +45,7 @@ from assets.models import (
     AssetTypeCategory,
     BillingStatus,
     TransactionTypeChoices,
+    ZoneDistanceCache,
 )
 from banking.models import BankTransaction, ReconciliationStatus
 from configurator.models import (
@@ -1858,7 +1859,18 @@ class AssetTransactionsDataset(BaseDataset):
             "Transaction month. Use this, not date, when grouping by month.",
         ),
     )
-    measures = ()
+    measures = (
+        CatalogMeasure(
+            "distance_km",
+            "distance_km",
+            "Driving distance between from_zone and to_zone, in km. Only "
+            "covers zone pairs already resolved (cached) -- a pair never "
+            "looked up before is excluded from the sum, not counted as 0, "
+            "so totals may undercount for brand-new zone combinations.",
+            requires_annotation=True,
+            unit="km",
+        ),
+    )
     filter_fields = (
         CatalogField(
             "transaction_type",
@@ -1902,6 +1914,28 @@ class AssetTransactionsDataset(BaseDataset):
             "Project file",
         ),
     )
+
+    def prepare_queryset(self, qs: QuerySet, spec) -> QuerySet:
+        needs_distance = any(
+            agg.measure == "distance_km" for agg in spec.aggregations
+        ) or any(filt.field == "distance_km" for filt in spec.filters)
+        if not needs_distance:
+            return qs
+
+        distance_meters = Subquery(
+            ZoneDistanceCache.objects.filter(
+                from_zone_id=OuterRef("from_zone_id"),
+                to_zone_id=OuterRef("to_zone_id"),
+            ).values("distance_meters")[:1],
+            output_field=FloatField(),
+        )
+        return qs.annotate(
+            distance_km=Case(
+                When(from_zone=F("to_zone"), then=Value(0.0)),
+                default=distance_meters / Value(1000.0),
+                output_field=FloatField(),
+            )
+        )
 
     def base_queryset(self) -> QuerySet:
         return AssetTransaction.objects.annotate(

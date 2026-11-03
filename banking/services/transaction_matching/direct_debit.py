@@ -7,6 +7,10 @@ of the company still owes, on that day, is that invoice: no one needs to look
 at it. The charge carries no IBAN and its payee name rarely matches the
 provider's, so neither is required; the invoice's payment method is often
 left as transfer, so it isn't either. Two candidates leave it to a human.
+
+Most charges reach the bank before their invoice is registered, so the
+invoice looks for its charge too (find_waiting_charge): same rule, from the
+other side.
 """
 from datetime import date, timedelta
 
@@ -39,6 +43,14 @@ def due_dates_charged_on(charge_date: date) -> list[date]:
     return dates
 
 
+def charge_date_for(due_date: date) -> date:
+    """The day a debit due on ``due_date`` is charged: the first business day from it."""
+    day = due_date
+    while not is_bank_business_day(day):
+        day += timedelta(days=1)
+    return day
+
+
 def find_charged_invoice(transaction):
     """
     The one purchase invoice that ``transaction`` pays, or None when there is
@@ -57,3 +69,28 @@ def find_charged_invoice(transaction):
         annotate_amount_remaining(qs, Invoice).filter(db_amount_remaining=abs(transaction.amount.amount))[:2]
     )
     return matches[0] if len(matches) == 1 else None
+
+
+def find_waiting_charge(invoice):
+    """
+    The one unreconciled charge already in the bank that pays ``invoice``, or
+    None. That charge has to pick ``invoice`` back (find_charged_invoice),
+    so both sides agree no other candidate exists.
+    """
+    if not invoice.due_date or not invoice.company_id or invoice.document_type == "credit_note":
+        return None
+    remaining = invoice.amount_remaining_decimal
+    if remaining <= 0:
+        return None
+    BankTransaction = apps.get_model("banking", "BankTransaction")
+    charges = list(
+        BankTransaction.objects.filter(
+            company_id=invoice.company_id,
+            reconciliation_status="unreconciled",
+            transaction_date=charge_date_for(invoice.due_date),
+            amount=-remaining,
+        )[:2]
+    )
+    if len(charges) != 1 or find_charged_invoice(charges[0]) != invoice:
+        return None
+    return charges[0]

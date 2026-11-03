@@ -29,6 +29,7 @@ from invoices.services.invoice.invoice_duplicate_service import InvoiceDuplicate
 from company.models import Company
 from core.services.provider_service import get_or_create_provider
 from invoices.services.purchase_invoice_payment import resolve_purchase_invoice_payment_method
+from banking.tasks import schedule_waiting_charge_match
 
 
 
@@ -165,6 +166,7 @@ class InvoiceService:
                 if invoice.apply_rounding_line():
                     messages.append("Added rounding line to match the invoice total")
                 invoice.verify_total_balance()
+                schedule_waiting_charge_match(invoice)
             
             return InvoiceProcessingResult(
                 invoice=invoice,
@@ -311,6 +313,7 @@ class InvoiceService:
                 if invoice.apply_rounding_line():
                     messages.append("Added rounding line to match the invoice total")
                 invoice.verify_total_balance()
+                schedule_waiting_charge_match(invoice)
 
             return InvoiceProcessingResult(invoice=invoice, success=True, messages=messages, needs_review=True)
 

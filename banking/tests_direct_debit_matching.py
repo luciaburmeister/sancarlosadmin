@@ -8,10 +8,10 @@ from djmoney.money import Money
 from banking.models import BankTransaction, ReconciliationMethod, ReconciliationStatus
 from banking.services.transaction_matching.direct_debit import due_dates_charged_on, is_bank_business_day
 from banking.services.transaction_matching.matcher import TransactionMatcher
-from banking.tasks import run_matcher_for_transaction
+from banking.tasks import match_waiting_charge_task, run_matcher_for_transaction
 from company.models import BankAccount
 from invoices.models import Invoice, InvoiceDocumentType, PaymentMethod as InvoicePaymentMethod
-from invoices.tests.factories import make_company
+from invoices.tests.factories import OCR_DEFAULTS, OcrTestMixin, make_company
 from materials.models import Provider
 from payments.models import Payment, PaymentAllocation, PaymentMethod
 
@@ -39,9 +39,7 @@ class BankBusinessDayTests(SimpleTestCase):
         )
 
 
-class DirectDebitMatchingTests(TestCase):
-    """A charge on an invoice's due date, for exactly what it owes, reconciles itself."""
-
+class DirectDebitTestCase(TestCase):
     def setUp(self):
         self.company = make_company()
         self.account = BankAccount.objects.create(
@@ -84,6 +82,10 @@ class DirectDebitMatchingTests(TestCase):
         self.assertFalse(any(c["confidence"] == "direct_debit" for c in recon.suggested_allocations))
         self.assertFalse(TransactionMatcher.auto_confirm(recon))
         self.assertFalse(Payment.objects.exists())
+
+
+class DirectDebitMatchingTests(DirectDebitTestCase):
+    """A charge on an invoice's due date, for exactly what it owes, reconciles itself."""
 
     def test_charge_on_the_due_date_is_reconciled(self):
         invoice = self._invoice()
@@ -153,3 +155,70 @@ class DirectDebitMatchingTests(TestCase):
 
         self.assertFalse(TransactionMatcher.auto_confirm(recon))
         self.assertEqual(Payment.objects.count(), 1)
+
+
+class WaitingChargeTests(OcrTestMixin, DirectDebitTestCase):
+    """The charge reached the bank first: receiving its invoice reconciles it."""
+
+    def _charge_before_invoice(self, **txn_fields):
+        txn = self._txn(**txn_fields)
+        # The matcher ran on import, with no invoice to match it to yet
+        self.assertFalse(run_matcher_for_transaction(txn.pk)["auto_confirmed"])
+        return txn
+
+    def _assert_waiting_charge_reconciled(self, invoice, txn):
+        result = match_waiting_charge_task(invoice.pk)
+
+        self.assertTrue(result["auto_confirmed"])
+        invoice.refresh_from_db()
+        txn.refresh_from_db()
+        self.assertEqual(invoice.payment_status, "paid")
+        self.assertEqual(txn.reconciliation_status, ReconciliationStatus.RECONCILED)
+        self.assertEqual(PaymentAllocation.objects.get().object_id, invoice.pk)
+
+    def _assert_waiting_charge_left(self, invoice):
+        self.assertEqual(match_waiting_charge_task(invoice.pk), {"status": "no_match"})
+        self.assertFalse(Payment.objects.exists())
+
+    def test_invoice_received_after_its_charge_reconciles_it(self):
+        txn = self._charge_before_invoice()
+        self._assert_waiting_charge_reconciled(self._invoice(), txn)
+
+    def test_weekend_due_date_finds_the_monday_charge(self):
+        txn = self._charge_before_invoice(charged_on=date(2026, 11, 2))
+        self._assert_waiting_charge_reconciled(self._invoice(due_date=date(2026, 10, 31)), txn)
+
+    def test_ocr_receiving_the_invoice_reconciles_its_charge(self):
+        self.company.tax_identifier = OCR_DEFAULTS["company_tax_id"]
+        self.company.save(update_fields=["tax_identifier"])
+        txn = self._charge_before_invoice()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            invoice = self._process_new(total_amount=Decimal("121.00"), due_date="2026-10-30")
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.reconciliation_status, ReconciliationStatus.RECONCILED)
+        self.assertEqual(PaymentAllocation.objects.get().object_id, invoice.pk)
+
+    def test_two_identical_charges_are_left_for_a_human(self):
+        self._charge_before_invoice(ext_id="t1")
+        self._charge_before_invoice(ext_id="t2")
+        self._assert_waiting_charge_left(self._invoice())
+
+    def test_charge_another_invoice_also_fits_is_left_for_a_human(self):
+        self._charge_before_invoice()
+        invoice = self._invoice()
+        self._invoice(provider=Provider.objects.create(company=self.company, name="Otro Proveedor"))
+        self._assert_waiting_charge_left(invoice)
+
+    def test_reconciled_charge_is_not_taken_again(self):
+        first = self._invoice()
+        self._assert_reconciled(first, self._txn())
+        second = self._invoice(invoice_number="2")
+
+        self.assertEqual(match_waiting_charge_task(second.pk), {"status": "no_match"})
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_charge_on_another_day_is_not_taken(self):
+        self._charge_before_invoice(charged_on=date(2026, 11, 2))
+        self._assert_waiting_charge_left(self._invoice())

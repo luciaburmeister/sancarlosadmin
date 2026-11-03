@@ -59,6 +59,33 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
         raise self.retry(exc=exc)
 
 
+@shared_task
+def match_waiting_charge_task(invoice_id: int):
+    """Run the transaction matcher on the charge already in the bank that pays
+    this purchase invoice, if there is exactly one (see find_waiting_charge).
+
+    Dispatched whenever a purchase invoice is received or edited: most direct
+    debits reach the bank before their invoice, when the matcher that ran on
+    their import had nothing to match them to.
+    """
+    from banking.services.transaction_matching.direct_debit import find_waiting_charge
+    from invoices.models import Invoice
+
+    invoice = Invoice.objects.filter(pk=invoice_id).first()
+    charge = invoice and find_waiting_charge(invoice)
+    if not charge:
+        return {"status": "no_match"}
+    return run_matcher_for_transaction(charge.pk)
+
+
+def schedule_waiting_charge_match(invoice) -> None:
+    """Queue match_waiting_charge_task for ``invoice`` once the current transaction commits."""
+    from django.db import transaction
+
+    invoice_id = invoice.pk
+    transaction.on_commit(lambda: match_waiting_charge_task.delay(invoice_id))
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
     """Run InvoiceMatcher for a single Invoice, SalesInvoice, or ExpenseClaim.

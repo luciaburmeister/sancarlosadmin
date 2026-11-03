@@ -22953,6 +22953,7 @@ msgstr "Devolución %(number)s cancelada; el stock que había devuelto ha vuelto
 msgid "Return %(number)s reopened as a draft."
 msgstr "Devolución %(number)s reabierta como borrador."
 
+msgctxt "delivery order return"
 msgid "Returned"
 msgstr "Devuelto"
 

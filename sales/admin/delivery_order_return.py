@@ -253,7 +253,7 @@ class DeliveryOrderReturnInline(TabularInline):
     fields = ["number", "date", "status", "received_at", "lines_display"]
     readonly_fields = fields
 
-    @display(description=_("Returned"))
+    @display(description=pgettext_lazy("delivery order return", "Returned"))
     def lines_display(self, obj):
         return ", ".join(
             f"{line.delivery_order_item.item_number} ×{line.quantity} ({line.reason})"

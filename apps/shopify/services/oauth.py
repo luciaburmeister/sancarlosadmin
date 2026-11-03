@@ -125,18 +125,37 @@ class ShopifyOAuthService:
 
     @classmethod
     def _token_request(cls, store: ShopifyStore, fields: dict) -> dict:
+        """Ask Shopify for tokens, trying again while it answers with a temporary error.
+
+        A dropped connection or a gateway error is retried: should Shopify
+        have issued tokens (and spent the refresh token) before the answer
+        was lost, the retry fails as the lost answer already had. A timeout
+        is not, as the request may still be running and the caller holds the
+        store's row lock.
+        """
         if store.app_id is None:
             raise ShopifyAuthError(_("Choose the Shopify app for this store first."))
         payload = {"client_id": store.app.client_id, "client_secret": store.app.get_client_secret(), **fields}
-        try:
-            response = requests.post(
-                f"https://{store.shop_domain}/admin/oauth/access_token",
-                data=payload,
-                headers={"Accept": "application/json"},
-                timeout=cls.REQUEST_TIMEOUT_SECONDS,
-            )
-        except requests.RequestException as exc:
-            raise ShopifyAuthError(_("Could not reach Shopify.")) from exc
+        attempts = ShopifyApiConfig.MAX_ATTEMPTS
+        for attempt in range(1, attempts + 1):
+            try:
+                response = requests.post(
+                    f"https://{store.shop_domain}/admin/oauth/access_token",
+                    data=payload,
+                    headers={"Accept": "application/json"},
+                    timeout=cls.REQUEST_TIMEOUT_SECONDS,
+                )
+            except requests.ConnectionError as exc:
+                if attempt < attempts:
+                    time.sleep(attempt)
+                    continue
+                raise ShopifyAuthError(_("Could not reach Shopify.")) from exc
+            except requests.RequestException as exc:
+                raise ShopifyAuthError(_("Could not reach Shopify.")) from exc
+            if response.status_code in ShopifyApiConfig.TEMPORARY_STATUSES and attempt < attempts:
+                time.sleep(attempt)
+                continue
+            break
         # The body is never logged or shown: it carries the tokens.
         if response.status_code != 200:
             raise ShopifyAuthError(

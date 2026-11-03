@@ -171,3 +171,40 @@ def push_catalog_all_stores() -> None:
             continue
         for error in result.errors:
             logger.warning("Shopify catalog push to store %s: %s", store.pk, error)
+
+
+@shared_task(name="apps.shopify.tasks.sync_client_discounts", bind=True, max_retries=10, default_retry_delay=60)
+def sync_client_discounts(self: Task, company_ids: list[int]) -> None:
+    """Bring the client discounts of these companies' stores in line with the ERP."""
+    from apps.shopify.exceptions import ShopifyBusy, ShopifyError
+    from apps.shopify.models import ShopifyStore
+    from apps.shopify.services.discounts import ShopifyDiscountService
+
+    busy = False
+    for store in ShopifyStore.objects.publishing_discounts().filter(company_id__in=company_ids):
+        try:
+            ShopifyDiscountService.sync(store)
+        except ShopifyBusy:
+            busy = True  # the run in progress may have read the data before this change
+        except ShopifyError:
+            logger.exception("Client discount sync of Shopify store %s failed", store.pk)
+    if busy:
+        raise self.retry()
+
+
+@shared_task(name="apps.shopify.tasks.sync_client_discounts_all_stores")
+def sync_client_discounts_all_stores() -> None:
+    """Full client discount sync for every store: repairs anything a live sync missed.
+
+    Schedule it via a django-celery-beat PeriodicTask (admin > Periodic
+    Tasks), e.g. nightly at 04:15.
+    """
+    from apps.shopify.exceptions import ShopifyError
+    from apps.shopify.models import ShopifyStore
+    from apps.shopify.services.discounts import ShopifyDiscountService
+
+    for store in ShopifyStore.objects.publishing_discounts():
+        try:
+            ShopifyDiscountService.sync(store)
+        except ShopifyError:
+            logger.exception("Nightly client discount sync of Shopify store %s failed", store.pk)

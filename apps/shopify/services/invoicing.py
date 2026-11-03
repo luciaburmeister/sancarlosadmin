@@ -27,6 +27,7 @@ from django.db.models import Exists, OuterRef, Q, QuerySet, Sum
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_noop
 
 from apps.shopify.enums import OrderFinancialStatus
 from apps.shopify.models import (
@@ -81,7 +82,7 @@ class InvoiceOnPayment(InvoicingStrategy):
                 return  # not paid yet
             record.invoice = ExternalOrderService.invoice(
                 quote, store.issue_invoices, store.email_invoices,
-                notes=_("Shopify order %(order)s") % {"order": record.name},
+                notes=ShopifyService.erp_text(gettext_noop("Shopify order %(order)s"), order=record.name),
             )
             record.save(update_fields=["invoice"])
         elif record.invoice.status != SalesInvoiceStatus.CANCELLED:
@@ -193,7 +194,7 @@ class CreditNoteRefunds(RefundStrategy):
             store.company, invoice.client, lines,
             project_file=record.quote.project_file if record.quote else None,
             issue=store.issue_invoices, send_email=store.email_invoices,
-            notes=_("Refund of Shopify order %(order)s") % {"order": record.name},
+            notes=ShopifyService.erp_text(gettext_noop("Refund of Shopify order %(order)s"), order=record.name),
         )
         self.mark(refund, RefundStatus.CREDITED)
 
@@ -362,7 +363,7 @@ class ShopifyInvoicingService(ShopifyService):
         )
         for invoice in unpaid:
             ExternalOrderService.record_payment(
-                invoice, PaymentMethod.CARD, reference=_("Shopify %(order)s") % {"order": record.name}
+                invoice, PaymentMethod.CARD, reference=cls.erp_text(gettext_noop("Shopify %(order)s"), order=record.name)
             )
 
     @classmethod

@@ -24,8 +24,12 @@ copied client.
 """
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from djmoney.money import Money
+
+if TYPE_CHECKING:
+    from sales.models import Client
 
 # Sub-records that belong to the client itself rather than being a company
 # using the client. They follow it around instead of voting on where it lives.
@@ -221,7 +225,7 @@ def apply_plan(plan):
         _repoint(client, target, action.company_id, addresses)
 
 
-def _move_client(client, company_id):
+def _move_client(client: "Client", company_id: int) -> "Client":
     from sales.models import ClientAddress, ClientBankAccount
 
     client.company_id = company_id
@@ -238,6 +242,7 @@ def _move_client(client, company_id):
     ]
     if stale_policies:
         client.discount_policies.remove(*stale_policies)
+        client.discount_policies_changed()
 
     ClientAddress.objects.filter(client=client).update(company_id=company_id)
     ClientBankAccount.objects.filter(client=client).update(company_id=company_id)

@@ -1,0 +1,44 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Give clients web store access" %}{% endblock %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% url 'admin:jsi18n' %}"></script>
+    {{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl">
+    <div class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700 p-6">
+        <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark mb-6">
+            {% blocktranslate trimmed with store=store %}
+                The chosen clients can sign in to {{ store }} with their email and pay their client's discounts.
+                Guests and other customers keep paying the shop price.
+            {% endblocktranslate %}
+        </p>
+
+        <form method="post">
+            {% csrf_token %}
+            {% include "unfold/helpers/form_errors.html" with errors=form.non_field_errors %}
+            {% for field in form %}
+                {% include "unfold/helpers/field.html" with field=field %}
+            {% endfor %}
+
+            <div class="flex justify-between items-center pt-4 border-t border-base-200 dark:border-base-700">
+                <a href="{{ back_url }}"
+                   class="flex items-center gap-2 px-4 py-2 rounded-md border border-base-200 dark:border-base-700 text-sm font-semibold hover:bg-base-100 dark:hover:bg-base-800 transition-colors">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+                    {% translate "Cancel" %}
+                </a>
+                <button type="submit"
+                        class="flex items-center gap-2 px-6 py-2 rounded-md bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold transition-colors">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">person_add</span>
+                    {% translate "Give web store access" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

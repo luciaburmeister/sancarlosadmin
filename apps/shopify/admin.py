@@ -11,7 +11,7 @@ from django.db.models import Field, Q, QuerySet
 from django.forms import ModelChoiceField
 from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse
+from django.urls import URLPattern, path, reverse
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import format_html, format_html_join
@@ -30,6 +30,7 @@ from apps.shopify.models import (
     InvoiceTiming,
     RefundStatus,
     ShopifyApp,
+    ShopifyCustomerLink,
     ShopifyFulfillment,
     ShopifyLocationMap,
     ShopifyOrder,
@@ -41,12 +42,14 @@ from apps.shopify.models import (
     WebhookEventStatus,
 )
 from apps.shopify.services.catalog import ShopifyCatalogService
+from apps.shopify.services.discounts import ShopifyDiscountService
 from apps.shopify.services.fulfillments import ShopifyFulfillmentService
 from apps.shopify.services.invoicing import ShopifyInvoicingService
 from apps.shopify.services.oauth import ShopifyOAuthService
 from apps.shopify.services.orders import ShopifyOrderService
 from apps.shopify.services.stock import ShopifyStockService
 from apps.shopify.services.webhooks import ShopifyWebhookService
+from apps.shopify.views import GiveWebStoreAccessView
 from core.admin.company_admin import CompanyRestrictedAdmin
 
 logger = logging.getLogger(__name__)
@@ -116,20 +119,30 @@ class ShopifyStoreAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("name", "shop_domain", "connected", "is_active")
     list_filter = ("is_active", "company")
     search_fields = ("name", "shop_domain")
-    actions_detail = ["connect_store", "test_connection", "sync_webhooks", "sync_catalog", "push_catalog", "push_stock"]
+    actions_detail = [
+        {"title": _("Connection"), "icon": "link", "items": ["connect_store", "test_connection", "sync_webhooks"]},
+        {"title": _("Catalog and stock"), "icon": "inventory_2", "items": ["sync_catalog", "push_catalog", "push_stock"]},
+        {"title": _("Clients"), "icon": "group", "items": ["give_web_store_access", "sync_discounts"]},
+    ]
     inlines = [ShopifyLocationInline]
 
     fieldsets = (
         (_("Store"), {"fields": ("name", "company", "shop_domain", "app", "is_active")}),
         (_("Catalog and stock"), {
             "classes": ["tab"],
-            "fields": ("sync_stock", "push_catalog", "quote_requests", "last_catalog_push"),
+            "fields": (
+                "sync_stock", "push_catalog", "quote_requests", "made_to_measure", "customer_quotes", "pay_quotes_online",
+                "category_field",
+                "group_variants",
+                "last_catalog_push",
+            ),
         }),
         (_("Orders"), {
             "classes": ["tab"],
             "fields": ("import_orders", "client_mode", "web_client", "shipping_item", "tax_type", "orders_synced_at"),
         }),
         (_("Shipping"), {"classes": ["tab"], "fields": ("fulfillment_by", "notify_customer")}),
+        (_("Client discounts"), {"classes": ["tab"], "fields": ("sync_client_discounts",)}),
         (_("Invoicing"), {
             "classes": ["tab"],
             "fields": (
@@ -187,6 +200,12 @@ class ShopifyStoreAdmin(CompanyRestrictedAdmin, ModelAdmin):
             summary += " " + _("%(archived)s archived as no longer sold online, %(restored)s restored.") % {
                 "archived": result.get("archived", 0), "restored": result.get("restored", 0)
             }
+        if result.get("removed"):
+            summary += " " + ngettext(
+                "%(count)s variant removed as no longer sold online.",
+                "%(count)s variants removed as no longer sold online.",
+                result["removed"],
+            ) % {"count": result["removed"]}
         if not result.get("error_count"):
             return summary
         count = result["error_count"]
@@ -283,6 +302,38 @@ class ShopifyStoreAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 request,
                 _("Catalog push started in the background. Its result appears under \"Catalog and stock\" once it finishes."),
             )
+        return self._store_page(store)
+
+    def get_urls(self) -> list[URLPattern]:
+        return [
+            path(
+                "<int:pk>/client-prices/",
+                self.admin_site.admin_view(GiveWebStoreAccessView.as_view(model_admin=self)),
+                name="shopify_shopifystore_web_store_access_form",
+            ),
+            *super().get_urls(),
+        ]
+
+    @action(description=_("Give clients web store access"), icon="person_add", permissions=["change"])
+    def give_web_store_access(self, request: HttpRequest, object_id: str) -> HttpResponseRedirect:
+        store = self._scoped_store(request, object_id)
+        return redirect(reverse("admin:shopify_shopifystore_web_store_access_form", args=[store.pk]))
+
+    @action(description=_("Sync client discounts"), icon="sell", permissions=["change"])
+    def sync_discounts(self, request: HttpRequest, object_id: str) -> HttpResponseRedirect:
+        store = self._scoped_store(request, object_id)
+        try:
+            result = ShopifyDiscountService.sync(store)
+        except ShopifyError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, ngettext(
+                "Client discounts synced: %(count)s customer gets them.",
+                "Client discounts synced: %(count)s customers get them.",
+                result.offered,
+            ) % {"count": result.offered})
+            for error in result.errors:
+                messages.warning(request, error)
         return self._store_page(store)
 
     @action(description=_("Push stock"), icon="publish", permissions=["change"])
@@ -481,6 +532,39 @@ class ShopifyFulfillmentAdmin(CompanyRestrictedAdmin, ModelAdmin):
             messages.success(request, ngettext("%(count)s shipment resolved.", "%(count)s shipments resolved.", done) % {"count": done})
         elif not queryset.filter(cancellation=FulfillmentCancellation.REVIEW).exists():
             messages.warning(request, _("Only shipments cancelled in Shopify and waiting for review can be resolved."))
+
+
+@admin.register(ShopifyCustomerLink)
+class ShopifyCustomerLinkAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    company_field_name = "store__company"
+    list_display = ("client", "store", "web_store_access", "discount_profile", "discount_error")
+    # Only the stores of the links the user may see, not every company's.
+    list_filter = ("web_store_access", ("store", admin.RelatedOnlyFieldListFilter))
+    search_fields = ("client__name", "client__email", "customer_id")
+    readonly_fields = ("store", "client", "customer_id", "web_store_access", "discount_profile", "discount_error")
+    actions = ["give_web_store_access", "remove_web_store_access"]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[ShopifyCustomerLink]:
+        return super().get_queryset(request).select_related("store", "client", "discount_profile")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False  # given from the store ("Give clients web store access") or by web orders
+
+    @action(description=_("Give web store access"), permissions=["change"])
+    def give_web_store_access(self, request: HttpRequest, queryset: QuerySet[ShopifyCustomerLink]) -> None:
+        """For customers already linked, e.g. by their web orders."""
+        given = ShopifyDiscountService.set_web_store_access(queryset, True)
+        messages.success(request, ngettext(
+            "%(count)s customer gets web store access.", "%(count)s customers get web store access.", given
+        ) % {"count": given})
+
+    @action(description=_("Remove web store access"), permissions=["change"])
+    def remove_web_store_access(self, request: HttpRequest, queryset: QuerySet[ShopifyCustomerLink]) -> None:
+        removed = ShopifyDiscountService.set_web_store_access(queryset, False)
+        messages.success(request, ngettext(
+            "%(count)s customer no longer has web store access.", "%(count)s customers no longer have web store access.",
+            removed,
+        ) % {"count": removed})
 
 
 @admin.register(ShopifyVariantLink)

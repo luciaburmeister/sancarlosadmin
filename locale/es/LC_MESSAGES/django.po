@@ -22893,6 +22893,297 @@ msgstr ""
 "El horario laboral ha cambiado. Vuelve a cargar el calendario antes de "
 "planificar de nuevo."
 
+#, python-format
+msgid "The product discounts add up to %(percentage)s%%, which an online store can't apply."
+msgstr "Los descuentos de producto suman %(percentage)s%%, que una tienda online no puede aplicar."
+
+msgid "The volume discounts overlap, leave gaps between their thresholds or don't grow with the amount, so an online store would apply them differently."
+msgstr "Los descuentos por volumen se solapan, dejan huecos entre sus umbrales o no crecen con el importe, así que una tienda online los aplicaría de otra forma."
+
+#, python-format
+msgid "%(rule)s has a condition an online store can't apply: %(condition)s"
+msgstr "%(rule)s tiene una condición que una tienda online no puede aplicar: %(condition)s"
+
+msgid "Connect the store to Shopify again to allow client discounts."
+msgstr "Vuelve a conectar la tienda con Shopify para permitir los descuentos de cliente."
+
+msgid "The client belongs to another company."
+msgstr "El cliente pertenece a otra empresa."
+
+msgid "The client has no email to sign in with."
+msgstr "El cliente no tiene un email con el que iniciar sesión."
+
+msgid "Another client has the same email, and Shopify allows one customer per email."
+msgstr "Otro cliente tiene el mismo email y Shopify solo permite un cliente por email."
+
+#, python-format
+msgid "Shopify refused to create the customer: %(detail)s"
+msgstr "Shopify no ha permitido crear el cliente: %(detail)s"
+
+#, python-format
+msgid "The Shopify customer with this email belongs to %(client)s."
+msgstr "El cliente de Shopify con este email pertenece a %(client)s."
+
+msgid "This store's client discounts are already being updated. Try again in a moment."
+msgstr "Los descuentos de cliente de esta tienda ya se están actualizando. Inténtalo de nuevo en un momento."
+
+msgid "The store's prices include tax, but the company has no default taxes to add to the volume discount thresholds."
+msgstr "Los precios de la tienda incluyen impuestos, pero la empresa no tiene impuestos por defecto que añadir a los umbrales de los descuentos por volumen."
+
+msgid "All products (client discounts)"
+msgstr "Todos los productos (descuentos de cliente)"
+
+msgid "Kept by the ERP for client discounts. Don't edit or delete it."
+msgstr "La mantiene el ERP para los descuentos de cliente. No la edites ni la borres."
+
+#, python-format
+msgid "Shopify refused to create the collection: %(detail)s"
+msgstr "Shopify no ha permitido crear la colección: %(detail)s"
+
+#, python-format
+msgid "Shopify refused to create the discount: %(detail)s"
+msgstr "Shopify no ha permitido crear el descuento: %(detail)s"
+
+#, python-format
+msgid "Client discount %(percentage)s%%"
+msgstr "Descuento de cliente %(percentage)s%%"
+
+#, python-format
+msgid "Volume discount %(percentage)s%%"
+msgstr "Descuento por volumen %(percentage)s%%"
+
+#, python-format
+msgid "Shopify refused the discount update: %(detail)s"
+msgstr "Shopify no ha permitido actualizar el descuento: %(detail)s"
+
+#, python-format
+msgid "Shopify refused to delete the discount: %(detail)s"
+msgstr "Shopify no ha permitido borrar el descuento: %(detail)s"
+
+#, python-format
+msgid "Shopify refused to update the customer: %(detail)s"
+msgstr "Shopify no ha permitido actualizar el cliente: %(detail)s"
+
+msgid "Client discounts"
+msgstr "Descuentos de cliente"
+
+msgid "Give clients web store access"
+msgstr "Dar acceso a la tienda online a clientes"
+
+msgid "Sync client discounts"
+msgstr "Sincronizar descuentos de cliente"
+
+#, python-format
+msgid "Client discounts synced: %(count)s customer gets them."
+msgid_plural "Client discounts synced: %(count)s customers get them."
+msgstr[0] "Descuentos de cliente sincronizados: %(count)s cliente los recibe."
+msgstr[1] "Descuentos de cliente sincronizados: %(count)s clientes los reciben."
+
+#, python-format
+msgid "%(count)s customer gets web store access."
+msgid_plural "%(count)s customers get web store access."
+msgstr[0] "%(count)s cliente recibe acceso a la tienda online."
+msgstr[1] "%(count)s clientes reciben acceso a la tienda online."
+
+msgid "Remove web store access"
+msgstr "Quitar acceso a la tienda online"
+
+#, python-format
+msgid "%(count)s customer no longer has web store access."
+msgid_plural "%(count)s customers no longer have web store access."
+msgstr[0] "%(count)s cliente ya no tiene acceso a la tienda online."
+msgstr[1] "%(count)s clientes ya no tienen acceso a la tienda online."
+
+#, python-format
+msgid "%(count)s client can now sign in and get their discounts."
+msgid_plural "%(count)s clients can now sign in and get their discounts."
+msgstr[0] "%(count)s cliente ya puede iniciar sesión y recibir sus descuentos."
+msgstr[1] "%(count)s clientes ya pueden iniciar sesión y recibir sus descuentos."
+
+msgid "Turn on \"Offer client discounts\" for the store to publish them."
+msgstr "Activa \"Ofrecer descuentos de cliente\" en la tienda para publicarlos."
+
+msgid "Each client's Shopify customer is the one with its email, created if needed. They sign in with that email and see their client's prices and quotes."
+msgstr "Cada cliente se identifica en Shopify por su email, y se crea si hace falta. Inicia sesión con ese email y ve los precios y presupuestos de su cliente."
+
+msgid "Offer client discounts"
+msgstr "Ofrecer descuentos de cliente"
+
+msgid "Customers with web store access pay their client's discounts when signed in, through secret discount codes. Guests and other customers pay the shop price."
+msgstr "Los clientes con acceso a la tienda online pagan con los descuentos de su cliente cuando inician sesión, mediante códigos de descuento secretos. Los invitados y el resto de clientes pagan el precio de la tienda."
+
+msgid "Discounts"
+msgstr "Descuentos"
+
+msgid "Shopify discount profile"
+msgstr "Perfil de descuentos de Shopify"
+
+msgid "Shopify discount profiles"
+msgstr "Perfiles de descuentos de Shopify"
+
+msgid "Web store access"
+msgstr "Acceso a la tienda online"
+
+msgid "Staff gave this customer web store access: the client's discounts and quotes when signed in."
+msgstr "El personal dio a este cliente acceso a la tienda online: los descuentos y presupuestos del cliente al iniciar sesión."
+
+msgid "Discounts in Shopify"
+msgstr "Descuentos en Shopify"
+
+msgid "Discount sync error"
+msgstr "Error de sincronización de descuentos"
+
+msgid "Give web store access"
+msgstr "Dar acceso a la tienda online"
+
+#, python-format
+msgid "The chosen clients can sign in to %(store)s with their email and pay their client's discounts. Guests and other customers keep paying the shop price."
+msgstr "Los clientes elegidos pueden iniciar sesión en %(store)s con su email y pagar con sus descuentos de cliente. Los invitados y el resto de clientes siguen pagando el precio de la tienda."
+
+msgid "This value can't be chosen."
+msgstr "Este valor no se puede elegir."
+
+msgid "Choose one of the options offered."
+msgstr "Elige una de las opciones disponibles."
+
+msgid "Enter a number."
+msgstr "Introduce un número."
+
+msgid "Choose yes or no."
+msgstr "Elige sí o no."
+
+#, python-format
+msgid "%(item)s can't be made to measure."
+msgstr "%(item)s no se puede hacer a medida."
+
+msgid "Made to measure"
+msgstr "A medida"
+
+msgid "For items made from a configurator preset that leaves parameters open. Quote requests: customers choose those parameters and receive a draft quote with the configuration, priced by the configurator."
+msgstr "Para artículos hechos a partir de un preset del configurador que deja parámetros abiertos. Solicitudes de presupuesto: el cliente elige esos parámetros y recibe un presupuesto en borrador con la configuración, valorada por el configurador."
+
+msgid "Category field"
+msgstr "Campo de categoría"
+
+msgid "Key of an item schema field, such as a 'Category' choice in a block the schemas share. Its value is sent to Shopify as the product type, which collections can use to group products. Leave empty to edit product types in Shopify."
+msgstr "Clave de un campo de los esquemas de artículo, como una lista «Categoría» en un bloque que comparten los esquemas. Su valor se envía a Shopify como tipo de producto, que las colecciones pueden usar para agrupar productos. Déjalo vacío para editar los tipos de producto en Shopify."
+
+msgid "Group configurator items as variants"
+msgstr "Agrupar artículos del configurador como variantes"
+
+msgid "Items made from presets of the same configurator template are sold as one product: the parameters the presets fix (up to three) become its options and each item a variant. Applies to items not yet in Shopify; products already there keep their variants."
+msgstr "Los artículos hechos a partir de presets de la misma plantilla del configurador se venden como un solo producto: los parámetros que fijan los presets (hasta tres) pasan a ser sus opciones y cada artículo una variante. Se aplica a los artículos que aún no están en Shopify; los productos que ya están conservan sus variantes."
+
+#, python-format
+msgid "Shopify refused to add the variant: %(detail)s"
+msgstr "Shopify rechazó añadir la variante: %(detail)s"
+
+#, python-format
+msgid "Shopify refused to remove the variant: %(detail)s"
+msgstr "Shopify rechazó eliminar la variante: %(detail)s"
+
+#, python-format
+msgid "%(count)s variant removed as no longer sold online."
+msgid_plural "%(count)s variants removed as no longer sold online."
+msgstr[0] "%(count)s variante eliminada por dejar de venderse online."
+msgstr[1] "%(count)s variantes eliminadas por dejar de venderse online."
+
+msgid "Quotes requested on the website"
+msgstr "Presupuestos solicitados en la web"
+
+msgid "All quotes sent to the client"
+msgstr "Todos los presupuestos enviados al cliente"
+
+msgid "Quotes on the website"
+msgstr "Presupuestos en la web"
+
+msgid "Customers with web store access see their client's quotes on the website: those still being prepared, those sent to them, which they can accept there, and those accepted. Either only the quotes they requested on the website, or every quote sent to their client."
+msgstr "Los clientes con acceso a la tienda online ven en la web los presupuestos de su cliente: los que aún se están preparando, los que se les han enviado, que pueden aceptar allí, y los aceptados. Solo los que solicitaron en la web, o todos los presupuestos enviados a su cliente."
+
+msgid "Shopify quote"
+msgstr "Presupuesto de Shopify"
+
+msgid "Shopify quotes"
+msgstr "Presupuestos de Shopify"
+
+msgid "Requested at"
+msgstr "Solicitado el"
+
+msgid "This quote is already accepted."
+msgstr "Este presupuesto ya está aceptado."
+
+msgid "This quote can no longer be accepted. Ask us for an updated one."
+msgstr "Este presupuesto ya no se puede aceptar. Pídenos uno actualizado."
+
+msgid "Pay accepted quotes online"
+msgstr "Pagar presupuestos aceptados online"
+
+msgid "Customers pay an accepted quote's total in Shopify's checkout, from the quotes on the website. The payment arrives as an order of that quote and is invoiced as the store invoices orders. Needs order import and the draft orders permission: reconnect the store after turning it on."
+msgstr "Los clientes pagan el total de un presupuesto aceptado en el checkout de Shopify, desde los presupuestos de la web. El pago llega como un pedido de ese presupuesto y se factura como la tienda factura los pedidos. Necesita la importación de pedidos y el permiso de pedidos en borrador: vuelve a conectar la tienda después de activarlo."
+
+msgid "Show quotes on the website to take payments for them."
+msgstr "Muestra los presupuestos en la web para cobrarlos."
+
+msgid "Import orders to take payments for quotes."
+msgstr "Importa los pedidos para cobrar presupuestos."
+
+msgid "Shopify quote payment"
+msgstr "Pago de presupuesto en Shopify"
+
+msgid "Shopify quote payments"
+msgstr "Pagos de presupuestos en Shopify"
+
+msgid "Shopify draft order ID"
+msgstr "ID del pedido en borrador de Shopify"
+
+msgid "Checkout address"
+msgstr "Dirección del checkout"
+
+msgid "This quote can't be paid online."
+msgstr "Este presupuesto no se puede pagar online."
+
+msgid "The payment is being prepared. Try again in a moment."
+msgstr "El pago se está preparando. Inténtalo de nuevo en un momento."
+
+msgid "This quote is already paid."
+msgstr "Este presupuesto ya está pagado."
+
+#, python-format
+msgid "Quote no. %(number)s"
+msgstr "Presupuesto n.º %(number)s"
+
+#, python-format
+msgid "Shopify refused to prepare the payment: %(detail)s"
+msgstr "Shopify rechazó preparar el pago: %(detail)s"
+
+msgid "The payment doesn't match the quote's total. We'll be in touch."
+msgstr "El pago no coincide con el total del presupuesto. Nos pondremos en contacto contigo."
+
+msgid "The payment could not be prepared. Please try again later."
+msgstr "No se ha podido preparar el pago. Inténtalo de nuevo más tarde."
+
+msgid "Invalid made-to-measure values."
+msgstr "Valores a medida no válidos."
+
+#, python-format
+msgid "Add between 1 and %(max)s products."
+msgstr "Añade entre 1 y %(max)s productos."
+
+msgid "Invalid product line."
+msgstr "Línea de producto no válida."
+
+#, python-format
+msgid "Web quote request: %(product)s and %(count)s more"
+msgstr "Solicitud de presupuesto web: %(product)s y %(count)s más"
+
+#, python-format
+msgid "Choose the measurements of %(product)s."
+msgstr "Elige las medidas de %(product)s."
+
+#, python-format
+msgid "%(product)s can't be made to measure."
+msgstr "%(product)s no se puede hacer a medida."
+
 msgid "Puts goods back in stock"
 msgstr "Devuelve la mercancía al stock"
 

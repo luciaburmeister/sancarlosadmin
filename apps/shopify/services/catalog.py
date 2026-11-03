@@ -7,29 +7,32 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
-from django.core.cache import cache
+from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from django.utils.html import escape, linebreaks
 from django.utils.translation import gettext as _
 
 from apps.shopify.client import ShopifyClient
-from apps.shopify.enums import ProductStatus
-from apps.shopify.exceptions import ShopifyAPIError, ShopifyError
+from apps.shopify.enums import InventoryPolicy, ProductStatus
+from apps.shopify.exceptions import ShopifyAPIError, ShopifyBusy, ShopifyError
 from apps.shopify.models import ShopifyLocationMap, ShopifyStore, ShopifyVariantLink, VariantLinkStatus
 from apps.shopify.services.base import ShopifyService
+from apps.shopify.services.product_fields import ProductField, ShopifyProductFields
 from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+from apps.shopify.services.stock import ShopifyStockService
 
 if TYPE_CHECKING:
     from inventory.models import InventoryItem
 
 
-class CatalogPushBusy(ShopifyError):
+class CatalogPushBusy(ShopifyBusy):
     """Another catalog push for the store is still running."""
 
 
@@ -44,7 +47,20 @@ class CatalogPushResult:
     unchanged: int = 0
     archived: int = 0
     restored: int = 0
+    removed: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class VariantOptions:
+    """Where an item sits among the variants of a grouped product."""
+
+    group: tuple  # the configurator template and its option names: the product the item belongs to
+    title: str  # the product's title and description, should it have to be created
+    description: str
+    names: tuple[str, ...]
+    values: tuple[str, ...]
+    position: tuple[int, ...]  # the values' places in the template's option lists, for ordering
 
 
 class ShopifyCatalogService(ShopifyService):
@@ -75,12 +91,25 @@ class ShopifyCatalogService(ShopifyService):
       productVariants(first: 5, query: $query) {{ nodes {{ {VARIANT_FIELDS} }} }}
     }}
     """
-    PRODUCT_CREATE = """
-    mutation ($product: ProductCreateInput!) {
-      productCreate(product: $product) {
-        product { id title variants(first: 1) { nodes { id sku title product { id title } inventoryItem { id } } } }
-        userErrors { field message }
-      }
+    PRODUCT_CREATE = f"""
+    mutation ($product: ProductCreateInput!) {{
+      productCreate(product: $product) {{
+        product {{ id title variants(first: 1) {{ nodes {{ {VARIANT_FIELDS} }} }} }}
+        userErrors {{ field message }}
+      }}
+    }}
+    """
+    VARIANTS_CREATE = f"""
+    mutation ($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {{
+      productVariantsBulkCreate(productId: $productId, variants: $variants) {{
+        productVariants {{ {VARIANT_FIELDS} }}
+        userErrors {{ field message }}
+      }}
+    }}
+    """
+    VARIANTS_DELETE = """
+    mutation ($productId: ID!, $variantsIds: [ID!]!) {
+      productVariantsBulkDelete(productId: $productId, variantsIds: $variantsIds) { userErrors { field message } }
     }
     """
     VARIANT_UPDATE = """
@@ -90,7 +119,9 @@ class ShopifyCatalogService(ShopifyService):
       }
     }
     """
-    SHOP_TAXES_QUERY = "{ shop { taxesIncluded } }"
+    STOCK_SETTINGS_QUERY = """
+    query ($id: ID!) { productVariant(id: $id) { inventoryPolicy inventoryItem { tracked } } }
+    """
     PRODUCT_STATUS_QUERY = """
     query ($id: ID!) { product(id: $id) { status variantsCount { count } } }
     """
@@ -118,6 +149,7 @@ class ShopifyCatalogService(ShopifyService):
     NEW_PRODUCT = "new"
     PUSH_LOCK = "shopify:catalog-push-lock:{store_id}"
     PUSH_LOCK_SECONDS = 900
+    MAX_PRODUCT_OPTIONS = 3  # Shopify's limit
 
     @staticmethod
     def sku_key(sku: str | None) -> str:
@@ -220,9 +252,12 @@ class ShopifyCatalogService(ShopifyService):
 
         ``item_ids`` limits it to those items. An item whose SKU already
         exists in Shopify is linked to that product instead of duplicating
-        it. Only price, cost and SKU are written after creation: titles,
+        it. Only price, cost and SKU are written after creation, and the
+        product type when the store takes it from a category field: titles,
         descriptions and photos belong to Shopify. Products of items no
         longer sold online are archived, and restored if they are again.
+        Where the store groups configurator items, an item joins its group's
+        product as a variant, and leaves it when no longer sold online.
 
         Where the store's prices include tax, as consumer prices must in
         Spain, the item's tax is added to its ERP (net) price.
@@ -232,31 +267,44 @@ class ShopifyCatalogService(ShopifyService):
         result = CatalogPushResult()
         if not store.push_catalog:
             return result
-        lock = cls.PUSH_LOCK.format(store_id=store.pk)
+        if item_ids is not None:
+            item_ids = set(item_ids)
         # Two pushes at once could both create the same new product.
-        if not cache.add(lock, True, cls.PUSH_LOCK_SECONDS):
-            raise CatalogPushBusy(_("A catalog push for this store is already running. Try again in a moment."))
-        try:
-            items = InventoryItem.objects.filter(company_id=store.company_id, sell_online=True).order_by("pk")
+        busy = CatalogPushBusy(_("A catalog push for this store is already running. Try again in a moment."))
+        with cls.store_lock(cls.PUSH_LOCK.format(store_id=store.pk), cls.PUSH_LOCK_SECONDS, busy) as keep_lock:
+            items = (
+                InventoryItem.objects.filter(company_id=store.company_id, sell_online=True)
+                .with_configuration_preset()
+                # The product fields read every item's schema: loaded once, not per item.
+                .select_related("metadata_schema")
+                .prefetch_related("metadata_schema__fields", "metadata_schema__includes__fields")
+                .order_by("pk")
+            )
             if item_ids is not None:
                 items = items.filter(pk__in=item_ids)
             links = {
                 link.item_id: link
                 for link in store.variant_links.filter(status=VariantLinkStatus.MATCHED, item__in=items)
             }
+            options = cls._variant_options(store)
+            group_products = cls._group_products(store, options)
             client = ShopifyClient(store)
-            taxes_included = client.graphql(cls.SHOP_TAXES_QUERY)["shop"]["taxesIncluded"]
+            taxes_included = cls.taxes_included(client)
             tax_rates = items.consumer_tax_rates() if taxes_included else {}
-            restored = set()
-            for item in items:
+            restored, touched = set(), set()
+            # A group's new product takes its options' values in the order its first variants bring them.
+            ordered = sorted(items, key=lambda item: (0, (), ()) if item.pk not in options else (
+                1, options[item.pk].group, options[item.pk].position
+            ))
+            for item in ordered:
                 # A long push keeps its lock for as long as it runs.
-                cache.touch(lock, cls.PUSH_LOCK_SECONDS)
+                keep_lock()
                 try:
                     price = cls._shop_price(item, taxes_included, tax_rates.get(item.pk))
                     sale_mode = store.sale_mode(item)
                     link, created = links.get(item.pk), False
                     if link is None:
-                        link, created = cls._link_or_create(client, store, item)
+                        link, created = cls._link_or_create(client, store, item, options.get(item.pk), group_products)
                     elif link.archived_from and link.product_id not in restored:
                         restored.add(link.product_id)
                         if link.archived_from == ProductStatus.ARCHIVED:
@@ -264,7 +312,10 @@ class ShopifyCatalogService(ShopifyService):
                         else:
                             cls._set_product_status(client, store, link.product_id, link.archived_from)
                             result.restored += 1
-                    written = cls._update_variant(client, link, item, price, sale_mode)
+                    written = cls._update_variant(client, link, item, price, sale_mode, store.product_type(item))
+                    written = cls._write_fields(client, link, ShopifyProductFields.for_item(store, item)) or written
+                    if written:
+                        touched.add(link.product_id)
                     if created:
                         result.created += 1
                     elif written:
@@ -273,10 +324,82 @@ class ShopifyCatalogService(ShopifyService):
                         result.unchanged += 1
                 except ShopifyError as exc:
                     result.errors.append(f"{item.code}: {exc}")
-            cls._archive_unsold(client, store, item_ids, result, lock)
-        finally:
-            cache.delete(lock)
+            modes = cls._sale_modes(store, touched)
+            for product_id in touched:
+                keep_lock()
+                try:
+                    cls._set_sale_tags(client, product_id, modes.get(product_id, set()))
+                except ShopifyError as exc:
+                    result.errors.append(f"{product_id}: {exc}")
+            cls._archive_unsold(client, store, item_ids, result, keep_lock)
         return result
+
+    @classmethod
+    def _variant_options(cls, store: ShopifyStore) -> dict[int, VariantOptions]:
+        """The variant each grouped item is, keyed by item id; empty unless the store groups variants.
+
+        Items sold online and made from a preset that fixes every required
+        parameter of its configurator template, at most three, are grouped by
+        template. Built from all of them, whatever the push covers, so a
+        product's title and options don't depend on which items are pushed.
+        """
+        from configurator.models import ConfigurationPreset
+        from inventory.models import InventoryItem
+
+        if not store.group_variants:
+            return {}
+        items = InventoryItem.objects.filter(
+            company_id=store.company_id,
+            sell_online=True,
+            product_content_type=ContentType.objects.get_for_model(ConfigurationPreset),
+        ).order_by("pk").values_list("pk", "name", "code", "product_object_id")
+        presets = ConfigurationPreset.objects.filter(
+            company_id=store.company_id, pk__in={preset_id for *_, preset_id in items}
+        ).select_related("product").prefetch_related("product__parameters").in_bulk()
+
+        members = {}
+        for item_id, name, code, preset_id in items:
+            preset = presets.get(preset_id)
+            if preset is None or preset.get_missing_parameters():
+                continue  # made to measure: the customer chooses its values
+            chosen = preset.chosen_parameters()
+            if not chosen or len(chosen) > cls.MAX_PRODUCT_OPTIONS:
+                continue
+            names = tuple(parameter.label or parameter.name for parameter, _value in chosen)
+            position = tuple(cls._option_position(parameter.options, value) for parameter, value in chosen)
+            members.setdefault((preset.product_id, names), []).append(
+                (item_id, name or code, tuple(value for _parameter, value in chosen), position, preset.product)
+            )
+
+        options = {}
+        for group, entries in members.items():
+            template = entries[0][4]
+            title = cls._group_title([name for _item_id, name, *_ in entries]) or template.name
+            for item_id, _name, values, position, _template in entries:
+                options[item_id] = VariantOptions(group, title, template.description, group[1], values, position)
+        return options
+
+    @staticmethod
+    def _option_position(options: list | None, value: str) -> int:
+        """Where the value comes in the parameter's options; values it doesn't offer go last."""
+        offered = [str(option) for option in options or []]
+        return offered.index(value) if value in offered else len(offered)
+
+    @staticmethod
+    def _group_title(names: list[str]) -> str:
+        """The words every name shares, in the first name's order: "Tank Mod. 160 (Blue)" and "Tank Mod. 500 (Red)" give "Tank Mod."."""
+        shared = set(names[0].split()).intersection(*(name.split() for name in names[1:]))
+        return " ".join(word for word in names[0].split() if word in shared)
+
+    @staticmethod
+    def _group_products(store: ShopifyStore, options: dict[int, VariantOptions]) -> dict[tuple, str]:
+        """The Shopify product each group already has, from its linked items."""
+        products = {}
+        for item_id, product_id in store.variant_links.filter(
+            status=VariantLinkStatus.MATCHED, item_id__in=options
+        ).values_list("item_id", "product_id"):
+            products.setdefault(options[item_id].group, product_id)
+        return products
 
     @classmethod
     def push_whole_catalog(cls, store: ShopifyStore) -> CatalogPushResult:
@@ -298,22 +421,29 @@ class ShopifyCatalogService(ShopifyService):
         store: ShopifyStore,
         item_ids: Iterable[int] | None,
         result: CatalogPushResult,
-        lock: str,
+        keep_lock: Callable[[], None],
     ) -> None:
-        """Archive the products of items the ERP pushed and that are no longer sold online.
+        """Take items the ERP pushed and that are no longer sold online off the store.
 
-        A product with other variants still sold online, or variants the ERP
-        doesn't manage, stays as it is. The product's status is kept, to be
-        restored once the item is sold online again.
+        A product with other variants still sold online loses the variants the
+        ERP created for those items; one with none left is archived, its status
+        kept to be restored once an item is sold online again. A variant only
+        linked by its SKU is never deleted, and a product with variants the ERP
+        doesn't manage stays as it is.
         """
         managed = store.variant_links.filter(status=VariantLinkStatus.MATCHED).exclude(pushed_signature="")
         unsold = managed.filter(item__sell_online=False, archived_from="").select_related("item")
         if item_ids is not None:
             unsold = unsold.filter(item_id__in=item_ids)
         for product_id in unsold.values_list("product_id", flat=True).distinct():
-            cache.touch(lock, cls.PUSH_LOCK_SECONDS)
+            keep_lock()
             links = list(managed.filter(product_id=product_id).select_related("item"))
             if any(link.item.sell_online for link in links):
+                cls._remove_variants(client, store, product_id, [
+                    link
+                    for link in links
+                    if link.created_by_erp and not link.item.sell_online and (item_ids is None or link.item_id in item_ids)
+                ], result)
                 continue
             try:
                 product = client.graphql(cls.PRODUCT_STATUS_QUERY, {"id": product_id})["product"]
@@ -331,6 +461,25 @@ class ShopifyCatalogService(ShopifyService):
                 result.errors.append(f"{links[0].item.code}: {exc}")
 
     @classmethod
+    def _remove_variants(
+        cls, client: ShopifyClient, store: ShopifyStore, product_id: str, links: list[ShopifyVariantLink],
+        result: CatalogPushResult,
+    ) -> None:
+        """Delete these variants from a product that keeps others, and forget their links."""
+        if not links:
+            return
+        try:
+            data = client.graphql(cls.VARIANTS_DELETE, {
+                "productId": product_id, "variantsIds": [link.variant_id for link in links],
+            })["productVariantsBulkDelete"]
+            cls.raise_user_errors(data["userErrors"], _("Shopify refused to remove the variant: %(detail)s"))
+        except ShopifyError as exc:
+            result.errors.append(f"{links[0].item.code}: {exc}")
+            return
+        store.variant_links.filter(pk__in=[link.pk for link in links]).delete()
+        result.removed += len(links)
+
+    @classmethod
     def _set_product_status(
         cls, client: ShopifyClient, store: ShopifyStore, product_id: str, status: str, archived_from: str = ""
     ) -> None:
@@ -341,9 +490,18 @@ class ShopifyCatalogService(ShopifyService):
 
     @classmethod
     def _link_or_create(
-        cls, client: ShopifyClient, store: ShopifyStore, item: InventoryItem
+        cls,
+        client: ShopifyClient,
+        store: ShopifyStore,
+        item: InventoryItem,
+        options: VariantOptions | None,
+        group_products: dict[tuple, str],
     ) -> tuple[ShopifyVariantLink, bool]:
-        """The item's link: an existing Shopify variant with its SKU, or a new draft product."""
+        """The item's link: an existing Shopify variant with its SKU, else a new variant or draft product.
+
+        A grouped item becomes a variant of its group's product, which the
+        group's first item creates with the item's option values.
+        """
         nodes = client.graphql(cls.SKU_QUERY, {"query": f'sku:"{item.code}"'})["productVariants"]["nodes"]
         same_sku = [node for node in nodes if cls.sku_key(node["sku"]) == cls.sku_key(item.code)]
         if len(same_sku) > 1:
@@ -357,31 +515,57 @@ class ShopifyCatalogService(ShopifyService):
                 raise ShopifyAPIError(_("The product with this SKU in Shopify could not be linked."))
             return link, False
 
-        data = client.graphql(cls.PRODUCT_CREATE, {"product": {
-            "title": item.name or item.code,
-            "descriptionHtml": linebreaks(escape(item.description)) if item.description else "",
+        if options is not None and options.group in group_products:
+            data = client.graphql(cls.VARIANTS_CREATE, {
+                "productId": group_products[options.group],
+                "variants": [{"optionValues": [
+                    {"optionName": name, "name": value} for name, value in zip(options.names, options.values)
+                ]}],
+            })["productVariantsBulkCreate"]
+            cls.raise_user_errors(data["userErrors"], _("Shopify refused to add the variant: %(detail)s"))
+            return cls._link_new_variant(store, item, data["productVariants"][0]), True
+
+        # A grouped product describes its template, never one of its items.
+        description = options.description if options else item.description
+        product = {
+            "title": options.title if options else item.name or item.code,
+            "descriptionHtml": linebreaks(escape(description)) if description else "",
             "vendor": store.company.name,
             "status": ProductStatus.DRAFT,
-        }})["productCreate"]
+        }
+        if options is not None:
+            product["productOptions"] = [
+                {"name": name, "values": [{"name": value}]} for name, value in zip(options.names, options.values)
+            ]
+        data = client.graphql(cls.PRODUCT_CREATE, {"product": product})["productCreate"]
         cls.raise_user_errors(data["userErrors"], _("Shopify refused to create the product: %(detail)s"))
-        variant = data["product"]["variants"]["nodes"][0]
-        # Linked at once, so a failure from here on is retried as an update,
-        # never by creating the product a second time.
+        if options is not None:
+            group_products[options.group] = data["product"]["id"]
+        return cls._link_new_variant(store, item, data["product"]["variants"]["nodes"][0]), True
+
+    @classmethod
+    def _link_new_variant(cls, store: ShopifyStore, item: InventoryItem, variant: dict) -> ShopifyVariantLink:
+        """Link a variant the ERP just created.
+
+        Linked at once, so a failure from here on is retried as an update,
+        never by creating the variant a second time.
+        """
         link = ShopifyVariantLink.objects.create(
             store=store,
-            product_id=data["product"]["id"],
+            product_id=variant["product"]["id"],
             variant_id=variant["id"],
             inventory_item_id=variant["inventoryItem"]["id"],
-            product_title=data["product"]["title"][:255],
+            product_title=variant["product"]["title"][:255],
             variant_title=(variant["title"] or "")[:255],
             sku=item.code,
             item=item,
             status=VariantLinkStatus.MATCHED,
             synced_at=timezone.now(),
             pushed_signature=cls.NEW_PRODUCT,
+            created_by_erp=True,
         )
         ShopifyPushScheduler.schedule_stock_push([item.pk])
-        return link, True
+        return link
 
     @classmethod
     def _shop_price(cls, item: InventoryItem, taxes_included: bool, tax_rate: Decimal | None) -> Decimal:
@@ -397,45 +581,130 @@ class ShopifyCatalogService(ShopifyService):
 
     @classmethod
     def _update_variant(
-        cls, client: ShopifyClient, link: ShopifyVariantLink, item: InventoryItem, price: Decimal, sale_mode: str
+        cls,
+        client: ShopifyClient,
+        link: ShopifyVariantLink,
+        item: InventoryItem,
+        price: Decimal,
+        sale_mode: str,
+        product_type: str | None,
     ) -> bool:
-        """Send the price, cost, SKU and how it is sold unless Shopify already has them. True when sent."""
+        """Send the price, cost, SKU, how it is sold and its product type unless Shopify already has them.
+
+        ``product_type`` None leaves the product type to Shopify. A variant
+        that is only quoted can't be bought in Shopify either, whatever the
+        theme shows: its stock is tracked at zero and never oversold. What
+        that changed is kept on the link and restored once it is sold again.
+        True when sent.
+        """
         from inventory.choices import ItemType, OnlineSaleMode
 
         cost = item.cost_price.amount if item.cost_price else None
         fingerprint = f"{item.code}|{price}|{cost}"
-        if sale_mode != OnlineSaleMode.BUY:  # bought items keep the fingerprint they always had
+        # Additions only when they apply, so existing products keep the fingerprint they always had.
+        if sale_mode != OnlineSaleMode.BUY:
             fingerprint += f"|{sale_mode}"
+        if sale_mode == OnlineSaleMode.QUOTE:
+            fingerprint += "|unsellable"  # variants quoted before Shopify was made to refuse them are sent again
+        if product_type is not None:
+            fingerprint += f"|type={product_type}"
         signature = hashlib.sha256(fingerprint.encode()).hexdigest()
         if link.pushed_signature == signature:
             return False
         inventory = {"sku": item.code}
         if cost is not None:
             inventory["cost"] = str(cost)
+        variant = {"id": link.variant_id, "price": str(price), "inventoryItem": inventory}
+        new_settings = None
         if link.pushed_signature == cls.NEW_PRODUCT:
             # Only for products the ERP created; Shopify owns these settings afterwards.
             ships = item.item_type != ItemType.SERVICE
             inventory.update(tracked=ships and not item.has_components, requiresShipping=ships)
+            new_settings = {"tracked": inventory["tracked"], "inventoryPolicy": InventoryPolicy.DENY}
+        quote_only = sale_mode == OnlineSaleMode.QUOTE
+        if quote_only:
+            if link.quote_only_restore is None:
+                # Kept first, so a failure further on never records the ERP's own settings.
+                link.quote_only_restore = new_settings or cls._stock_settings(client, link)
+                link.save(update_fields=["quote_only_restore"])
+            inventory["tracked"] = True
+            variant["inventoryPolicy"] = InventoryPolicy.DENY
+        elif link.quote_only_restore is not None:
+            inventory["tracked"] = link.quote_only_restore["tracked"]
+            variant["inventoryPolicy"] = link.quote_only_restore["inventoryPolicy"]
         errors = client.graphql(cls.VARIANT_UPDATE, {
-            "productId": link.product_id,
-            "variants": [{"id": link.variant_id, "price": str(price), "inventoryItem": inventory}],
+            "productId": link.product_id, "variants": [variant],
         })["productVariantsBulkUpdate"]["userErrors"]
         cls.raise_user_errors(errors, _("Shopify refused the product update: %(detail)s"))
-        cls._set_sale_tags(client, link.product_id, sale_mode)
+        if quote_only:
+            ShopifyStockService.clear(client, link.store, link)
+        elif link.quote_only_restore is not None:
+            link.quote_only_restore = None
+            # Sold again: Shopify gets the real stock instead of the zero it was held at.
+            ShopifyPushScheduler.schedule_stock_push([item.pk])
+        if product_type is not None:
+            data = client.graphql(cls.PRODUCT_UPDATE, {"product": {"id": link.product_id, "productType": product_type}})
+            cls.raise_user_errors(data["productUpdate"]["userErrors"], _("Shopify refused the product update: %(detail)s"))
         link.pushed_signature, link.sku = signature, item.code
-        link.save(update_fields=["pushed_signature", "sku"])
+        link.save(update_fields=["pushed_signature", "sku", "quote_only_restore"])
         return True
 
     @classmethod
-    def _set_sale_tags(cls, client: ShopifyClient, product_id: str, sale_mode: str) -> None:
-        """Tag the product for the theme: whether to offer a quote request and whether to hide checkout."""
+    def _stock_settings(cls, client: ShopifyClient, link: ShopifyVariantLink) -> dict:
+        """How Shopify handles the variant's stock now: {"tracked", "inventoryPolicy"}."""
+        variant = client.graphql(cls.STOCK_SETTINGS_QUERY, {"id": link.variant_id})["productVariant"]
+        return {"tracked": variant["inventoryItem"]["tracked"], "inventoryPolicy": variant["inventoryPolicy"]}
+
+    @classmethod
+    def _write_fields(cls, client: ShopifyClient, link: ShopifyVariantLink, fields: list[ProductField]) -> bool:
+        """Write the item's product fields on its variant unless Shopify already has them. True when sent.
+
+        Fields without a value are deleted, which only a variant that had
+        fields can need.
+        """
+        signature = ShopifyProductFields.fingerprint(fields)
+        if signature == link.fields_signature:
+            return False
+        message = _("Shopify refused the product update: %(detail)s")
+        cls.set_metafields(client, [
+            {"ownerId": link.variant_id, "key": field.key, "type": ShopifyProductFields.METAFIELD_TYPE, "value": field.json}
+            for field in fields
+            if field.value is not None
+        ], message)
+        if link.fields_signature:
+            cls.delete_metafields(
+                client, [{"ownerId": link.variant_id, "key": field.key} for field in fields if field.value is None], message
+            )
+        link.fields_signature = signature
+        link.save(update_fields=["fields_signature"])
+        return True
+
+    @staticmethod
+    def _sale_modes(store: ShopifyStore, product_ids: Iterable[str]) -> dict[str, set[str]]:
+        """How the variants of these products sell, per product: their items sold online, in one query."""
+        from inventory.models import InventoryItem
+
+        modes: dict[str, set[str]] = {}
+        for link in store.variant_links.filter(
+            product_id__in=product_ids, status=VariantLinkStatus.MATCHED, item__sell_online=True
+        ).prefetch_related(Prefetch("item", queryset=InventoryItem.objects.with_configuration_preset())):
+            modes.setdefault(link.product_id, set()).add(store.sale_mode(link.item))
+        return modes
+
+    @classmethod
+    def _set_sale_tags(cls, client: ShopifyClient, product_id: str, modes: set[str]) -> None:
+        """Tag the product for the theme by how its variants sell (``modes``, from ``_sale_modes``).
+
+        "request-quote" when any of them can be quoted, "quote-only" when none
+        can be bought. Each variant's own way is its sale_mode field.
+        """
         from inventory.choices import OnlineSaleMode
 
-        wanted = {
-            OnlineSaleMode.BUY: [],
-            OnlineSaleMode.QUOTE: [cls.REQUEST_QUOTE_TAG, cls.QUOTE_ONLY_TAG],
-            OnlineSaleMode.BOTH: [cls.REQUEST_QUOTE_TAG],
-        }[sale_mode]
+        wanted = []
+        if modes & {OnlineSaleMode.QUOTE, OnlineSaleMode.BOTH}:
+            wanted.append(cls.REQUEST_QUOTE_TAG)
+        if modes == {OnlineSaleMode.QUOTE}:
+            wanted.append(cls.QUOTE_ONLY_TAG)
         unwanted = [tag for tag in (cls.REQUEST_QUOTE_TAG, cls.QUOTE_ONLY_TAG) if tag not in wanted]
         for mutation, tags, payload in ((cls.TAGS_REMOVE, unwanted, "tagsRemove"), (cls.TAGS_ADD, wanted, "tagsAdd")):
             if not tags:

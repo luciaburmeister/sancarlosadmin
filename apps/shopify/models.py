@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from timestamps.models import Timestampable
 
+from apps.shopify.enums import OrderFinancialStatus
 from company.models import Company
 from core.encryption import SecretCipher
 
@@ -65,6 +66,19 @@ class QuoteRequestMode(models.TextChoices):
     INSTEAD = "instead", _("Instead of buying")
 
 
+class MadeToMeasureMode(models.TextChoices):
+    OFF = "off", _("Off")
+    QUOTE = "quote", _("Quote requests")
+
+
+class CustomerQuotesMode(models.TextChoices):
+    """Which of their client's quotes a signed-in customer finds on the website."""
+
+    OFF = "off", _("Off")
+    REQUESTED = "requested", _("Quotes requested on the website")
+    ALL = "all", _("All quotes sent to the client")
+
+
 class InvoiceTiming(models.TextChoices):
     MANUAL = "manual", _("By hand")
     PAYMENT = "payment", _("When the order is paid")
@@ -88,6 +102,13 @@ class ShopifyStoreQuerySet(models.QuerySet):
     def importing_orders(self) -> ShopifyStoreQuerySet:
         """Active, connected stores whose orders become ERP quotes."""
         return self.filter(is_active=True, import_orders=True).exclude(access_token_encrypted="")
+
+    def publishing_discounts(self) -> ShopifyStoreQuerySet:
+        """Connected stores that offer client discounts, or still have some to withdraw."""
+        offering = models.Q(is_active=True, sync_client_discounts=True)
+        return self.filter(offering | models.Q(discount_profiles__isnull=False)).exclude(
+            access_token_encrypted=""
+        ).distinct()
 
 
 class ShopifyStore(Timestampable):
@@ -172,6 +193,56 @@ class ShopifyStore(Timestampable):
             "Alongside buying: each item's 'Sold online as' decides whether customers buy it, request "
             "a quote or both. Instead of buying: customers can only request quotes. Requests arrive "
             "as draft quotes."
+        ),
+    )
+    made_to_measure = models.CharField(
+        max_length=20,
+        choices=MadeToMeasureMode.choices,
+        default=MadeToMeasureMode.OFF,
+        verbose_name=_("Made to measure"),
+        help_text=_(
+            "For items made from a configurator preset that leaves parameters open. Quote requests: "
+            "customers choose those parameters and receive a draft quote with the configuration, "
+            "priced by the configurator."
+        ),
+    )
+    category_field = models.SlugField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Category field"),
+        help_text=_(
+            "Key of an item schema field, such as a 'Category' choice in a block the schemas share. Its "
+            "value is sent to Shopify as the product type, which collections can use to group products. "
+            "Leave empty to edit product types in Shopify."
+        ),
+    )
+    customer_quotes = models.CharField(
+        max_length=20,
+        choices=CustomerQuotesMode.choices,
+        default=CustomerQuotesMode.OFF,
+        verbose_name=_("Quotes on the website"),
+        help_text=_(
+            "Customers with web store access see their client's quotes on the website: those still being "
+            "prepared, those sent to them, which they can accept there, and those accepted. Either only "
+            "the quotes they requested on the website, or every quote sent to their client."
+        ),
+    )
+    pay_quotes_online = models.BooleanField(
+        default=False,
+        verbose_name=_("Pay accepted quotes online"),
+        help_text=_(
+            "Customers pay an accepted quote's total in Shopify's checkout, from the quotes on the website. "
+            "The payment arrives as an order of that quote and is invoiced as the store invoices orders. "
+            "Needs order import and the draft orders permission: reconnect the store after turning it on."
+        ),
+    )
+    group_variants = models.BooleanField(
+        default=False,
+        verbose_name=_("Group configurator items as variants"),
+        help_text=_(
+            "Items made from presets of the same configurator template are sold as one product: the "
+            "parameters the presets fix (up to three) become its options and each item a variant. "
+            "Applies to items not yet in Shopify; products already there keep their variants."
         ),
     )
 
@@ -290,6 +361,17 @@ class ShopifyStore(Timestampable):
         verbose_name=_("Invoicing orders placed since"),
         help_text=_("Older orders are invoiced by hand, so nothing is billed twice."),
     )
+    sync_client_discounts = models.BooleanField(
+        default=False,
+        verbose_name=_("Offer client discounts"),
+        help_text=_(
+            "Customers with web store access pay their client's discounts when signed in, through secret "
+            "discount codes. Guests and other customers pay the shop price."
+        ),
+    )
+    # Automated collection of every priced product, created by the ERP: a
+    # Shopify product discount needs products or collections to apply to.
+    discount_collection_id = models.CharField(max_length=255, blank=True, editable=False)
 
     access_token_encrypted = models.TextField(blank=True, editable=False)
     access_token_expires_at = models.DateTimeField(
@@ -339,6 +421,11 @@ class ShopifyStore(Timestampable):
             related = getattr(self, field)
             if related is not None and self.company_id and related.company_id != self.company_id:
                 errors[field] = _("Choose one of the store's company.")
+        if self.pay_quotes_online:
+            if not self.shows_customer_quotes:
+                errors["pay_quotes_online"] = _("Show quotes on the website to take payments for them.")
+            elif not self.import_orders:
+                errors["pay_quotes_online"] = _("Import orders to take payments for quotes.")
         if self.import_orders:
             if self.tax_type_id is None:
                 errors["tax_type"] = _("Choose the tax type to import orders.")
@@ -364,17 +451,51 @@ class ShopifyStore(Timestampable):
 
         from apps.shopify.services.push_scheduler import ShopifyPushScheduler  # imports this module
 
-        ShopifyPushScheduler.forget_store_settings()
+        ShopifyPushScheduler.store_saved(self, kwargs.get("update_fields"))
 
     def sale_mode(self, item: InventoryItem) -> str:
         """How the store sells the item: an ``inventory.choices.OnlineSaleMode`` value."""
         from inventory.choices import OnlineSaleMode
 
+        if self.sells_made_to_measure(item):
+            return OnlineSaleMode.QUOTE  # no fixed price until the customer chooses
         if self.quote_requests == QuoteRequestMode.INSTEAD:
             return OnlineSaleMode.QUOTE
         if self.quote_requests == QuoteRequestMode.ALONGSIDE:
             return item.online_sale_mode
         return OnlineSaleMode.BUY
+
+    def product_type(self, item: InventoryItem) -> str | None:
+        """The Shopify product type the store gives the item, or None when Shopify keeps its own."""
+        if not self.category_field:
+            return None
+        value = (item.metadata or {}).get(self.category_field)
+        return "" if value in (None, "") else str(value)
+
+    @property
+    def takes_made_to_measure(self) -> bool:
+        """Customers may choose the open values of made-to-measure items."""
+        return self.made_to_measure != MadeToMeasureMode.OFF
+
+    @property
+    def takes_quote_requests(self) -> bool:
+        """The store's pages may send quote requests: for products sold on quotation or made to measure."""
+        return self.quote_requests != QuoteRequestMode.OFF or self.takes_made_to_measure
+
+    @property
+    def shows_customer_quotes(self) -> bool:
+        """Signed-in customers with web store access see their client's quotes on the website."""
+        return self.customer_quotes != CustomerQuotesMode.OFF
+
+    def sells_made_to_measure(self, item: InventoryItem) -> bool:
+        """The store takes made-to-measure requests and the item is made to measure."""
+        return self.takes_made_to_measure and self.is_made_to_measure(item)
+
+    @staticmethod
+    def is_made_to_measure(item: InventoryItem) -> bool:
+        from sales.services.external_order import ExternalOrderService
+
+        return ExternalOrderService.made_to_measure_preset(item) is not None
 
     @property
     def catalog_push_running(self) -> bool:
@@ -399,6 +520,7 @@ class ShopifyStore(Timestampable):
                 "unchanged": result.unchanged,
                 "archived": result.archived,
                 "restored": result.restored,
+                "removed": result.removed,
                 "errors": result.errors[:self.CATALOG_PUSH_ERRORS_KEPT],
                 "error_count": len(result.errors),
             }
@@ -595,6 +717,15 @@ class ShopifyVariantLink(models.Model):
         editable=False,
         help_text=_("Fingerprint of the price, cost and SKU last sent to Shopify."),
     )
+    # Fingerprint of the product fields (specifications, made-to-measure form)
+    # last written on the variant; empty when it has none.
+    fields_signature = models.CharField(max_length=64, blank=True, editable=False)
+    # While the item is only quoted, Shopify must not sell the variant: the ERP
+    # tracks its stock at zero and denies overselling, keeping here what it
+    # changed ({"tracked", "inventoryPolicy"}) to restore once it is sold again.
+    quote_only_restore = models.JSONField(null=True, blank=True, editable=False)
+    # The ERP made this variant: only such a variant is ever deleted from Shopify.
+    created_by_erp = models.BooleanField(default=False, editable=False)
     archived_from = models.CharField(
         max_length=20,
         blank=True,
@@ -625,6 +756,38 @@ class ShopifyVariantLink(models.Model):
         return f"{title} ({self.sku or '—'})"
 
 
+class ShopifyDiscountProfile(models.Model):
+    """One set of client discounts as published in a store.
+
+    Clients whose policies come to the same discounts share a profile: a
+    product discount and one order discount per volume tier, each a Shopify
+    code discount with one secret code, open only to the profile's customers.
+    """
+
+    store = models.ForeignKey(
+        ShopifyStore, on_delete=models.CASCADE, related_name="discount_profiles", verbose_name=_("Shopify store")
+    )
+    signature = models.CharField(max_length=255, verbose_name=_("Discounts"))
+    # As published: [{"discount_id", "code", "percentage", "minimum"}]; "minimum" is
+    # None for the product discount, else the order subtotal Shopify compares.
+    discounts = models.JSONField(default=list, blank=True, editable=False)
+    synced_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Synced at"))
+
+    class Meta:
+        verbose_name = _("Shopify discount profile")
+        verbose_name_plural = _("Shopify discount profiles")
+        constraints = [
+            models.UniqueConstraint(fields=["store", "signature"], name="uniq_shopify_discount_profile_per_store"),
+        ]
+
+    def __str__(self) -> str:
+        return self.signature
+
+    @property
+    def codes(self) -> list[str]:
+        return [discount["code"] for discount in self.discounts]
+
+
 class ShopifyCustomerLink(models.Model):
     """The ERP client a store's Shopify customer was matched or created as."""
 
@@ -635,6 +798,23 @@ class ShopifyCustomerLink(models.Model):
     client = models.ForeignKey(
         "sales.Client", on_delete=models.CASCADE, related_name="shopify_customer_links", verbose_name=_("Client")
     )
+    web_store_access = models.BooleanField(
+        default=False,
+        verbose_name=_("Web store access"),
+        help_text=_("Staff gave this customer web store access: the client's discounts and quotes when signed in."),
+    )
+    discount_profile = models.ForeignKey(
+        ShopifyDiscountProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="customer_links",
+        verbose_name=_("Discounts in Shopify"),
+    )
+    # The codes last written to the customer in Shopify, for the theme.
+    discount_codes = models.TextField(blank=True, editable=False)
+    discount_error = models.TextField(blank=True, editable=False, verbose_name=_("Discount sync error"))
 
     class Meta:
         verbose_name = _("Shopify customer link")
@@ -645,6 +825,69 @@ class ShopifyCustomerLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.client} ({self.customer_id})"
+
+
+class ShopifyQuote(models.Model):
+    """A quote a store's customer requested on the website."""
+
+    store = models.ForeignKey(
+        ShopifyStore, on_delete=models.CASCADE, related_name="quotes", verbose_name=_("Shopify store")
+    )
+    quote = models.OneToOneField(
+        "sales.Quote", on_delete=models.CASCADE, related_name="shopify_quote", verbose_name=_("Quote")
+    )
+    # The signed-in customer who asked for it; empty for a guest.
+    customer_id = models.CharField(max_length=255, blank=True, verbose_name=_("Shopify customer ID"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Requested at"))
+
+    class Meta:
+        verbose_name = _("Shopify quote")
+        verbose_name_plural = _("Shopify quotes")
+
+    def __str__(self) -> str:
+        return str(self.quote)
+
+
+class ShopifyQuotePayment(models.Model):
+    """The Shopify draft order through which a customer pays an accepted quote online."""
+
+    store = models.ForeignKey(
+        ShopifyStore, on_delete=models.CASCADE, related_name="quote_payments", verbose_name=_("Shopify store")
+    )
+    quote = models.OneToOneField(
+        "sales.Quote", on_delete=models.CASCADE, related_name="shopify_payment", verbose_name=_("Quote")
+    )
+    draft_order_id = models.CharField(max_length=255, verbose_name=_("Shopify draft order ID"))
+    checkout_url = models.URLField(max_length=1000, verbose_name=_("Checkout address"))
+    # What the draft charges; a quote that changes since gets a new draft.
+    amount = models.DecimalField(max_digits=14, decimal_places=2, verbose_name=_("Amount"))
+    currency = models.CharField(max_length=3, verbose_name=_("Currency"))
+    customer_id = models.CharField(max_length=255, verbose_name=_("Shopify customer ID"))
+    order = models.OneToOneField(
+        "ShopifyOrder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="quote_payment",
+        verbose_name=_("Shopify order"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("Shopify quote payment")
+        verbose_name_plural = _("Shopify quote payments")
+
+    def __str__(self) -> str:
+        return str(self.quote)
+
+    @property
+    def is_paid(self) -> bool:
+        return (
+            self.order is not None
+            and not self.order.is_cancelled
+            and self.order.financial_status in OrderFinancialStatus.captured()
+        )
 
 
 class ShopifyOrder(models.Model):

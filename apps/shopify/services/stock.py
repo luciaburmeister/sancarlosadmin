@@ -56,6 +56,15 @@ class ShopifyStockService(ShopifyService):
       }
     }
     """
+    ALL_LEVELS_QUERY = """
+    query ($id: ID!) {
+      inventoryItem(id: $id) {
+        inventoryLevels(first: 250) {
+          nodes { location { id } quantities(names: ["on_hand"]) { name quantity } }
+        }
+      }
+    }
+    """
     SET_QUANTITIES = """
     mutation ($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
       inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
@@ -76,10 +85,14 @@ class ShopifyStockService(ShopifyService):
         if not links:
             return result
         client = ShopifyClient(store)
-        # Shopify already holds back what its own unshipped orders reserve.
-        own_quotes = store.orders.filter(quote__isnull=False).values("quote_id")
+        # Shopify already holds back what its own unshipped orders reserve. Not
+        # for an order paying a quote: its custom line reserves nothing there.
+        own_quotes = store.orders.filter(quote__isnull=False, quote_payment__isnull=True).values("quote_id")
+        quote_only = cls._quote_only(store, links)
         for location in locations:
             sellable = cls._sellable(links, location.warehouse, own_quotes)
+            # A variant that is only quoted stays at zero, so Shopify refuses to sell it.
+            sellable.update(dict.fromkeys(quote_only, 0))
             for start in range(0, len(links), cls.BATCH_SIZE):
                 cls._push_batch(client, store, location, links[start:start + cls.BATCH_SIZE], sellable, result)
         return result
@@ -97,6 +110,33 @@ class ShopifyStockService(ShopifyService):
         if item_ids is not None:
             links = links.filter(item_id__in=item_ids)
         return list(links.order_by("pk"))
+
+    @staticmethod
+    def _quote_only(store: ShopifyStore, links: list[ShopifyVariantLink]) -> set[int]:
+        """The linked items the store only quotes."""
+        from inventory.choices import OnlineSaleMode
+        from inventory.models import InventoryItem
+
+        items = InventoryItem.objects.filter(pk__in={link.item_id for link in links}).with_configuration_preset()
+        return {item.pk for item in items if store.sale_mode(item) == OnlineSaleMode.QUOTE}
+
+    @classmethod
+    def clear(cls, client: ShopifyClient, store: ShopifyStore, link: ShopifyVariantLink) -> None:
+        """Set the variant's stock to zero at every location that stocks it."""
+        levels = client.graphql(cls.ALL_LEVELS_QUERY, {"id": link.inventory_item_id})["inventoryItem"]
+        changes = []
+        for level in (levels or {}).get("inventoryLevels", {}).get("nodes", []):
+            on_hand = cls._on_hand(level)
+            if on_hand:
+                changes.append({
+                    "inventoryItemId": link.inventory_item_id,
+                    "locationId": level["location"]["id"],
+                    "quantity": 0,
+                    "changeFromQuantity": on_hand,
+                })
+        if changes:
+            errors = cls._set_quantities(client, store, changes)
+            cls.raise_user_errors(errors, _("Shopify refused the stock update: %(detail)s"))
 
     @staticmethod
     def _sellable(links: list[ShopifyVariantLink], warehouse: Warehouse, own_quotes: QuerySet) -> dict[int, int]:
@@ -166,9 +206,14 @@ class ShopifyStockService(ShopifyService):
             level = node.get("inventoryLevel")
             on_hand = None
             if level is not None:
-                on_hand = next((q["quantity"] for q in level["quantities"] if q["name"] == "on_hand"), 0)
+                on_hand = cls._on_hand(level)
             levels[node["id"]] = (bool(node.get("tracked")), on_hand)
         return levels
+
+    @staticmethod
+    def _on_hand(level: dict) -> int:
+        """The on-hand quantity of an inventory level read with ``quantities(names: ["on_hand"])``."""
+        return next((quantity["quantity"] for quantity in level["quantities"] if quantity["name"] == "on_hand"), 0)
 
     @classmethod
     def _activate(cls, client: ShopifyClient, inventory_item_id: str, location_id: str) -> None:

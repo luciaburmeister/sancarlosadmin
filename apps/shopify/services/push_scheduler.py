@@ -1,11 +1,13 @@
 """
-Pushing ERP changes to Shopify (stock, products and shipments) and invoicing
-shipped web orders.
+Pushing ERP changes to Shopify (stock, products, shipments and client
+discounts) and invoicing shipped web orders.
 
 The ERP calls this explicitly where the change is written: ``ItemTransaction.save``
 and ``refresh_stock_position`` (stock), ``InventoryItem.save`` (products),
-``DeliveryOrder.save`` (shipments) and ``ShopifyStore.save`` (cached settings).
-Every item touched inside one database transaction is collected and pushed by
+``DeliveryOrder.save`` (shipments), ``DiscountPolicy``, ``DiscountRule`` and
+``CompanyDefaultTax`` saves and deletes, and a client's policies being changed
+(client discounts), and ``ShopifyStore.save`` (cached settings).
+Everything touched inside one database transaction is collected and pushed by
 a single task once the transaction commits, so a rolled-back change never
 reaches Shopify and a 20-line delivery costs one push, not twenty. Nothing
 here calls Shopify inside the ERP's own transaction.
@@ -28,15 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 class _PendingPush:
-    """The item ids one transaction touched, pushed by one task after commit."""
+    """The ids (items, companies) one transaction touched, pushed by one task after commit."""
 
     def __init__(self, enqueue: Callable[[set[int]], None]) -> None:
         self.enqueue = enqueue
-        self.item_ids: set[int] = set()
+        self.ids: set[int] = set()
 
     def flush(self) -> None:
-        item_ids, self.item_ids = self.item_ids, set()
-        self.enqueue(item_ids)
+        ids, self.ids = self.ids, set()
+        self.enqueue(ids)
 
 
 class ShopifyPushScheduler:
@@ -51,6 +53,7 @@ class ShopifyPushScheduler:
     CATALOG_PUSH_KEY = "shopify:catalog-push-enabled"
     ERP_SHIPS_KEY = "shopify:erp-ships"
     INVOICES_SHIPMENTS_KEY = "shopify:invoices-shipments"
+    DISCOUNTS_KEY = "shopify:publishing-discounts"
 
     # ── Items ─────────────────────────────────────────────────────────────
 
@@ -132,12 +135,41 @@ class ShopifyPushScheduler:
             # The periodic order check invoices it later (ShopifyInvoicingService.invoice_pending).
             logger.exception("Could not queue the invoice of delivery order %s", delivery_order_id)
 
+    # ── Client discounts ─────────────────────────────────────────────────
+
+    @classmethod
+    def schedule_discount_sync(cls, company_ids: Iterable[int | None]) -> None:
+        """Update these companies' client discounts in Shopify after the current transaction commits."""
+        cls._schedule("discount_sync", cls.enqueue_discount_sync, company_ids)
+
+    @classmethod
+    def enqueue_discount_sync(cls, company_ids: set[int]) -> None:
+        if not company_ids or not cls._used(cls.DISCOUNTS_KEY, ShopifyStore.objects.publishing_discounts()):
+            return
+        from apps.shopify.tasks import sync_client_discounts
+
+        try:
+            sync_client_discounts.delay(sorted(company_ids))
+        except Exception:
+            # The nightly discount sync catches up.
+            logger.exception("Could not queue the Shopify discount sync for companies %s", sorted(company_ids))
+
     # ── Store settings ───────────────────────────────────────────────────
+
+    @classmethod
+    def store_saved(cls, store: ShopifyStore, update_fields: Iterable[str] | None) -> None:
+        cls.forget_store_settings()
+        # Turning discounts or the store on or off, or connecting it again with
+        # new permissions, changes what can be offered; token refreshes don't.
+        if update_fields is None or set(update_fields) & {"sync_client_discounts", "is_active", "scopes"}:
+            cls.schedule_discount_sync([store.company_id])
 
     @classmethod
     def forget_store_settings(cls) -> None:
         """A store changed: the cached "does any store use this?" answers may be wrong now."""
-        cache.delete_many([cls.STOCK_SYNC_KEY, cls.CATALOG_PUSH_KEY, cls.ERP_SHIPS_KEY, cls.INVOICES_SHIPMENTS_KEY])
+        cache.delete_many([
+            cls.STOCK_SYNC_KEY, cls.CATALOG_PUSH_KEY, cls.ERP_SHIPS_KEY, cls.INVOICES_SHIPMENTS_KEY, cls.DISCOUNTS_KEY,
+        ])
 
     @classmethod
     def _erp_ships(cls) -> bool:
@@ -162,9 +194,9 @@ class ShopifyPushScheduler:
         )
 
     @staticmethod
-    def _schedule(name: str, enqueue: Callable[[set[int]], None], item_ids: Iterable[int | None]) -> None:
-        item_ids = {item_id for item_id in item_ids if item_id}
-        if not item_ids:
+    def _schedule(name: str, enqueue: Callable[[set[int]], None], ids: Iterable[int | None]) -> None:
+        ids = {pk for pk in ids if pk}
+        if not ids:
             return
         connection = transaction.get_connection()
         attribute = f"_shopify_pending_{name}"
@@ -174,7 +206,7 @@ class ShopifyPushScheduler:
         if pending is None or not any(entry[1] == pending.flush for entry in connection.run_on_commit):
             pending = _PendingPush(enqueue)
             setattr(connection, attribute, pending)
-            pending.item_ids |= item_ids
+            pending.ids |= ids
             transaction.on_commit(pending.flush)  # runs at once outside a transaction
         else:
-            pending.item_ids |= item_ids
+            pending.ids |= ids

@@ -1,3 +1,7 @@
+from typing import Any
+
+from django.http import HttpResponseRedirect
+from django.utils.functional import cached_property
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic.edit import FormView
 from django.contrib.admin.views.decorators import staff_member_required
@@ -7,7 +11,8 @@ from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
 from unfold.views import UnfoldModelAdminViewMixin
 from management.forms import LinkProjectFileForm
-from management.models import ProjectFile
+from core.admin.company_access import get_user_companies
+from management.services.quote_acceptance import QuoteAcceptanceService
 from sales.models import Quote
 
 @method_decorator(staff_member_required, name='dispatch')
@@ -17,10 +22,16 @@ class QuoteAcceptanceWizardView(UnfoldModelAdminViewMixin, FormView):
     form_class = LinkProjectFileForm
     permission_required = ("sales.change_quote",)
 
-    def get_context_data(self, **kwargs):
+    @cached_property
+    def quote(self) -> Quote:
+        """The quote to accept, only among the user's companies."""
+        return get_object_or_404(
+            Quote.objects.filter(company__in=get_user_companies(self.request.user)), pk=self.kwargs.get("quote_id")
+        )
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        quote_id = self.kwargs.get('quote_id')
-        quote = get_object_or_404(Quote, pk=quote_id)
+        quote = self.quote
         context['quote'] = quote
         context['opts'] = Quote._meta
         context['require_working_zone'] = bool(
@@ -28,46 +39,29 @@ class QuoteAcceptanceWizardView(UnfoldModelAdminViewMixin, FormView):
         )
         return context
 
-    def get_initial(self):
+    def get_initial(self) -> dict[str, Any]:
         initial = super().get_initial()
-        quote_id = self.kwargs.get('quote_id')
-        quote = get_object_or_404(Quote, pk=quote_id)
-        initial['new_project_name'] = quote.project_name
+        initial['new_project_name'] = self.quote.project_name
         return initial
 
-    def get_form_kwargs(self):
+    def get_form_kwargs(self) -> dict[str, Any]:
         kwargs = super().get_form_kwargs()
-        quote_id = self.kwargs.get('quote_id')
-        quote = get_object_or_404(Quote, pk=quote_id)
-        kwargs['company'] = quote.company
+        kwargs['company'] = self.quote.company
         return kwargs
 
-    def form_valid(self, form):
-        quote_id = self.kwargs.get('quote_id')
-        quote = get_object_or_404(Quote, pk=quote_id)
+    def form_valid(self, form: LinkProjectFileForm) -> HttpResponseRedirect:
+        quote = self.quote
 
-        action_type = form.cleaned_data["action_type"]
-        project_file = None
-
-        if action_type == "new":
-            project_name = form.cleaned_data.get("new_project_name") or quote.project_name or f"Expediente - {quote.id}"
-            project_file = ProjectFile.objects.create(
-                name=project_name,
-                client=quote.client,
-                company=quote.company,
-                created_by=self.request.user,
+        if form.cleaned_data["action_type"] == "new":
+            project_file = QuoteAcceptanceService.accept(
+                quote, project_name=form.cleaned_data.get("new_project_name"), created_by=self.request.user,
             )
             working_zones = form.cleaned_data.get("working_zones")
             if working_zones:
                 working_zones.update(project_file=project_file)
             messages.success(self.request, _("New Expediente created and linked."))
         else:
-            project_file = form.cleaned_data["existing_project"]
+            QuoteAcceptanceService.accept(quote, project_file=form.cleaned_data["existing_project"])
             messages.success(self.request, _("Quote linked to existing Expediente."))
-        
-        if project_file:
-            quote.project_file = project_file
-            quote.status = "accepted"
-            quote.save()
-        
+
         return redirect("admin:sales_quote_change", quote.id)

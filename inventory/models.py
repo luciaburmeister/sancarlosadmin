@@ -8,6 +8,7 @@ from django.db.models.functions import Coalesce, Greatest
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django_countries.fields import CountryField
 from djmoney.models.fields import MoneyField
 from timestamps.models import Timestampable
@@ -433,12 +434,21 @@ class InventoryItemQuerySet(models.QuerySet):
             content_type=ContentType.objects.get_for_model(self.model), object_id__in=items
         ).values_list("object_id", "selected_percentage", "tax_type__behavior"):
             own[item_id] = own.get(item_id, Decimal("0")) + (percentage if behavior == "add" else Decimal("0"))
-        defaults = {}
-        for company_id, percentage, behavior in CompanyDefaultTax.objects.filter(
-            company_id__in=set(items.values())
-        ).values_list("company_id", "selected_percentage", "tax_type__behavior"):
-            defaults[company_id] = defaults.get(company_id, Decimal("0")) + (percentage if behavior == "add" else Decimal("0"))
+        defaults = CompanyDefaultTax.consumer_rates(set(items.values()))
         return {item_id: own.get(item_id, defaults.get(company_id)) for item_id, company_id in items.items()}
+
+    def with_configuration_preset(self) -> "InventoryItemQuerySet":
+        """Prefetch each item's configurator preset with its template and parameters.
+
+        So ``configuration_preset`` and the preset's parameters cost no query
+        per item. Items linked to other kinds of product are fetched as usual.
+        """
+        from configurator.models import ConfigurationPreset
+
+        return self.prefetch_related(GenericPrefetch(
+            "product_object",
+            [ConfigurationPreset.objects.select_related("product").prefetch_related("product__parameters")],
+        ))
 
     def with_metadata(self, **values):
         """Items whose metadata contains these key/values (``@>``, GIN-indexed).
@@ -489,12 +499,14 @@ class ItemSchema(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return self.name
 
-    def effective_fields(self):
+    def effective_fields(self) -> list["ItemSchemaField"]:
         """Fields of the included blocks (in block name order), then own fields.
 
         Each returned field carries ``source``: the schema it is defined on.
+        Blocks come in name order (the model's ordering). For many schemas,
+        prefetch ``fields`` and ``includes__fields``: they are used as they are.
         """
-        blocks = list(self.includes.order_by("name").prefetch_related("fields")) if self.pk else []
+        blocks = list(self.includes.all()) if self.pk else []
         own = list(self.fields.all()) if self.pk else []
         result = []
         for schema in [*blocks, self]:
@@ -903,6 +915,21 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     def stock_value(self):
         """Stock on hand priced at cost. See ``stock_on_hand`` for caching."""
         return self.cost_price * self.stock_on_hand
+
+    @property
+    def configuration_preset(self) -> "ConfigurationPreset | None":
+        """The configurator preset the item is, if any: the model it is made or sold as.
+
+        Its fixed values define the item (e.g. volume and finish); a preset that
+        leaves parameters open makes the item made to measure. A preset of
+        another company is ignored rather than trusted.
+        """
+        from configurator.models import ConfigurationPreset
+
+        if self.product_content_type_id != ContentType.objects.get_for_model(ConfigurationPreset).pk:
+            return None
+        preset = self.product_object
+        return preset if preset is not None and preset.company_id == self.company_id else None
 
     @property
     def is_low_stock(self) -> bool:

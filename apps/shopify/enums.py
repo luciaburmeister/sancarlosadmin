@@ -14,6 +14,8 @@ class AccessScope(StrEnum):
     READ_ORDERS = "read_orders"
     READ_CUSTOMERS = "read_customers"
     WRITE_CUSTOMERS = "write_customers"
+    WRITE_DISCOUNTS = "write_discounts"
+    WRITE_DRAFT_ORDERS = "write_draft_orders"
     READ_MERCHANT_MANAGED_FULFILLMENT_ORDERS = "read_merchant_managed_fulfillment_orders"
     WRITE_MERCHANT_MANAGED_FULFILLMENT_ORDERS = "write_merchant_managed_fulfillment_orders"
 
@@ -76,3 +78,18 @@ class ProductStatus(StrEnum):
     ARCHIVED = "ARCHIVED"
     DRAFT = "DRAFT"
     UNLISTED = "UNLISTED"
+
+
+class InventoryPolicy(StrEnum):
+    """``ProductVariant.inventoryPolicy``: whether Shopify sells a variant without stock."""
+
+    CONTINUE = "CONTINUE"
+    DENY = "DENY"
+
+
+class DraftOrderStatus(StrEnum):
+    """``DraftOrder.status``."""
+
+    OPEN = "OPEN"
+    INVOICE_SENT = "INVOICE_SENT"
+    COMPLETED = "COMPLETED"

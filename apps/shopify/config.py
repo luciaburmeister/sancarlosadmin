@@ -11,6 +11,11 @@ class ShopifyApiConfig:
 
     # The GraphQL queries are written for this version; update it together with them.
     API_VERSION = "2026-10"
+    # Calls to Shopify are tried up to this many times when it answers with a
+    # temporary error, waiting 1, then 2 seconds.
+    MAX_ATTEMPTS = 3
+    # Shopify's gateway or a service was briefly unavailable: nothing was done.
+    TEMPORARY_STATUSES = frozenset({502, 503, 504})
     # What the integration reads and writes in a store. A store approves these
     # when it installs the app, and must connect again to grant any added later.
     SCOPES = (
@@ -21,6 +26,9 @@ class ShopifyApiConfig:
         AccessScope.READ_LOCATIONS,
         AccessScope.READ_ORDERS,
         AccessScope.READ_CUSTOMERS,
+        AccessScope.WRITE_CUSTOMERS,
+        AccessScope.WRITE_DISCOUNTS,
+        AccessScope.WRITE_DRAFT_ORDERS,
         AccessScope.READ_MERCHANT_MANAGED_FULFILLMENT_ORDERS,
         AccessScope.WRITE_MERCHANT_MANAGED_FULFILLMENT_ORDERS,
     )

@@ -7,12 +7,12 @@ from django.test import TestCase
 
 from api.fleet.tests.helpers import make_company
 from apps.shopify.exceptions import ShopifyAPIError
-from apps.shopify.models import ShopifyLocationMap, ShopifyStore, ShopifyVariantLink, VariantLinkStatus
+from apps.shopify.models import QuoteRequestMode, ShopifyLocationMap, ShopifyStore, ShopifyVariantLink, VariantLinkStatus
 from apps.shopify.services.push_scheduler import ShopifyPushScheduler
 from apps.shopify.services.stock import ShopifyStockService
 from apps.shopify.tasks import push_stock_for_items
 from company.models import Company
-from inventory.choices import ItemType, MovementType
+from inventory.choices import ItemType, MovementType, OnlineSaleMode
 from inventory.models import InventoryItem, ItemTransaction, Warehouse
 from inventory.services.bulk_stock import apply_bulk_stock
 from inventory.services.stock_position import refresh_stock_position
@@ -114,6 +114,16 @@ class StockPushTests(TestCase):
 
         with self.assertRaises(ShopifyAPIError):
             self.push(FakeShopify({"inv1": 0, "inv2": 0, "inv3": 0}, stale_writes=2))
+
+    def test_items_only_quoted_stay_at_zero_whatever_their_stock(self):
+        ShopifyStore.objects.filter(pk=self.store.pk).update(quote_requests=QuoteRequestMode.ALONGSIDE)
+        self.store.refresh_from_db()
+        InventoryItem.objects.filter(pk=self.items["B"].pk).update(online_sale_mode=OnlineSaleMode.QUOTE)
+        fake = FakeShopify({"inv1": 0, "inv2": 4, "inv3": 0})
+
+        self.push(fake)
+
+        self.assertEqual(fake.levels, {"inv1": 7, "inv2": 0, "inv3": 3})
 
     def test_push_can_be_limited_to_some_items(self):
         fake = FakeShopify({"inv1": 0, "inv2": 0, "inv3": 0})

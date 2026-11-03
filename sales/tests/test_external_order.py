@@ -15,6 +15,7 @@ from sales.services.external_order import (
     ExternalOrderError,
     ExternalOrderLine,
     ExternalOrderService,
+    QuoteRequestLine,
 )
 
 
@@ -171,3 +172,63 @@ class ExternalOrderServiceTests(TestCase):
             ExternalOrderService.find_or_create_client(self.company, ExternalCustomer(name="x", email="ana@example.com")),
             self.client_,
         )
+
+
+class RequestQuoteTests(TestCase):
+    """Quote requests from a channel: items as quote lines, made-to-measure items as configurations."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from configurator.models import ConfigurationPreset, ParameterType, ProductParameter, ProductTemplate
+
+        cls.company = Company.objects.create(name="Fistex")
+        cls.client_ = Client.objects.create(company=cls.company, name="Ana", email="ana@example.com")
+        cls.valve = InventoryItem.objects.create(company=cls.company, code="P-1", name="Valve")
+        template = ProductTemplate.objects.create(company=cls.company, name="CA/TA")
+        ProductParameter.objects.create(product=template, name="VOLUMEN", label="Volumen (L)",
+                                        type=ParameterType.SELECT, options=[160, 200])
+        cls.preset = ConfigurationPreset.objects.create(company=cls.company, product=template, name="CA/TA a medida")
+        cls.custom = InventoryItem.objects.create(
+            company=cls.company, code="CATA", name="CA/TA a medida",
+            product_content_type=ContentType.objects.get_for_model(ConfigurationPreset), product_object_id=cls.preset.pk,
+        )
+
+    def request(self, *lines):
+        return ExternalOrderService.request_quote(self.company, self.client_, lines, name="Web quote request")
+
+    def test_items_and_made_to_measure_lines_share_one_draft_quote(self):
+        quote = self.request(QuoteRequestLine(self.valve, Decimal("3")), QuoteRequestLine(self.custom, Decimal("2"), {"VOLUMEN": "200"}))
+
+        self.assertEqual(quote.status, QuoteStatus.DRAFT)
+        self.assertEqual(list(quote.inventory_items.values_list("inventory_item", "quantity")), [(self.valve.pk, Decimal("3"))])
+        # The configurator makes one configuration per unit, as in the preset wizard.
+        self.assertEqual(quote.configurations.count(), 2)
+        self.assertEqual(
+            set(quote.configurations.values_list("param_values__value", flat=True)), {"200"}
+        )
+
+    def test_the_customers_requirements_become_the_quotes_observations(self):
+        quote = ExternalOrderService.request_quote(self.company, self.client_, [
+            QuoteRequestLine(self.valve, Decimal("1"), notes="  Brass, 1\" thread "),
+            QuoteRequestLine(self.valve, Decimal("2")),
+            QuoteRequestLine(self.custom, Decimal("1"), {"VOLUMEN": "200"}, notes="Max. height 1,700 mm"),
+        ], name="Web quote request", notes="Delivery to Valencia")
+
+        self.assertEqual(quote.observations, (
+            "Delivery to Valencia\n\n"
+            "• Valve: Brass, 1\" thread\n"
+            "• CA/TA a medida (200): Max. height 1,700 mm"
+        ))
+
+    def test_a_request_without_requirements_has_no_observations(self):
+        self.assertIsNone(self.request(QuoteRequestLine(self.valve, Decimal("1"))).observations)
+
+    def test_invalid_values_name_the_parameter_and_leave_nothing(self):
+        with self.assertRaisesMessage(ExternalOrderError, "Volumen (L)"):
+            self.request(QuoteRequestLine(self.valve, Decimal("1")), QuoteRequestLine(self.custom, Decimal("1"), {"VOLUMEN": "999"}))
+
+        self.assertFalse(Quote.objects.exists())
+
+    def test_items_without_open_parameters_cant_be_made_to_measure(self):
+        with self.assertRaises(ExternalOrderError):
+            self.request(QuoteRequestLine(self.valve, Decimal("1"), {"VOLUMEN": "200"}))

@@ -26,6 +26,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -36,6 +37,7 @@ from sales.models import Client, ClientAddress, DeliveryOrder, DeliveryOrderStat
 
 if TYPE_CHECKING:
     from company.models import Company
+    from configurator.models import ConfigurationPreset
     from inventory.models import InventoryItem
     from invoices.models import SalesInvoice, TaxType
     from invoices.services.sales_invoice_service import CreditNoteLine
@@ -60,6 +62,23 @@ class ExternalOrderLine:
     quantity: Decimal
     net_total: Decimal  # line total without tax, after the channel's discounts
     tax_rate: Decimal  # percent, e.g. Decimal("21")
+
+
+@dataclass
+class QuoteRequestLine:
+    item: InventoryItem  # of the quote's company
+    quantity: Decimal
+    # Values for the open parameters of the item's configurator preset: a
+    # made-to-measure request. None for the item as it is.
+    parameters: dict[str, str] | None = None
+    # The customer's measurements or requirements for this product.
+    notes: str = ""
+
+    @property
+    def label(self) -> str:
+        """The product as staff recognise it in the quote: its name, and the values chosen for it."""
+        name = self.item.name or self.item.code
+        return f"{name} ({', '.join(self.parameters.values())})" if self.parameters else name
 
 
 @dataclass
@@ -200,22 +219,66 @@ class ExternalOrderService:
             delivery_order.delivery_address = address
             delivery_order.save(update_fields=["delivery_address", "updated_at"])
 
-    @staticmethod
+    @classmethod
     @transaction.atomic
     def request_quote(
-        company: Company, client: Client, items: Iterable[tuple[InventoryItem, Decimal]], name: str, notes: str = ""
+        cls, company: Company, client: Client, lines: Iterable[QuoteRequestLine], name: str, notes: str = ""
     ) -> Quote:
         """A draft quote for what a customer asked to be quoted, priced as a quote made by hand.
 
-        ``items`` are ``(inventory item, quantity)`` pairs; the lines take the
-        item's price and taxes as usual, for staff to adjust before sending.
+        An item line takes the item's price and taxes as usual. A made-to-measure
+        line becomes a configuration of the item's preset with the customer's
+        values, priced by the configurator as in the preset wizard. Staff adjust
+        either before sending. The customer's requirements, for the whole
+        request and per product, become the quote's observations.
         """
+        from configurator.services.preset_service import create_configuration_from_preset
+
+        lines = list(lines)
         quote = Quote.objects.create(
-            company=company, client=client, project_name=name[:200], status=QuoteStatus.DRAFT, observations=notes or None,
+            company=company,
+            client=client,
+            project_name=name[:200],
+            status=QuoteStatus.DRAFT,
+            observations=cls.request_observations(notes, lines) or None,
         )
-        for position, (item, quantity) in enumerate(items):
-            QuoteInventoryItem.objects.create(quote=quote, order=position, inventory_item=item, quantity=quantity)
+        for position, line in enumerate(lines):
+            if line.parameters is None:
+                QuoteInventoryItem.objects.create(
+                    quote=quote, order=position, inventory_item=line.item, quantity=line.quantity
+                )
+                continue
+            preset = cls.made_to_measure_preset(line.item)
+            if preset is None:
+                raise ExternalOrderError(_("%(item)s can't be made to measure.") % {"item": line.item.name})
+            try:
+                values = preset.with_values(line.parameters)
+            except ValidationError as exc:
+                labels = dict(preset.product.parameters.values_list("name", "label"))
+                raise ExternalOrderError(" ".join(
+                    f"{labels.get(name, name)}: {message}"
+                    for name, messages in exc.message_dict.items()
+                    for message in messages
+                )) from exc
+            create_configuration_from_preset(
+                preset, quote=quote, merged_values=values, client=client, quantity=int(line.quantity)
+            )
         return quote
+
+    @staticmethod
+    def request_observations(notes: str, lines: Iterable[QuoteRequestLine]) -> str:
+        """The request's own notes, then each product's, one per line after its label."""
+        parts = [notes.strip()] if notes and notes.strip() else []
+        product_notes = [f"• {line.label}: {line.notes.strip()}" for line in lines if line.notes.strip()]
+        if product_notes:
+            parts.append("\n".join(product_notes))
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def made_to_measure_preset(item: InventoryItem) -> ConfigurationPreset | None:
+        """The item's configurator preset when it leaves parameters for the customer to choose."""
+        preset = item.configuration_preset
+        return preset if preset is not None and preset.get_missing_parameters() else None
 
     @classmethod
     @transaction.atomic
@@ -242,7 +305,9 @@ class ExternalOrderService:
         if quote.status != QuoteStatus.ACCEPTED:  # an accepted order is never un-accepted here
             quote.status = target_status
         if quote.status == QuoteStatus.ACCEPTED and quote.project_file_id is None:
-            quote.project_file = cls._open_project_file(order)
+            from management.services.quote_acceptance import QuoteAcceptanceService
+
+            quote.project_file = QuoteAcceptanceService.open_project_file(quote, order.name)
         quote.save()
 
         if cls._lines_changed(quote, order):
@@ -275,13 +340,6 @@ class ExternalOrderService:
             quote.status = QuoteStatus.REJECTED
             quote.save()
         cls._close_project_file(quote)
-
-    @staticmethod
-    def _open_project_file(order: ExternalOrder) -> ProjectFile:
-        """The expediente of a newly accepted order, as the quote acceptance wizard creates one."""
-        from management.models import ProjectFile
-
-        return ProjectFile.objects.create(name=order.name[:255], client=order.client, company=order.company)
 
     @staticmethod
     def _close_project_file(quote: Quote) -> None:

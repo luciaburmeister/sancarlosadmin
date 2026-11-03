@@ -20,11 +20,12 @@ class ShopifyClient:
     """Sends GraphQL queries for one store, refreshing its token as needed.
 
     Throttled requests (HTTP 429 or a THROTTLED error) are retried with a short
-    backoff; anything else raises ``ShopifyAPIError``, or ``ShopifyAuthError``
-    when the store must be connected again.
+    backoff. So are queries that meet a temporary error (Shopify unreachable,
+    HTTP 502/503/504); mutations are not, as Shopify may have applied one
+    before failing to answer. Anything else raises ``ShopifyAPIError``, or
+    ``ShopifyAuthError`` when the store must be connected again.
     """
 
-    MAX_ATTEMPTS = 3
     REQUEST_TIMEOUT_SECONDS = 30
 
     def __init__(self, store: ShopifyStore) -> None:
@@ -35,7 +36,9 @@ class ShopifyClient:
         return f"https://{self.store.shop_domain}/admin/api/{ShopifyApiConfig.API_VERSION}/graphql.json"
 
     def graphql(self, query: str, variables: dict | None = None) -> dict:
-        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+        read_only = not query.lstrip().startswith("mutation")
+        attempts = ShopifyApiConfig.MAX_ATTEMPTS
+        for attempt in range(1, attempts + 1):
             self.store = ShopifyOAuthService.ensure_fresh_token(self.store)
             try:
                 response = requests.post(
@@ -44,8 +47,16 @@ class ShopifyClient:
                     headers={"X-Shopify-Access-Token": self.store.get_access_token()},
                     timeout=self.REQUEST_TIMEOUT_SECONDS,
                 )
+            except requests.ConnectionError as exc:
+                if read_only and attempt < attempts:
+                    time.sleep(attempt)
+                    continue
+                raise ShopifyAPIError(_("Could not reach Shopify.")) from exc
             except requests.RequestException as exc:
                 raise ShopifyAPIError(_("Could not reach Shopify.")) from exc
+            if response.status_code in ShopifyApiConfig.TEMPORARY_STATUSES and read_only and attempt < attempts:
+                time.sleep(attempt)
+                continue
 
             if response.status_code == 401:
                 raise ShopifyAuthError(_("Shopify rejected the store's token. Connect it again."))
@@ -56,7 +67,7 @@ class ShopifyClient:
             throttled = response.status_code == 429 or any(
                 (error.get("extensions") or {}).get("code") == "THROTTLED" for error in body.get("errors") or []
             )
-            if throttled and attempt < self.MAX_ATTEMPTS:
+            if throttled and attempt < attempts:
                 time.sleep(attempt)
                 continue
             if response.status_code >= 400 or body.get("errors") or not isinstance(body.get("data"), dict):

@@ -4,7 +4,9 @@ Importing a store's Shopify orders as ERP quotes.
 Each order is read again from Shopify (webhooks arrive out of order and carry
 old snapshots), translated into ``sales.services.external_order`` terms and
 applied with ``ExternalOrderService``, so the ERP keeps exactly what the
-customer was charged.
+customer was charged. An order that pays an accepted quote online
+(``ShopifyQuotePaymentService``) is filed under that quote instead: its lines,
+expediente and deliveries stay as staff made them.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_noop
 
 from apps.shopify.client import ShopifyClient
 from apps.shopify.enums import AccessScope, OrderFinancialStatus
@@ -23,6 +26,7 @@ from apps.shopify.models import ClientMode, FulfillmentBy, ShopifyCustomerLink, 
 from apps.shopify.services.base import ShopifyService
 from apps.shopify.services.fulfillments import ShopifyFulfillmentService
 from apps.shopify.services.invoicing import ShopifyInvoicingService
+from apps.shopify.services.quote_payments import ShopifyQuotePaymentService
 from invoices.models import SalesInvoiceStatus
 from sales.models import Client, QuoteStatus
 from sales.services.external_order import (
@@ -52,6 +56,7 @@ class ShopifyOrderService(ShopifyService):
     query ($id: ID!) {{
       order(id: $id) {{
         id name createdAt updatedAt cancelledAt displayFinancialStatus taxesIncluded email phone
+        customAttributes {{ key value }}
         currentTotalPriceSet {{ shopMoney {{ amount currencyCode }} }}
         totalPriceSet {{ {ShopifyService.MONEY} }}
         totalRefundedSet {{ {ShopifyService.MONEY} }}
@@ -59,7 +64,7 @@ class ShopifyOrderService(ShopifyService):
         billingAddress {{ {ADDRESS_FIELDS} }}
         shippingAddress {{ {ADDRESS_FIELDS} }}
         lineItems(first: 250) {{ nodes {{
-          id name quantity currentQuantity variant {{ id }}
+          id name quantity currentQuantity variant {{ id }} customAttributes {{ key value }}
           originalUnitPriceSet {{ {ShopifyService.MONEY} }}
           {AMOUNTS_FIELDS}
         }} }}
@@ -86,9 +91,11 @@ class ShopifyOrderService(ShopifyService):
         """Create or update the order's quote. ``None`` when the store doesn't import orders."""
         if not store.import_orders:
             return None
-        data = ShopifyClient(store).graphql(cls._order_query(store), {"id": order_id})["order"]
+        client = ShopifyClient(store)
+        data = client.graphql(cls._order_query(store), {"id": order_id})["order"]
         if data is None:
             raise ShopifyOrderError(_("The order no longer exists in Shopify."))
+        payment = ShopifyQuotePaymentService.payment_of_order(store, client, data)
 
         with transaction.atomic():
             record, _created = ShopifyOrder.objects.get_or_create(store=store, order_id=data["id"])
@@ -108,8 +115,11 @@ class ShopifyOrderService(ShopifyService):
             # The ERP's own pending delivery orders follow the order's changes.
             erp_ships = store.fulfillment_by == FulfillmentBy.ERP
             if data["cancelledAt"]:
-                if record.quote is not None:
+                # A cancelled payment leaves the accepted quote as it is.
+                if record.quote is not None and payment is None:
                     ExternalOrderService.cancel(record.quote, cancel_pending_deliveries=erp_ships)
+            elif payment is not None:
+                record.quote = payment.quote
             else:
                 order = cls._external_order(store, data, keep_refunded=locked)
                 record.quote = ExternalOrderService.sync_quote(
@@ -134,10 +144,22 @@ class ShopifyOrderService(ShopifyService):
             record.error = ""
             record.synced_at = timezone.now()
             record.save()
-            ShopifyInvoicingService.record_refunds(record, data, settled_on_quote=not (locked or invoiced))
+            if payment is not None and payment.order_id != record.pk:
+                payment.order = record
+                payment.save(update_fields=["order", "updated_at"])
+            # A quote paid online is never rebuilt from the order, so its refunds are credited or reviewed.
+            ShopifyInvoicingService.record_refunds(
+                record, data, settled_on_quote=payment is None and not (locked or invoiced)
+            )
             ShopifyFulfillmentService.note_cancellations(record, data.get("fulfillments") or [])
 
-            if record.quote is not None and record.quote.status == QuoteStatus.ACCEPTED and not record.is_cancelled:
+            # A quote paid online is delivered from its expediente, as staff arrange it.
+            if (
+                payment is None
+                and record.quote is not None
+                and record.quote.status == QuoteStatus.ACCEPTED
+                and not record.is_cancelled
+            ):
                 if erp_ships:
                     ShopifyFulfillmentService.create_pending_delivery(record)
                 else:
@@ -198,7 +220,7 @@ class ShopifyOrderService(ShopifyService):
             company=store.company,
             client=cls._client(store, data),
             reference=data["id"],
-            name=_("Shopify %(order)s") % {"order": data["name"]},
+            name=cls.erp_text(gettext_noop("Shopify %(order)s"), order=data["name"]),
             date=timezone.localtime(parse_datetime(data["createdAt"])).date(),
             paid=data["displayFinancialStatus"] in OrderFinancialStatus.paid(),
             tax_type=store.tax_type,

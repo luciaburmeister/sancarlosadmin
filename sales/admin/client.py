@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.forms import ModelForm
+from django.http import HttpRequest
 from django.contrib.postgres.fields import ArrayField
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
@@ -119,6 +121,11 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     list_filter = ["sale_zone", "is_insured", "contacts__role"]
     autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account","account"]
     list_select_related = ["company"]   
+
+    def save_related(self, request: HttpRequest, form: ModelForm, formsets: list, change: bool) -> None:
+        super().save_related(request, form, formsets, change)
+        if "discount_policies" in form.changed_data:
+            form.instance.discount_policies_changed()
 
     def get_list_filter(self, request):
         return self.list_filter

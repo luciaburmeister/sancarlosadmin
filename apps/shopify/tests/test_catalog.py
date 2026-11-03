@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
@@ -16,6 +17,7 @@ from djmoney.money import Money
 from api.fleet.tests.helpers import make_company, make_user
 from apps.shopify.admin import ShopifyStoreAdmin, ShopifyVariantLinkAdmin
 from apps.shopify.models import (
+    MadeToMeasureMode,
     QuoteRequestMode,
     ShopifyLocationMap,
     ShopifyStore,
@@ -29,8 +31,10 @@ from apps.shopify.services.push_scheduler import ShopifyPushScheduler
 from apps.shopify.services.webhooks import ShopifyWebhookService
 from apps.shopify.tasks import push_catalog_for_store
 from company.models import CompanyDefaultTax, CompanyUser
-from inventory.choices import ItemType, OnlineSaleMode
+from inventory.choices import ItemSchemaKind, ItemType, OnlineSaleMode
+from configurator.models import ConfigurationPreset, ParameterType, ProductParameter, ProductTemplate
 from inventory.models import InventoryItem, Warehouse
+from inventory.tests.factories import make_item_schema
 from invoices.models import AppliedTax, TaxType
 
 
@@ -171,6 +175,12 @@ class FakeCatalog:
         self.status = {}  # product gid -> status
         self.tags = {}  # product gid -> set of tags
         self.status_updates = []
+        self.metafields = {}  # (owner gid, key) -> json value
+        self.metafield_calls = 0
+        self.product_types = {}  # product gid -> product type
+        self.product_type_calls = 0
+        self.deleted_variants = []
+        self.stock = {}  # inventory item gid -> {location gid: on_hand}
 
     def _add(self, sku, title):
         n = len(self.variants) + 1
@@ -192,18 +202,67 @@ class FakeCatalog:
             return {"tagsRemove": {"userErrors": []}}
         if "productUpdate" in query:
             product = variables["product"]
-            self.status[product["id"]] = product["status"]
-            self.status_updates.append((product["id"], product["status"]))
+            if "productType" in product:
+                self.product_types[product["id"]] = product["productType"]
+                self.product_type_calls += 1
+            if "status" in product:
+                self.status[product["id"]] = product["status"]
+                self.status_updates.append((product["id"], product["status"]))
             return {"productUpdate": {"product": product, "userErrors": []}}
         if "variantsCount" in query:
             product_id = variables["id"]
             count = sum(1 for v in self.variants.values() if v["product"]["id"] == product_id)
             return {"product": {"status": self.status.get(product_id, "ACTIVE"), "variantsCount": {"count": count}}}
         if "productCreate" in query:
-            self.created.append(variables["product"])
-            variant = self._add(None, variables["product"]["title"])
-            self.status[variant["product"]["id"]] = variables["product"]["status"]
+            product = variables["product"]
+            self.created.append(product)
+            variant = self._add(None, product["title"])
+            variant["options"] = [option["values"][0]["name"] for option in product.get("productOptions", [])]
+            self.status[variant["product"]["id"]] = product["status"]
             return {"productCreate": {"product": {**variant["product"], "variants": {"nodes": [variant]}}, "userErrors": []}}
+        if "productVariantsBulkCreate" in query:
+            created = []
+            for new in variables["variants"]:
+                variant = self._add(None, "")
+                variant["product"] = next(
+                    v["product"] for v in self.variants.values() if v["product"]["id"] == variables["productId"]
+                )
+                variant["options"] = [value["name"] for value in new["optionValues"]]
+                created.append(variant)
+            return {"productVariantsBulkCreate": {"productVariants": created, "userErrors": []}}
+        if "productVariantsBulkDelete" in query:
+            for variant_id in variables["variantsIds"]:
+                del self.variants[variant_id]
+            self.deleted_variants.extend(variables["variantsIds"])
+            return {"productVariantsBulkDelete": {"userErrors": []}}
+        if "metafieldsSet" in query or "metafieldsDelete" in query:
+            self.metafield_calls += 1
+            for metafield in variables["metafields"]:
+                assert metafield["namespace"] == "polipus"
+                key = (metafield["ownerId"], metafield["key"])
+                if "metafieldsSet" in query:
+                    assert metafield["type"] == "json"
+                    self.metafields[key] = json.loads(metafield["value"])
+                else:
+                    self.metafields.pop(key, None)
+            return {"metafieldsSet" if "metafieldsSet" in query else "metafieldsDelete": {"userErrors": []}}
+        if "inventoryPolicy inventoryItem" in query:  # a variant's stock settings
+            variant = self.variants[variables["id"]]
+            return {"productVariant": {
+                "inventoryPolicy": variant.get("inventoryPolicy", "DENY"), "inventoryItem": {"tracked": variant.get("tracked", False)},
+            }}
+        if "inventoryLevels" in query:
+            levels = self.stock.get(variables["id"], {})
+            return {"inventoryItem": {"inventoryLevels": {"nodes": [
+                {"location": {"id": location}, "quantities": [{"name": "on_hand", "quantity": quantity}]}
+                for location, quantity in levels.items()
+            ]}}}
+        if "inventorySetQuantities" in query:
+            for change in variables["input"]["quantities"]:
+                levels = self.stock[change["inventoryItemId"]]
+                assert levels[change["locationId"]] == change["changeFromQuantity"]
+                levels[change["locationId"]] = change["quantity"]
+            return {"inventorySetQuantities": {"userErrors": []}}
         if "productVariantsBulkUpdate" in query:
             if self.refuse_updates:
                 return {"productVariantsBulkUpdate": {"userErrors": [{"field": None, "message": "Price is invalid"}]}}
@@ -599,6 +658,41 @@ class SaleModeTagsTests(TestCase):
         self.assertEqual(self.push().updated, 1)
         self.assertEqual(self.tags(), set())
 
+    def test_a_quote_only_variant_cannot_be_bought_in_shopify_and_is_restored_when_sold_again(self):
+        self.push()
+        link = ShopifyVariantLink.objects.get(item=self.tank)
+        variant = self.fake.variants[link.variant_id]
+        variant.update(tracked=False, inventoryPolicy="CONTINUE")  # as staff had set it in Shopify
+        self.fake.stock[link.inventory_item_id] = {"gid://shopify/Location/1": 4, "gid://shopify/Location/2": 0}
+
+        self.set_mode(QuoteRequestMode.ALONGSIDE, OnlineSaleMode.QUOTE)
+        self.push()
+
+        self.assertEqual((variant["tracked"], variant["inventoryPolicy"]), (True, "DENY"))
+        self.assertEqual(self.fake.stock[link.inventory_item_id], {"gid://shopify/Location/1": 0, "gid://shopify/Location/2": 0})
+        link.refresh_from_db()
+        self.assertEqual(link.quote_only_restore, {"tracked": False, "inventoryPolicy": "CONTINUE"})
+
+        self.set_mode(QuoteRequestMode.ALONGSIDE, OnlineSaleMode.BOTH)
+        with mock.patch(GRAPHQL, side_effect=self.fake), mock.patch.object(ShopifyPushScheduler, "schedule_stock_push") as stock:
+            ShopifyCatalogService.push_catalog(self.store)
+
+        self.assertEqual((variant["tracked"], variant["inventoryPolicy"]), (False, "CONTINUE"))
+        link.refresh_from_db()
+        self.assertIsNone(link.quote_only_restore)
+        stock.assert_called_once_with([self.tank.pk])  # the real stock replaces the zero it was held at
+
+    def test_a_new_quote_only_product_is_created_unsellable(self):
+        self.set_mode(QuoteRequestMode.INSTEAD)
+
+        self.push()
+
+        link = ShopifyVariantLink.objects.get(item=self.tank)
+        variant = self.fake.variants[link.variant_id]
+        self.assertEqual((variant["tracked"], variant["inventoryPolicy"]), (True, "DENY"))
+        # Sold again, it gets what the ERP gives a new product, not Shopify's defaults.
+        self.assertEqual(link.quote_only_restore, {"tracked": False, "inventoryPolicy": "DENY"})  # a service ships nothing
+
     def test_the_stores_own_tags_are_left_alone(self):
         self.push()
         product = ShopifyVariantLink.objects.get(item=self.tank).product_id
@@ -606,3 +700,286 @@ class SaleModeTagsTests(TestCase):
         self.set_mode(QuoteRequestMode.INSTEAD)
         self.push()
         self.assertEqual(self.tags(), {"summer", "request-quote", "quote-only"})
+
+
+class ProductCategoryTests(TestCase):
+    """The product type taken from the item schema field the store names as its category field."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company(name="Fistex")
+        block = make_item_schema(company=cls.company, name="Tienda online", kind=ItemSchemaKind.BLOCK, fields=[
+            {"key": "category", "label": "Categoría", "type": "select", "options": ["Captadores solares", "Depósitos"]},
+        ])
+        schema = make_item_schema(company=cls.company, name="Captador", includes=[block])
+        cls.collector = InventoryItem.objects.create(
+            company=cls.company, code="C-1", name="Collector", item_type=ItemType.SERVICE, sell_online=True,
+            selling_price=Money("400.00", "EUR"), metadata_schema=schema, metadata={"category": "Captadores solares"},
+        )
+
+    def setUp(self):
+        cache.clear()
+        self.store = ShopifyStore.objects.create(
+            company=self.company, name="Shop", shop_domain="fistex.myshopify.com", access_token_encrypted="x",
+            push_catalog=True,
+        )
+        self.fake = FakeCatalog()
+
+    def push(self):
+        with mock.patch(GRAPHQL, side_effect=self.fake), mock.patch.object(ShopifyPushScheduler, "schedule_stock_push"):
+            return ShopifyCatalogService.push_catalog(self.store)
+
+    def product_type(self):
+        return self.fake.product_types.get(ShopifyVariantLink.objects.get(item=self.collector).product_id)
+
+    def test_without_a_category_field_shopify_keeps_its_product_types(self):
+        self.push()
+
+        self.assertEqual(self.fake.product_type_calls, 0)
+
+    def test_the_category_becomes_the_product_type_once_and_follows_changes(self):
+        self.store.category_field = "category"
+        self.store.save()
+
+        self.push()
+        self.assertEqual(self.product_type(), "Captadores solares")
+        self.assertEqual(self.push().unchanged, 1)
+        self.assertEqual(self.fake.product_type_calls, 1)
+
+        InventoryItem.objects.filter(pk=self.collector.pk).update(metadata={"category": "Depósitos"})
+        self.assertEqual(self.push().updated, 1)
+        self.assertEqual(self.product_type(), "Depósitos")
+
+        InventoryItem.objects.filter(pk=self.collector.pk).update(metadata={})
+        self.push()
+        self.assertEqual(self.product_type(), "")  # an item without a category leaves no stale one
+
+    def test_the_category_is_not_repeated_among_the_specifications(self):
+        self.push()
+        variant_id = ShopifyVariantLink.objects.get(item=self.collector).variant_id
+        self.assertEqual(self.fake.metafields[(variant_id, "specifications")][0]["key"], "category")
+
+        self.store.category_field = "category"
+        self.store.save()
+        self.push()
+
+        self.assertNotIn((variant_id, "specifications"), self.fake.metafields)  # the category was its only value
+
+
+class VariantGroupTests(TestCase):
+    """Items made from presets of one configurator template, sold as variants of one product."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company(name="Fistex")
+        template = ProductTemplate.objects.create(company=cls.company, name="CA/TA", description="Hot water tanks")
+        ProductParameter.objects.create(product=template, name="VOLUMEN", label="Volumen (L)", type=ParameterType.SELECT,
+                                        options=[160, 500, 1000], order=0)
+        ProductParameter.objects.create(product=template, name="RECUBRIMIENTO", label="Recubrimiento",
+                                        type=ParameterType.SELECT, options=["F.Poliester", "F.Skay"], order=1)
+        preset_type = ContentType.objects.get_for_model(ConfigurationPreset)
+
+        def tank(code, volume, finish, price):
+            preset = ConfigurationPreset.objects.create(
+                company=cls.company, product=template, name=f"CA/TA-{volume}-{finish}",
+                parameter_values={"VOLUMEN": volume, "RECUBRIMIENTO": finish},
+            )
+            return InventoryItem.objects.create(
+                company=cls.company, code=code, name=f"Acumulador ACS Mod. {volume} CA/TA ({finish})",
+                description=f"{volume} L tank",
+                item_type=ItemType.SERVICE, sell_online=True, selling_price=Money(price, "EUR"),
+                product_content_type=preset_type, product_object_id=preset.pk,
+            )
+
+        # Created out of order: the product still lists its sizes in the template's order.
+        cls.big = tank("T-1000", "1000", "F.Skay", "4000.00")
+        cls.small = tank("T-160", "160", "F.Skay", "1400.00")
+        cls.small_polyester = tank("T-160P", "160", "F.Poliester", "1350.00")
+        cls.valve = InventoryItem.objects.create(
+            company=cls.company, code="V-1", name="Valve", item_type=ItemType.SERVICE, sell_online=True,
+            selling_price=Money("20.00", "EUR"),
+        )
+
+    def setUp(self):
+        cache.clear()
+        self.store = ShopifyStore.objects.create(
+            company=self.company, name="Shop", shop_domain="fistex.myshopify.com", access_token_encrypted="x",
+            push_catalog=True, group_variants=True, quote_requests=QuoteRequestMode.ALONGSIDE,
+        )
+        self.fake = FakeCatalog()
+
+    def push(self, item_ids=None):
+        with mock.patch(GRAPHQL, side_effect=self.fake), mock.patch.object(ShopifyPushScheduler, "schedule_stock_push"):
+            return ShopifyCatalogService.push_catalog(self.store, item_ids)
+
+    def variant(self, item):
+        return self.fake.variants[ShopifyVariantLink.objects.get(item=item).variant_id]
+
+    def test_items_of_one_template_become_variants_of_one_product(self):
+        result = self.push()
+
+        self.assertEqual(result.created, 4)
+        self.assertEqual(len(self.fake.created), 2)  # the tanks' product and the valve's
+        tanks, valve = sorted(self.fake.created, key=lambda product: "productOptions" not in product)
+        self.assertEqual(tanks["title"], "Acumulador ACS Mod. CA/TA")
+        self.assertEqual(tanks["descriptionHtml"], "<p>Hot water tanks</p>")  # the template's, not one size's
+        self.assertEqual(tanks["productOptions"], [
+            {"name": "Volumen (L)", "values": [{"name": "160"}]},
+            {"name": "Recubrimiento", "values": [{"name": "F.Poliester"}]},
+        ])
+        self.assertEqual(
+            {self.variant(item)["product"]["id"] for item in (self.big, self.small, self.small_polyester)}, {
+                self.variant(self.small)["product"]["id"]
+            },
+        )
+        self.assertEqual(self.variant(self.big)["options"], ["1000", "F.Skay"])
+        self.assertEqual((self.variant(self.big)["price"], self.variant(self.big)["sku"]), ("4000.00", "T-1000"))
+        self.assertEqual(valve["title"], "Valve")
+
+    def test_a_new_item_joins_its_groups_product_and_leaves_it_when_no_longer_sold(self):
+        self.push()
+        product = self.variant(self.small)["product"]["id"]
+        InventoryItem.objects.filter(pk=self.big.pk).update(sell_online=False)
+
+        result = self.push()
+
+        self.assertEqual(result.removed, 1)
+        self.assertEqual(result.archived, 0)
+        self.assertFalse(ShopifyVariantLink.objects.filter(item=self.big).exists())
+        self.assertEqual(self.fake.status[product], "DRAFT")  # the product stays for the other sizes
+
+        InventoryItem.objects.filter(pk=self.big.pk).update(sell_online=True)
+        self.assertEqual(self.push().created, 1)
+        self.assertEqual(self.variant(self.big)["product"]["id"], product)
+
+    def test_a_variant_only_linked_by_its_sku_is_never_deleted(self):
+        # A product the merchant built in Shopify, its variants linked to ERP items by SKU.
+        self.fake._add("T-1000", "Merchant's tank")["product"]["id"] = "gid://shopify/Product/merchant"
+        self.fake._add("T-160", "Merchant's tank")["product"]["id"] = "gid://shopify/Product/merchant"
+        self.store.group_variants = False
+        self.store.save()
+        InventoryItem.objects.filter(pk__in=[self.small_polyester.pk, self.valve.pk]).update(sell_online=False)
+        self.push()
+        InventoryItem.objects.filter(pk=self.big.pk).update(sell_online=False)
+
+        result = self.push()
+
+        self.assertEqual((result.removed, self.fake.deleted_variants), (0, []))
+        self.assertTrue(ShopifyVariantLink.objects.filter(item=self.big).exists())
+
+    def test_the_product_is_tagged_by_how_all_its_variants_sell(self):
+        InventoryItem.objects.filter(pk=self.big.pk).update(online_sale_mode=OnlineSaleMode.QUOTE)
+
+        self.push()
+
+        product = self.variant(self.small)["product"]["id"]
+        self.assertEqual(self.fake.tags[product], {"request-quote"})  # quotable, but some sizes can be bought
+        variant_id = ShopifyVariantLink.objects.get(item=self.big).variant_id
+        self.assertEqual(self.fake.metafields[(variant_id, "sale_mode")], OnlineSaleMode.QUOTE)
+
+    def test_stores_that_dont_group_keep_one_product_per_item(self):
+        self.store.group_variants = False
+        self.store.save()
+
+        self.push()
+
+        self.assertEqual(len(self.fake.created), 4)
+        self.assertTrue(all("productOptions" not in product for product in self.fake.created))
+
+
+class ProductFieldsTests(TestCase):
+    """Specifications (item schemas) and made-to-measure forms published on each item's variant."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company(name="Fistex")
+        schema = make_item_schema(company=cls.company, name="Depósito", fields=[
+            {"key": "capacity", "label": "Capacidad", "type": "number", "unit": "L"},
+            {"key": "insulation", "label": "Aislamiento"},
+            {"key": "coil", "label": "Serpentín"},
+        ])
+        cls.tank = InventoryItem.objects.create(
+            company=cls.company, code="T-1", name="Tank 300 L", item_type=ItemType.SERVICE, sell_online=True,
+            selling_price=Money("900.00", "EUR"), metadata_schema=schema,
+            metadata={"capacity": 300, "insulation": "Poliuretano", "coil": ""},
+        )
+        cls.plain = InventoryItem.objects.create(
+            company=cls.company, code="P-1", name="Valve", item_type=ItemType.SERVICE, sell_online=True,
+            selling_price=Money("20.00", "EUR"),
+        )
+        template = ProductTemplate.objects.create(company=cls.company, name="CA/TA")
+        ProductParameter.objects.create(product=template, name="VOLUMEN", label="Volumen (L)", type=ParameterType.SELECT,
+                                        options=[160, 200], order=0, default_value="160")
+        ProductParameter.objects.create(product=template, name="RECUBRIMIENTO", label="Recubrimiento",
+                                        type=ParameterType.SELECT, options=["F.Skay"], order=1)
+        preset = ConfigurationPreset.objects.create(
+            company=cls.company, product=template, name="CA/TA a medida", parameter_values={"RECUBRIMIENTO": "F.Skay"},
+        )
+        cls.custom = InventoryItem.objects.create(
+            company=cls.company, code="CATA", name="CA/TA a medida", item_type=ItemType.OWN_PRODUCTION, sell_online=True,
+            selling_price=Money("0.00", "EUR"),
+            product_content_type=ContentType.objects.get_for_model(ConfigurationPreset), product_object_id=preset.pk,
+        )
+
+    def setUp(self):
+        cache.clear()
+        self.store = ShopifyStore.objects.create(
+            company=self.company, name="Shop", shop_domain="fistex.myshopify.com", access_token_encrypted="x",
+            push_catalog=True, quote_requests=QuoteRequestMode.ALONGSIDE,
+        )
+        self.fake = FakeCatalog()
+
+    def push(self):
+        with mock.patch(GRAPHQL, side_effect=self.fake), mock.patch.object(ShopifyPushScheduler, "schedule_stock_push"):
+            return ShopifyCatalogService.push_catalog(self.store)
+
+    def field(self, item, key):
+        return self.fake.metafields.get((ShopifyVariantLink.objects.get(item=item).variant_id, key))
+
+    def test_specifications_follow_the_schema_and_leave_out_empty_values(self):
+        self.push()
+
+        self.assertEqual(self.field(self.tank, "specifications"), [
+            {"key": "capacity", "label": "Capacidad", "type": "number", "unit": "L", "value": 300},
+            {"key": "insulation", "label": "Aislamiento", "type": "text", "unit": "", "value": "Poliuretano"},
+        ])
+        self.assertIsNone(self.field(self.plain, "specifications"))
+
+    def test_fields_are_sent_once_and_follow_changes(self):
+        self.push()
+        calls = self.fake.metafield_calls
+
+        self.push()
+        self.assertEqual(self.fake.metafield_calls, calls)  # nothing changed, nothing sent
+
+        InventoryItem.objects.filter(pk=self.tank.pk).update(metadata={"capacity": 500})
+        self.push()
+        self.assertEqual([spec["value"] for spec in self.field(self.tank, "specifications")], [500])
+
+        InventoryItem.objects.filter(pk=self.tank.pk).update(metadata_schema=None)
+        self.push()
+        self.assertIsNone(self.field(self.tank, "specifications"))
+
+    def test_every_variant_says_how_it_sells_in_one_call(self):
+        InventoryItem.objects.filter(pk__in=[self.tank.pk, self.custom.pk]).update(sell_online=False)
+
+        self.push()
+
+        self.assertEqual(self.field(self.plain, "sale_mode"), OnlineSaleMode.BUY)
+        self.assertEqual(self.fake.metafield_calls, 1)
+
+    def test_made_to_measure_items_publish_their_open_parameters_and_are_quote_only(self):
+        self.push()
+        self.assertIsNone(self.field(self.custom, "made_to_measure"))  # the store doesn't take them yet
+
+        self.store.made_to_measure = MadeToMeasureMode.QUOTE
+        self.store.save()
+        self.push()
+
+        self.assertEqual(self.field(self.custom, "made_to_measure"), {
+            "fixed": [{"label": "Recubrimiento", "value": "F.Skay"}],
+            "parameters": [{"name": "VOLUMEN", "label": "Volumen (L)", "type": "select", "options": ["160", "200"], "default": "160"}],
+        })
+        product_id = ShopifyVariantLink.objects.get(item=self.custom).product_id
+        self.assertIn(ShopifyCatalogService.QUOTE_ONLY_TAG, self.fake.tags[product_id])
+        self.assertIsNone(self.field(self.tank, "made_to_measure"))

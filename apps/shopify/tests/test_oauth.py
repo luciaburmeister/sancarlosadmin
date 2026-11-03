@@ -5,6 +5,8 @@ from datetime import timedelta
 from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
+import requests
+
 from django.contrib.auth.models import Permission
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -124,6 +126,44 @@ class ShopifyOAuthServiceTests(TestCase):
         self.assertEqual(store.get_access_token(), "shpat_new")
         self.assertEqual(store.get_refresh_token(), "shprt_new")
 
+    def expiring_store(self):
+        self.store.set_tokens(
+            access_token="old", access_token_expires_at=timezone.now() + timedelta(minutes=1),
+            refresh_token="shprt_old", refresh_token_expires_at=timezone.now() + timedelta(days=30),
+        )
+        self.store.save()
+
+    @mock.patch("apps.shopify.services.oauth.time.sleep")
+    @mock.patch("apps.shopify.services.oauth.requests.post")
+    def test_refresh_is_tried_again_while_shopify_is_briefly_unavailable(self, post, sleep):
+        self.expiring_store()
+        post.side_effect = [shopify_response(status=504), requests.ConnectionError(), shopify_response(payload=TOKEN_RESPONSE)]
+
+        store = ShopifyOAuthService.ensure_fresh_token(self.store)
+
+        self.assertEqual(store.get_access_token(), "shpat_new")
+        self.assertEqual(post.call_count, 3)
+
+    @mock.patch("apps.shopify.services.oauth.time.sleep")
+    @mock.patch("apps.shopify.services.oauth.requests.post")
+    def test_refresh_gives_up_and_never_retries_what_shopify_may_have_done(self, post, sleep):
+        self.expiring_store()
+        for case, answers, calls in [
+            ("still unavailable", [shopify_response(status=503)] * 3, 3),
+            ("refused", [shopify_response(status=400)], 1),
+            # A timeout may come after Shopify issued tokens and spent the refresh token.
+            ("timeout", [requests.ReadTimeout()], 1),
+        ]:
+            with self.subTest(case):
+                post.reset_mock()
+                post.side_effect = answers
+
+                with self.assertRaises(ShopifyAuthError):
+                    ShopifyOAuthService.ensure_fresh_token(self.store)
+
+                self.assertEqual(post.call_count, calls)
+                self.assertEqual(ShopifyStore.objects.get(pk=self.store.pk).get_access_token(), "old")
+
     @mock.patch("apps.shopify.services.oauth.requests.post")
     def test_fresh_token_is_not_refreshed(self, post):
         self.store.set_tokens(
@@ -231,6 +271,30 @@ class ShopifyClientTests(TestCase):
         post.side_effect = [shopify_response(payload=throttled), shopify_response(payload={"data": {"shop": {"name": "A"}}})]
         self.assertEqual(ShopifyClient(self.store).graphql("{ shop { name } }"), {"shop": {"name": "A"}})
         self.assertEqual(post.call_args.kwargs["headers"]["X-Shopify-Access-Token"], "shpat")
+
+    @mock.patch("apps.shopify.client.time.sleep")
+    @mock.patch("apps.shopify.client.requests.post")
+    def test_queries_are_tried_again_while_shopify_is_briefly_unavailable(self, post, sleep):
+        post.side_effect = [
+            shopify_response(status=502), requests.ConnectionError(), shopify_response(payload={"data": {"shop": {"name": "A"}}}),
+        ]
+
+        self.assertEqual(ShopifyClient(self.store).graphql("{ shop { name } }"), {"shop": {"name": "A"}})
+        self.assertEqual(post.call_count, 3)
+
+    @mock.patch("apps.shopify.client.time.sleep")
+    @mock.patch("apps.shopify.client.requests.post")
+    def test_mutations_are_not_repeated_after_a_temporary_error(self, post, sleep):
+        # Shopify may have applied the mutation before failing to answer.
+        for answer in (shopify_response(status=504), requests.ConnectionError()):
+            with self.subTest(answer=answer):
+                post.reset_mock()
+                post.side_effect = [answer]
+
+                with self.assertRaises(ShopifyAPIError):
+                    ShopifyClient(self.store).graphql("mutation { productCreate(product: {title: \"x\"}) { userErrors { message } } }")
+
+                self.assertEqual(post.call_count, 1)
 
     @mock.patch("apps.shopify.client.requests.post")
     def test_reply_without_data_is_an_api_error(self, post):

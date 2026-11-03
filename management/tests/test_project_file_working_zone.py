@@ -102,6 +102,27 @@ class LinkProjectFileFormWorkingZoneTests(_WorkingZoneBase):
         self.assertNotIn(self.zone, form.fields["working_zones"].queryset)
 
 
+class QuoteAcceptanceWizardCompanyAccessTests(_WorkingZoneBase):
+    def test_a_quote_of_a_company_the_user_cannot_see_is_not_accepted(self):
+        from django.contrib.auth.models import Permission
+
+        from company.models import CompanyUser
+
+        other = Company.objects.create(name="Other")
+        quote = Quote.objects.create(company=other, client=Client.objects.create(company=other, name="Theirs"))
+        user = User.objects.create_user(username="staff", password="pass1234", is_staff=True)
+        user.user_permissions.add(Permission.objects.get(codename="change_quote", content_type__app_label="sales"))
+        CompanyUser.objects.create(user=user, company=self.company)
+        self.client.force_login(user)
+        url = reverse("admin:sales_quote_acceptance_wizard", args=[quote.id])
+
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(url, data={"action_type": "new", "new_project_name": "X"}).status_code, 404)
+        quote.refresh_from_db()
+        self.assertNotEqual(quote.status, "accepted")
+        self.assertFalse(ProjectFile.objects.filter(company=other).exists())
+
+
 class QuoteAcceptanceWizardWorkingZoneTests(_WorkingZoneBase):
     def setUp(self):
         super().setUp()

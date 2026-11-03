@@ -8,3 +8,7 @@ class ShopifyAuthError(ShopifyError):
 
 class ShopifyAPIError(ShopifyError):
     """A connected store's API call failed."""
+
+
+class ShopifyBusy(ShopifyError):
+    """Another run of the same job for the store is still going; try again later."""

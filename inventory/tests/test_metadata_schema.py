@@ -65,6 +65,18 @@ class ItemSchemaCompositionTest(MetadataSchemaTestBase):
         self.assertEqual([f.key for f in fields], ["weight_kg", "tags", "color", "installed_on"])
         self.assertEqual([f.source for f in fields], [self.shipping, self.shopify, self.ventana, self.ventana])
 
+    def test_prefetched_schemas_cost_no_query_per_item(self):
+        for code in ("I-1", "I-2", "I-3"):
+            self.item(code=code, metadata_schema=self.ventana)
+        items = list(
+            InventoryItem.objects.filter(company=self.company)
+            .select_related("metadata_schema")
+            .prefetch_related("metadata_schema__fields", "metadata_schema__includes__fields")
+        )
+        with self.assertNumQueries(0):
+            keys = [[f.key for f in item.metadata_schema.effective_fields()] for item in items]
+        self.assertEqual(keys, [["weight_kg", "tags", "color", "installed_on"]] * 3)
+
     def test_json_schema(self):
         schema = self.ventana.json_schema()
         self.assertEqual(schema["required"], ["color"])

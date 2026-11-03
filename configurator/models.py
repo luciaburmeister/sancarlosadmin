@@ -2151,11 +2151,52 @@ class ConfigurationPreset(CompanyOwnedModel):
     def __str__(self):
         return f"{self.name} ({self.product.name})"
 
-    def get_missing_parameters(self):
+    def get_missing_parameters(self) -> list["ProductParameter"]:
         """
         Returns required ProductParameter objects whose name
         is NOT present in this preset's parameter_values dict.
         """
-        all_params = self.product.parameters.filter(required=True)
         filled = set(self.parameter_values.keys())
-        return [p for p in all_params if p.name not in filled]
+        return [p for p in self.product.parameters.all() if p.required and p.name not in filled]
+
+    def chosen_parameters(self) -> list[tuple["ProductParameter", str]]:
+        """The template's parameters this preset fixes, with its value for each, in parameter order."""
+        return [
+            (parameter, str(self.parameter_values[parameter.name]))
+            for parameter in sorted(self.product.parameters.all(), key=lambda parameter: (parameter.order, parameter.pk))
+            if parameter.name in self.parameter_values
+        ]
+
+    def with_values(self, values: dict) -> dict:
+        """The preset's parameter values completed with ``values`` for its missing parameters.
+
+        Only the parameters the preset leaves open may be given, as in the
+        preset wizard. Raises a ValidationError keyed by parameter name for an
+        unknown or fixed parameter, a missing value, an option the parameter
+        doesn't offer, or a number or yes/no that isn't one.
+        """
+        missing = {parameter.name: parameter for parameter in self.get_missing_parameters()}
+        errors = {name: _("This value can't be chosen.") for name in values if name not in missing}
+        merged = dict(self.parameter_values)
+        for name, parameter in missing.items():
+            text = str(values.get(name) if values.get(name) is not None else "").strip()
+            if not text:
+                errors[name] = _("This field is required.")
+            elif parameter.type == ParameterType.SELECT and text not in {str(option) for option in parameter.options or []}:
+                errors[name] = _("Choose one of the options offered.")
+            elif parameter.type == ParameterType.NUMBER and not self._is_number(text):
+                errors[name] = _("Enter a number.")
+            elif parameter.type == ParameterType.BOOLEAN and text.lower() not in ("true", "false"):
+                errors[name] = _("Choose yes or no.")
+            else:
+                merged[name] = text
+        if errors:
+            raise ValidationError(errors)
+        return merged
+
+    @staticmethod
+    def _is_number(text: str) -> bool:
+        try:
+            return Decimal(text).is_finite()
+        except ArithmeticError:
+            return False

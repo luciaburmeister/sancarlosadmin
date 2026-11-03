@@ -1,5 +1,8 @@
 import unicodedata
 import uuid
+from typing import Any
+from collections.abc import Iterable
+from decimal import Decimal
 
 from django.contrib.auth.hashers import make_password
 from django.db import models
@@ -433,6 +436,35 @@ class CompanyDefaultTax(models.Model):
 
     def __str__(self):
         return f"{self.company.name} — {self.tax_type} @ {self.selected_percentage}%"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        self._rates_changed()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        result = super().delete(*args, **kwargs)
+        self._rates_changed()
+        return result
+
+    def _rates_changed(self) -> None:
+        """Client discounts with volume thresholds include these taxes in shops showing prices with tax."""
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.schedule_discount_sync([self.company_id])
+
+    @classmethod
+    def consumer_rates(cls, company_ids: Iterable[int]) -> dict[int, Decimal]:
+        """Per company, the default tax percentage a consumer pays on top of a price.
+
+        Only taxes that add to the price count; retentions apply between
+        businesses. Companies without default taxes are left out.
+        """
+        rates: dict[int, Decimal] = {}
+        for company_id, percentage, behavior in cls.objects.filter(company_id__in=company_ids).values_list(
+            "company_id", "selected_percentage", "tax_type__behavior"
+        ):
+            rates[company_id] = rates.get(company_id, Decimal("0")) + (percentage if behavior == "add" else Decimal("0"))
+        return rates
 
 class CompanyOwnedModel(models.Model):
     company = models.ForeignKey(

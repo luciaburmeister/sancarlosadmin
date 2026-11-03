@@ -1,4 +1,5 @@
 import hashlib
+from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -51,6 +52,36 @@ class DiscountPolicy(CompanyOwnedModel):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        self._discounts_changed()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        company_ids = self._discount_company_ids()
+        result = super().delete(*args, **kwargs)
+        self._discounts_changed(company_ids)
+        return result
+
+    def _discount_company_ids(self) -> list[int]:
+        return [self.company_id]
+
+    def _discounts_changed(self, company_ids: list[int] | None = None) -> None:
+        """Sales channels that publish client discounts take the change."""
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.schedule_discount_sync(company_ids or self._discount_company_ids())
+
+    @classmethod
+    def applicable_to(cls, company: "Company | None", client: "Client | None" = None) -> list["DiscountPolicy"]:
+        """Active policies a client's sales get, in precedence order: the
+        client's own, then the company's auto-applied ones."""
+        policies = list(client.discount_policies.filter(is_active=True)) if client is not None else []
+        if company is not None:
+            for policy in cls.objects.filter(company=company, is_active=True, auto_apply=True):
+                if policy not in policies:
+                    policies.append(policy)
+        return policies
 
 
 class DiscountMode(models.TextChoices):
@@ -139,6 +170,40 @@ class DiscountRule(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.percentage}%)"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        self._discounts_changed()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        company_ids = self._discount_company_ids()
+        result = super().delete(*args, **kwargs)
+        self._discounts_changed(company_ids)
+        return result
+
+    def _discount_company_ids(self) -> list[int]:
+        # A rule deleted with its policy finds no policy; the policy's own delete schedules it.
+        return list(DiscountPolicy.objects.filter(pk=self.policy_id).values_list("company_id", flat=True))
+
+    def _discounts_changed(self, company_ids: list[int] | None = None) -> None:
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.schedule_discount_sync(company_ids or self._discount_company_ids())
+
+    @classmethod
+    def in_precedence(cls, policies: list[DiscountPolicy], level: str | None = None) -> list["DiscountRule"]:
+        """Active rules of ``policies`` (optionally of one level), in the order they apply.
+
+        One policy's rules run to completion (in their own ``order``) before
+        the next policy starts; rule ``order`` never interleaves across policies.
+        """
+        if not policies:
+            return []
+        position = {policy.id: index for index, policy in enumerate(policies)}
+        rules = cls.objects.filter(policy__in=policies, is_active=True)
+        if level is not None:
+            rules = rules.filter(level=level)
+        return sorted(rules, key=lambda rule: (position[rule.policy_id], rule.order, rule.id))
 
 class ClientBankAccount(CompanyOwnedModel, BaseBankAccount):
     client = models.ForeignKey(
@@ -578,6 +643,12 @@ class Client(Timestampable, CompanyOwnedModel):
         self.payment_days = sorted(set(self.payment_days or []))
         super().save(*args, **kwargs)
 
+    def discount_policies_changed(self) -> None:
+        """Call after changing the client's discount policies: sales channels publishing them take the change."""
+        from apps.shopify.services.push_scheduler import ShopifyPushScheduler
+
+        ShopifyPushScheduler.schedule_discount_sync([self.company_id])
+
     def _validate_unique_tax_identifier(self):
         if not self.tax_identifier or not self.company_id:
             return
@@ -811,6 +882,27 @@ class QuoteQuerySet(models.QuerySet):
         return self.filter(
             models.Q(agent=agent) | models.Q(agent__isnull=True, client__agent=agent),
             company_id=agent.company_id,
+        )
+
+    def with_project_file_activity(self) -> "QuoteQuerySet":
+        """Annotate whether each quote's expediente holds more than the quote.
+
+        ``project_file_has_other_quotes``: other quotes not rejected;
+        ``project_file_has_invoices``: invoices not cancelled. Both are false
+        for a quote without an expediente.
+        """
+        from invoices.models import SalesInvoice, SalesInvoiceStatus
+
+        others = (
+            self.model.objects.filter(project_file=models.OuterRef("project_file"))
+            .exclude(pk=models.OuterRef("pk"))
+            .exclude(status=QuoteStatus.REJECTED)
+        )
+        invoices = SalesInvoice.objects.filter(project_file=models.OuterRef("project_file")).exclude(
+            status=SalesInvoiceStatus.CANCELLED
+        )
+        return self.annotate(
+            project_file_has_other_quotes=models.Exists(others), project_file_has_invoices=models.Exists(invoices)
         )
 
 
@@ -1084,6 +1176,15 @@ class Quote(Timestampable, CompanyOwnedModel):
             self.status = QuoteStatus.SENT
         self.save(update_fields=["date_sent", "status"])
 
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and self.expires_at < timezone.localdate()
+
+    @property
+    def can_be_accepted_by_client(self) -> bool:
+        """Sent to the client and still valid: the client may accept it themselves."""
+        return self.status == QuoteStatus.SENT and not self.is_expired
+
     def __str__(self):
         return self.project_name or f"Quote #{self.id}"
 
@@ -1182,17 +1283,14 @@ class Quote(Timestampable, CompanyOwnedModel):
 
         return config_cost + inv_cost
 
-    def _get_discount_policies(self):
+    def _get_discount_policies(self) -> list["DiscountPolicy"]:
         """Collect active discount policies from quote, client, and company auto-apply."""
         policies = list(self.discount_policies.filter(is_active=True))
-        if self.client_id:
-            for p in self.client.discount_policies.filter(is_active=True):
-                if p not in policies:
-                    policies.append(p)
-        if self.company_id:
-            for p in DiscountPolicy.objects.filter(company=self.company, is_active=True, auto_apply=True):
-                if p not in policies:
-                    policies.append(p)
+        client = self.client if self.client_id else None
+        company = self.company if self.company_id else None
+        for p in DiscountPolicy.applicable_to(company, client):
+            if p not in policies:
+                policies.append(p)
         return policies
 
     def _build_discount_context(self, subtotal: Decimal) -> dict:
@@ -1205,7 +1303,7 @@ class Quote(Timestampable, CompanyOwnedModel):
             ),
         }
 
-    def _discount_rules_for_level(self, level):
+    def _discount_rules_for_level(self, level: str) -> list["DiscountRule"]:
         """Active discount rules for the given DiscountLevel, from all active policies.
 
         Rules are grouped by policy: one policy's rules run to completion (in
@@ -1213,14 +1311,7 @@ class Quote(Timestampable, CompanyOwnedModel):
         precedence of ``_get_discount_policies`` (quote, then client, then
         company auto-apply). Rule ``order`` never interleaves across policies.
         """
-        policies = self._get_discount_policies()
-        if not policies:
-            return []
-        position = {p.id: i for i, p in enumerate(policies)}
-        rules = DiscountRule.objects.filter(
-            policy__in=policies, is_active=True, level=level,
-        )
-        return sorted(rules, key=lambda r: (position[r.policy_id], r.order, r.id))
+        return DiscountRule.in_precedence(self._get_discount_policies(), level)
 
     def _calculate_total(self, item_total):
         """

@@ -30,7 +30,14 @@ from unfold.widgets import (
 )
 
 from company.models import BankAccount
-from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod, PaymentStatus
+from payments.models import (
+    MANUAL_PAYMENT_METHODS,
+    Payment,
+    PaymentAllocation,
+    PaymentDirection,
+    PaymentMethod,
+    PaymentStatus,
+)
 
 
 class RegisterPaymentForm(forms.Form):
@@ -91,7 +98,7 @@ class RegisterPaymentForm(forms.Form):
 
     def __init__(self, *args, max_amount=None, company=None, direction=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["method"].choices = PaymentMethod.choices
+        self.fields["method"].choices = MANUAL_PAYMENT_METHODS
         self.fields["bank_account"].queryset = (
             BankAccount.objects.filter(company=company) if company else BankAccount.objects.none()
         )

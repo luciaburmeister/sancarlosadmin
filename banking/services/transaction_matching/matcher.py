@@ -491,7 +491,7 @@ class TransactionMatcher:
 
             return (
                 list(qs) + list(installment_qs) + list(event_qs)
-                + list(claim_qs) + list(payroll_qs) + tax_payments + list(note_qs)
+                + list(claim_qs) + list(payroll_qs) + list(tax_installment_qs) + list(note_qs)
             )
 
         qs = candidates.sales_invoice_candidates(self.transaction.company, cutoff_date, self.counterparty)

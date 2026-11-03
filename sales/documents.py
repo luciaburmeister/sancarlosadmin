@@ -4,6 +4,7 @@ from datetime import date
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
 from configurator.services.export.commissionist_agent import CommissionistAgentExportStrategy
+from configurator.services.export.commissionist_agent_workbook import AgentReportWorkbook
 from core.documents import document_renderer
 from core.services.pdf_service import PDFService
 from sales.models import CommissionistAgent, DeliveryOrder, Quote
@@ -37,3 +38,13 @@ def render_agent_report_pdf(agent_id: int, template_id: int, date_from: str, dat
         # The strategy defaults to the last closed month; this is the chosen period.
         extra_context=CommissionistAgentExportStrategy(agent, period_from, period_to).get_context(),
     )
+
+
+@document_renderer
+def render_agent_report_xlsx(agent_id: int, template_id: int, date_from: str, date_to: str) -> bytes:
+    """The Excel version of the agent report the template prints."""
+    agent = CommissionistAgent.objects.select_related("company").get(pk=agent_id)
+    template = ConfigurationExportTemplate.objects.get(pk=template_id)
+    period_from, period_to = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    context = CommissionistAgentExportStrategy(agent, period_from, period_to).get_context()
+    return AgentReportWorkbook(context, template.html).render()

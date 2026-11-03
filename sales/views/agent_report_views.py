@@ -6,13 +6,14 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
+from configurator.services.export.commissionist_agent_workbook import AgentReportWorkbook
 from core.documents import enqueue_document
-from sales.documents import render_agent_report_pdf
-from sales.forms_agent_reports import AgentReportExportForm
+from sales.documents import render_agent_report_pdf, render_agent_report_xlsx
+from sales.forms_agent_reports import AgentReportExportForm, AgentReportFormat
 
 
 class AgentReportExportView(UnfoldModelAdminViewMixin, FormView):
-    """Download one of an agent's monthly reports with an agent_report export template."""
+    """Download one of an agent's monthly reports with an agent_report export template, as PDF or Excel."""
 
     template_name = "configurator/export_form.html"
     form_class = AgentReportExportForm
@@ -24,6 +25,10 @@ class AgentReportExportView(UnfoldModelAdminViewMixin, FormView):
         "configurator.view_invoicecommission",
     )
     title = _("Agent reports")
+    RENDERERS = {
+        AgentReportFormat.PDF: (render_agent_report_pdf, "application/pdf"),
+        AgentReportFormat.XLSX: (render_agent_report_xlsx, AgentReportWorkbook.CONTENT_TYPE),
+    }
 
     def dispatch(self, request, *args, **kwargs):
         self.agent = get_object_or_404(
@@ -48,15 +53,18 @@ class AgentReportExportView(UnfoldModelAdminViewMixin, FormView):
         except ConfigurationExportTemplate.DoesNotExist:
             raise Http404(_("Template not available for this agent"))
 
+        file_format = form.cleaned_data["file_format"]
+        renderer, content_type = self.RENDERERS[file_format]
         date_from, date_to = form.get_period()
-        filename = f"{template.name}_{self.agent.name}_{date_from:%d-%m-%Y}_{date_to:%d-%m-%Y}.pdf"
+        filename = f"{template.name}_{self.agent.name}_{date_from:%d-%m-%Y}_{date_to:%d-%m-%Y}.{file_format}"
         return enqueue_document(
             self.request,
-            render_agent_report_pdf,
+            renderer,
             agent_id=self.agent.pk,
             template_id=template.pk,
             date_from=date_from.isoformat(),
             date_to=date_to.isoformat(),
             filename=filename,
+            content_type=content_type,
             back_url=self.request.path,
         )

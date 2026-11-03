@@ -19471,6 +19471,33 @@ msgstr "Informe de agente"
 msgid "Template not available for this agent"
 msgstr "Plantilla no disponible para este agente"
 
+msgid "Format"
+msgstr "Formato"
+
+msgid "Delivery notes"
+msgstr "Albaranes"
+
+msgid "Commission %"
+msgstr "% Comisión"
+
+msgid "VAT + surcharge"
+msgstr "IVA + Rec."
+
+msgid "Discount %"
+msgstr "% Desc."
+
+msgid "Taxable base"
+msgstr "Base imponible"
+
+msgid "Tax due"
+msgstr "Cuota"
+
+msgid "VAT summary"
+msgstr "Resumen de IVA"
+
+msgid "Invoice lines"
+msgstr "Líneas de factura"
+
 msgid "Reset stock to 0"
 msgstr "Poner el stock a 0"
 

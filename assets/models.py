@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from collections import defaultdict
 from datetime import date as date_, datetime, time, timedelta
@@ -32,6 +33,7 @@ from assets.constants import (
     MAX_RECEIPT_SPLIT_PARTS,
 )
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class AssetTypeCategory(models.TextChoices):
@@ -815,6 +817,22 @@ class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampabl
         if self.transaction_type == TransactionTypeChoices.MOVEMENT:
             return self.is_full_cuba
         return False
+
+    @property
+    def distance_km(self) -> float | None:
+        """Driving distance between from_zone and to_zone, or None when it
+        can't be resolved (missing zone/coordinates or a provider error).
+
+        Purely informational add-on: never called from clean()/save(), and
+        any unexpected failure here (DB hiccup, provider bug) must never
+        break a page displaying this transaction, let alone its creation."""
+        from assets.services.route_optimizer import GoogleRouteOptimizer
+
+        try:
+            return GoogleRouteOptimizer().get_distance_km(self.from_zone, self.to_zone)
+        except Exception:
+            logger.warning("distance_km failed for AssetTransaction %s", self.pk, exc_info=True)
+            return None
 
     def clean(self):
         super().clean()

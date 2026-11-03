@@ -502,7 +502,6 @@ class LaborHoursMarginInline(NonrelatedStackedInline):
             rows,
         )
 
-
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
@@ -523,7 +522,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     form = ProjectFileAdminForm
     list_select_related = ["client"]
     list_filter_submit = True
-    readonly_fields = ["reference", "incremental_id", "show_delivery_status", "show_production_status", "pending_delivery_display", "invoicing_summary_display", "production_hours_summary_display"]
+    readonly_fields = ["reference", "incremental_id", "show_delivery_status", "show_production_status", "pending_delivery_display", "invoicing_summary_display", "production_hours_summary_display", "distance_summary_display"]
 
     inlines = [
         QuoteInline,
@@ -572,6 +571,12 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         (_("Timeline"), {
             "fields": (
                 ("start_date", "end_date"),
+            )
+        }),
+        (_("Distance"), {
+            "classes": ("collapse",),
+            "fields": (
+                "distance_summary_display",
             )
         }),
         (_("Internal Data"), {
@@ -1174,3 +1179,45 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             ))
 
         return format_html_join("", "{}", ((part,) for part in [header, *employee_blocks]))
+
+    @admin.display(description=_("Distance"))
+    def distance_summary_display(self, obj):
+        """Total driving distance for this expediente's AssetTransactions,
+        and which ones couldn't be resolved -- not silently counted as 0km."""
+        if not obj.pk:
+            return "—"
+
+        summary = obj.distance_summary()
+        if not summary.resolved_count and not summary.unresolved_transaction_ids:
+            return format_html(
+                '<span style="color: #6b7280;">{}</span>',
+                _("No transactions with origin/destination zones on this project file."),
+            )
+
+        total_tile = format_html(
+            '<div style="background: #eff6ff; border-radius: 8px; padding: 12px; text-align: center; '
+            'max-width: 220px; margin-bottom: 12px;">'
+            '<div style="font-size: 11px; color: #2563eb; margin-bottom: 4px;">{}</div>'
+            '<div style="font-size: 18px; font-weight: 700; color: #1d4ed8;">{} km</div>'
+            '</div>',
+            _("Total Distance (%(n)d resolved)") % {"n": summary.resolved_count},
+            summary.total_km,
+        )
+
+        if not summary.unresolved_transaction_ids:
+            return total_tile
+
+        unresolved_links = format_html_join(
+            ", ",
+            '<a href="{}">#{}</a>',
+            (
+                (reverse("admin:assets_assettransaction_change", args=[pk]), pk)
+                for pk in summary.unresolved_transaction_ids
+            ),
+        )
+        warning = format_html(
+            '<div style="color: #b45309; font-size: 13px;">{} {}</div>',
+            _("Could not resolve distance for:"),
+            unresolved_links,
+        )
+        return format_html("{}{}", total_tile, warning)

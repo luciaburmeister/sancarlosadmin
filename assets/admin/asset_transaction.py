@@ -604,6 +604,7 @@ class AssetTransactionAdmin(RegenerateDocumentAdminMixin, ModelAdmin, ImportExpo
         fields = [
             "firma_preview", "imagen_link", "document_qr_preview",
             "performed_by", "material_vertido_display", "split_action",
+            "distance_km_display",
         ]
         if not request.user.is_superuser:
             fields.append("di_number")
@@ -623,6 +624,7 @@ class AssetTransactionAdmin(RegenerateDocumentAdminMixin, ModelAdmin, ImportExpo
                 ("asset", "transaction_type"),
                 "from_zone",
                 "to_zone",
+                "distance_km_display",
                 "project_file",
                 "planning",
                 "date",
@@ -792,6 +794,13 @@ class AssetTransactionAdmin(RegenerateDocumentAdminMixin, ModelAdmin, ImportExpo
             self.regenerate_document_url(),
         ]
         return custom_urls + urls
+
+    @admin.display(description=_("Distance"))
+    def distance_km_display(self, obj):
+        if obj is None or obj.pk is None:
+            return "—"
+        distance = obj.distance_km
+        return f"{distance} km" if distance is not None else "—"
 
     @admin.display(description="Material de Vertido")
     def material_vertido_display(self, obj):

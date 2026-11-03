@@ -298,7 +298,11 @@ class AssetScheduleViewTests(TestCase):
         backlog_ids = {item["id"] for item in response.context["backlog_items"]}
         self.assertEqual(backlog_ids, {p.pk for p in extra})
 
-    def test_backlog_query_count_does_not_grow_with_items_lacking_a_duration(self):
+    @patch("assets.services.route_optimizer.GoogleRouteOptimizer._fetch_pairs", return_value={})
+    def test_backlog_query_count_does_not_grow_with_items_lacking_a_duration(self, mock_fetch):
+        """Regression guard for the query count itself, not for whether a
+        provider round-trip happened — mock it so a locally configured
+        GOOGLE_MAPS_API_KEY can't turn this into a real network call."""
         def make():
             return AssetPlanning.objects.create(
                 company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,

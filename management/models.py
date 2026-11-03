@@ -17,6 +17,17 @@ from sales.models import Client
 from management.services import ProjectFileService
 
 @dataclass(frozen=True)
+class ProjectFileDistanceSummary:
+    """Total driving distance for a ProjectFile's AssetTransactions, and
+    which ones couldn't be resolved (missing coordinates, no route found,
+    provider error) -- those are excluded from total_km, not counted as 0."""
+
+    total_km: float
+    resolved_count: int
+    unresolved_transaction_ids: list
+
+
+@dataclass(frozen=True)
 class LaborHoursMarginSummary:
     """Billed labor hours vs. real hours worked on a ProjectFile, and the resulting margin."""
 
@@ -339,6 +350,56 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             deviation_pct=deviation_pct,
             has_labor_configs=billed_hours > 0,
             open_sessions=hours_summary["open_sessions"],
+        )
+
+    def distance_summary(self) -> ProjectFileDistanceSummary:
+        """Total km driven across this expediente's AssetTransactions that
+        have both zones set. Resolves exactly the (from, to) pairs that
+        actually occur -- not the full cross product of every zone touched,
+        which would blow up fast (e.g. 53 distinct zones is 2756 possible
+        ordered pairs, but a real expediente might only ever use 57 of
+        them) and could fire one live provider call per unneeded pair.
+        Transactions whose pair can't be resolved are listed in
+        unresolved_transaction_ids instead of silently counting as 0km."""
+        transactions = list(
+            self.asset_transactions
+            .filter(from_zone__isnull=False, to_zone__isnull=False)
+            .select_related("from_zone", "to_zone")
+        )
+        if not transactions:
+            return ProjectFileDistanceSummary(total_km=0.0, resolved_count=0, unresolved_transaction_ids=[])
+
+        try:
+            from assets.services.route_optimizer import GoogleRouteOptimizer
+
+            pairs = {(t.from_zone_id, t.to_zone_id): (t.from_zone, t.to_zone) for t in transactions}
+            distances = GoogleRouteOptimizer().get_distances_km(list(pairs.values()))
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "distance_summary failed for ProjectFile %s", self.pk, exc_info=True,
+            )
+            return ProjectFileDistanceSummary(
+                total_km=0.0, resolved_count=0,
+                unresolved_transaction_ids=[t.pk for t in transactions],
+            )
+
+        total_km = 0.0
+        resolved_count = 0
+        unresolved_ids = []
+        for t in transactions:
+            km = distances.get((t.from_zone_id, t.to_zone_id))
+            if km is None:
+                unresolved_ids.append(t.pk)
+            else:
+                total_km += km
+                resolved_count += 1
+
+        return ProjectFileDistanceSummary(
+            total_km=round(total_km, 1),
+            resolved_count=resolved_count,
+            unresolved_transaction_ids=unresolved_ids,
         )
 
     def production_tickets_summary(self):

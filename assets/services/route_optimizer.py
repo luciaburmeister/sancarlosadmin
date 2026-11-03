@@ -124,14 +124,18 @@ class BaseRouteOptimizer(ABC):
 
     def get_distance_matrix(
         self, zones: list[WorkingZone]
-    ) -> dict[tuple[int, int], int]:
+    ) -> dict[tuple[int, int], int | None]:
         """Return {(from_zone_id, to_zone_id): distance_meters} for every pair.
+
+        A pair that could not be resolved (missing coordinates, provider
+        error) maps to None — never confuse that with a real 0m distance,
+        which only happens for a (zone, same zone) pair.
 
         One cache query for all pairs, then one provider call for the uncached
         ones (chunked to the provider's limit): callers with several zone
         pairs collect them and call this once rather than looping.
         """
-        matrix: dict[tuple[int, int], int] = {}
+        matrix: dict[tuple[int, int], int | None] = {}
         keys = [(a.pk, b.pk) for a in zones for b in zones if a.pk != b.pk]
         cached = self._cached_entries(keys)
         needed = []
@@ -146,8 +150,57 @@ class BaseRouteOptimizer(ABC):
         if needed:
             fetched = self._fetch_pairs(needed)
             for a, b in needed:
-                matrix[(a.pk, b.pk)] = fetched.get((a.pk, b.pk), (0, 0))[0]
+                entry = fetched.get((a.pk, b.pk))
+                matrix[(a.pk, b.pk)] = entry[0] if entry else None
         return matrix
+
+    def get_distances_km(
+        self, pairs: Sequence[tuple[WorkingZone | None, WorkingZone | None]]
+    ) -> dict[tuple[int, int], float | None]:
+        """Driving distance in km for exactly these (origin, destination)
+        pairs, keyed by (from_id, to_id) — never the full cross product of
+        every zone involved, which would ask the provider for every
+        combination even when most never actually occur together.
+
+        One cache query for all pairs and at most one provider round-trip for
+        the ones the cache lacks, mirroring estimate_durations(). A pair that
+        can't be resolved maps to None, not 0."""
+        wanted: dict[tuple[int, int], tuple[WorkingZone, WorkingZone]] = {}
+        for a, b in pairs:
+            if a and b:
+                wanted[(a.pk, b.pk)] = (a, b)
+        if not wanted:
+            return {}
+
+        result: dict[tuple[int, int], float | None] = {
+            key: 0.0 for key in wanted if key[0] == key[1]
+        }
+        remaining = {key: pair for key, pair in wanted.items() if key not in result}
+        if not remaining:
+            return result
+
+        cached = self._cached_entries(remaining.keys())
+        for key, entry in cached.items():
+            result[key] = round(entry.distance_meters / 1000, 1)
+        missing = [remaining[key] for key in remaining if key not in cached]
+        if missing:
+            fetched = self._fetch_pairs(missing)
+            for a, b in missing:
+                entry = fetched.get((a.pk, b.pk))
+                result[(a.pk, b.pk)] = round(entry[0] / 1000, 1) if entry else None
+        return result
+
+    def get_distance_km(
+        self,
+        origin: WorkingZone | None,
+        destination: WorkingZone | None,
+    ) -> float | None:
+        """Driving distance in km between two zones, or None when it can't be
+        resolved (missing zone, missing coordinates, or a provider error) —
+        callers must not confuse that with a real 0km distance."""
+        if not origin or not destination:
+            return None
+        return self.get_distances_km([(origin, destination)]).get((origin.pk, destination.pk))
 
     @staticmethod
     def _collect_zones(plannings: list[AssetPlanning]) -> list[WorkingZone]:
@@ -175,7 +228,7 @@ class BaseRouteOptimizer(ABC):
     @staticmethod
     def _nearest_neighbor(
         plannings: list[AssetPlanning],
-        matrix: dict[tuple[int, int], int],
+        matrix: dict[tuple[int, int], int | None],
     ) -> list[AssetPlanning]:
         """Order plannings so that travel between consecutive ones is minimized.
 
@@ -196,7 +249,8 @@ class BaseRouteOptimizer(ABC):
             for i, candidate in enumerate(remaining):
                 first = _first_zone(candidate)
                 if last and first:
-                    dist = matrix.get((last, first), float("inf"))
+                    raw = matrix.get((last, first))
+                    dist = float("inf") if raw is None else raw
                 else:
                     dist = 0  # no zone info → don't penalize
                 if dist < best_dist:
@@ -229,7 +283,7 @@ def _extract_latlng(zone: WorkingZone) -> tuple[float, float] | None:
 class GoogleRouteOptimizer(BaseRouteOptimizer):
     """Uses Google Routes API computeRouteMatrix for real driving distances."""
 
-    API_URL = "https://routes.googleapis.com/routes/v2:computeRouteMatrix"
+    API_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
     # computeRouteMatrix accepts at most 625 elements per request; a square
     # block of this many origins and destinations stays under it.
     MAX_SIDE = 25
@@ -276,7 +330,7 @@ class GoogleRouteOptimizer(BaseRouteOptimizer):
                 self.API_URL,
                 headers={
                     "X-Goog-Api-Key": api_key,
-                    "X-Goog-FieldMask": "originIndex,destinationIndex,distanceMeters,duration",
+                    "X-Goog-FieldMask": "originIndex,destinationIndex,condition,distanceMeters,duration",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -298,6 +352,8 @@ class GoogleRouteOptimizer(BaseRouteOptimizer):
             from_zid = origins[element.get("originIndex", 0)].pk
             to_zid = destinations[element.get("destinationIndex", 0)].pk
             if from_zid == to_zid:
+                continue
+            if element.get("condition") == "ROUTE_NOT_FOUND" or "distanceMeters" not in element:
                 continue
             dist = element.get("distanceMeters", 0)
             dur_str = element.get("duration", "0s")  # comes as "123s"

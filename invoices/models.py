@@ -91,6 +91,29 @@ def invoice_file_path(instance, filename):
     return f"invoices/uploads/{company_folder}/{provider_folder}/{unique_filename}"
 
 
+def _sync_payment_method_from_closing_payment(document):
+    """
+    When a document just became fully paid, snapshot its payment_method as
+    "Promissory Note" if the allocation that closed it came from one -
+    whichever of possibly several payments happened to zero the balance,
+    not necessarily the first one. Left untouched while still
+    unpaid/partial, so a note covering only part of the invoice never
+    overwrites the expected method the rest is still due by.
+    """
+    from payments.models import PaymentMethod as RealPaymentMethod
+
+    ct = ContentType.objects.get_for_model(document)
+    allocation = (
+        PaymentAllocation.objects.filter(content_type=ct, object_id=document.pk, is_mirror=False)
+        .select_related("payment")
+        .order_by("-pk")
+        .first()
+    )
+    if allocation and allocation.payment.method == RealPaymentMethod.PROMISSORY_NOTE:
+        document.payment_method = PaymentMethod.PROMISSORY_NOTE
+        document.save(update_fields=["payment_method"])
+
+
 class Invoice(Timestampable, Payable):
     invoice_number = models.CharField(max_length=50,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
     created_at = models.DateTimeField(auto_now_add=True,verbose_name=_("Created At"))
@@ -565,6 +588,8 @@ class Invoice(Timestampable, Payable):
 
         self.payment_status = new_status
         self.save(update_fields=["payment_status"])
+        if new_status == InvoicePaymentStatus.PAID:
+            _sync_payment_method_from_closing_payment(self)
 
         FixedCostInstallment = apps.get_model("expenses", "FixedCostInstallment")
         from payments.models import desync_linked_payable, sync_linked_payable
@@ -1588,6 +1613,8 @@ class SalesInvoice(CompanyOwnedModel, Payable):
 
         self.payment_status = new_status
         self.save(update_fields=["payment_status"])
+        if new_status == InvoicePaymentStatus.PAID:
+            _sync_payment_method_from_closing_payment(self)
 
     @property
     def amount_paid(self):

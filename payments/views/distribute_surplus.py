@@ -14,7 +14,7 @@ from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
 from djmoney.money import Money
 
-from payments.models import Payment, PaymentAllocation, PaymentStatus
+from payments.models import Payment, PaymentAllocation, PaymentMethod, PaymentStatus
 from payments.views.register_payment import RegisterPaymentForm, RegisterPaymentView
 
 
@@ -25,7 +25,12 @@ class DistributeSurplusView(RegisterPaymentView):
 
     def post(self, request, object_id):
         document = self.get_document(object_id)
-        form = RegisterPaymentForm(request.POST, max_amount=self.get_max_amount(document))
+        form = RegisterPaymentForm(
+            request.POST, request.FILES,
+            max_amount=self.get_max_amount(document),
+            company=document.company,
+            direction=self.direction,
+        )
         if not form.is_valid():
             return redirect(self.get_cancel_url(document))
 
@@ -41,22 +46,38 @@ class DistributeSurplusView(RegisterPaymentView):
             )
             locked_candidates = self.model.objects.select_for_update().filter(pk__in=candidate_ids)
 
-            payment = Payment.objects.create(
-                company=locked_document.company,
-                payment_date=data["payment_date"],
-                amount=money,
-                direction=self.direction,
-                method=data["method"],
-                status=PaymentStatus.CONFIRMED,
-                reference=data["reference"] or None,
-                amount_pending_allocation=money,
-            )
-            PaymentAllocation.objects.create(
-                payment=payment,
-                content_type=ContentType.objects.get_for_model(locked_document),
-                object_id=locked_document.pk,
-                amount_applied=applied_amount,
-            )
+            if data["method"] == PaymentMethod.PROMISSORY_NOTE:
+                from payments.services.promissory_note_service import PromissoryNoteService
+
+                note = PromissoryNoteService.issue(
+                    document=locked_document,
+                    money=money,
+                    applied_amount=applied_amount,
+                    number=data["number"],
+                    issue_date=data["payment_date"],
+                    due_date=data["due_date"],
+                    bank_account=data.get("bank_account"),
+                    note_document=data.get("note_document"),
+                    reference=data["reference"] or None,
+                )
+                payment = note.payment
+            else:
+                payment = Payment.objects.create(
+                    company=locked_document.company,
+                    payment_date=data["payment_date"],
+                    amount=money,
+                    direction=self.direction,
+                    method=data["method"],
+                    status=PaymentStatus.CONFIRMED,
+                    reference=data["reference"] or None,
+                    amount_pending_allocation=money,
+                )
+                PaymentAllocation.objects.create(
+                    payment=payment,
+                    content_type=ContentType.objects.get_for_model(locked_document),
+                    object_id=locked_document.pk,
+                    amount_applied=applied_amount,
+                )
 
             remaining_surplus = (money - applied_amount).amount
             for invoice in locked_candidates:

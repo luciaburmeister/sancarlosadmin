@@ -75,6 +75,9 @@
         <input type="hidden" name="payment_date" value="{{ step1_data.payment_date|date:'Y-m-d' }}">
         <input type="hidden" name="method" value="{{ step1_data.method }}">
         <input type="hidden" name="reference" value="{{ step1_data.reference|default:'' }}">
+        <input type="hidden" name="number" value="{{ step1_data.number|default:'' }}">
+        <input type="hidden" name="due_date" value="{{ step1_data.due_date|date:'Y-m-d'|default:'' }}">
+        <input type="hidden" name="bank_account" value="{{ step1_data.bank_account.pk|default:'' }}">
 
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
             <table class="w-full text-sm">

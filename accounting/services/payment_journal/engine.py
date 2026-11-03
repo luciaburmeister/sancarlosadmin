@@ -139,6 +139,9 @@ class PaymentJournalService(_JournalGeneratorBase):
     def role_account(self, role: AccountRole) -> CompanyAccount:
         return self._role_account(role)
 
+    def notes_account(self, issued: bool) -> CompanyAccount:
+        return self._code_account("notes_payable_account_code" if issued else "notes_receivable_account_code")
+
     # -- building -------------------------------------------------------------
 
     def _signed_amounts(self, payment):
@@ -213,6 +216,9 @@ class PaymentJournalService(_JournalGeneratorBase):
             return treasury.account(payment, self)
         if payment.method == PaymentMethod.CASH:
             return self._role_account(AccountRole.CASH)
+        if payment.method == PaymentMethod.PROMISSORY_NOTE:
+            code_field = "notes_payable_account_code" if payment.provider_id else "notes_receivable_account_code"
+            return self._code_account(code_field)
         if payment.bank_account_id:
             bank = payment.bank_account
             digits = (bank.iban or bank.account_number or "")[-4:]
@@ -272,4 +278,6 @@ class PaymentJournalService(_JournalGeneratorBase):
             return self._get_journal(*treasury.journal)
         if payment.method == PaymentMethod.CASH:
             return self._get_journal(JournalType.CASH, "Caja", "CAJ")
+        if payment.method == PaymentMethod.PROMISSORY_NOTE:
+            return self._get_journal(JournalType.GENERAL, "Efectos comerciales", "EFE")
         return self._get_journal(JournalType.BANK, "Bancos", "BAN")

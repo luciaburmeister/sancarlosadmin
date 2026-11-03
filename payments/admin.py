@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 
 from django.contrib import admin, messages
 from django.contrib.contenttypes.models import ContentType
@@ -6,6 +7,7 @@ from django.db.models import OuterRef, Q, Subquery
 from django.db.models.fields import BLANK_CHOICE_DASH
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from import_export.admin import ExportActionModelAdmin
@@ -17,6 +19,7 @@ from banking.models import BankReconciliation
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.xlsx_export import FormattedXlsxExportMixin
 from payments.mixins import unallocated_payments_q
+from payments.models import Payment, PaymentAllocation, PaymentStatus, PromissoryNote, PromissoryNoteStatus
 from payments.models import MANUAL_PAYMENT_METHODS, Payment, PaymentAllocation, PaymentStatus
 from payments.resources import PaymentResource
 
@@ -44,10 +47,35 @@ class UnallocatedFilter(admin.SimpleListFilter):
 
 
 class PaymentAllocationInline(TabularInline):
+    """
+    Locked (read-only, no add/delete) once the payment is a promissory
+    note's issuance: its amount and allocations are set by
+    PromissoryNoteService, which also owns distributing any surplus to
+    further invoices, the only valid way to add more here.
+    """
     model = PaymentAllocation
     extra = 0
     fields = ("content_type", "object_id", "amount_applied", "account")
     autocomplete_fields = ("account",)
+
+    @staticmethod
+    def _is_promissory_note_payment(obj):
+        return obj is not None and hasattr(obj, "promissory_note_issued")
+
+    def has_add_permission(self, request, obj=None):
+        if self._is_promissory_note_payment(obj):
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if self._is_promissory_note_payment(obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_readonly_fields(self, request, obj=None):
+        if self._is_promissory_note_payment(obj):
+            return self.fields
+        return super().get_readonly_fields(request, obj)
 
 
 class PaymentBankReconciliationInline(StackedInline):
@@ -116,6 +144,10 @@ class PaymentAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ModelAdmin,
         "amount_pending_allocation",
         "amount_pending_allocation_currency",
     )
+    # Set by PromissoryNoteService and never meant to be hand-edited:
+    # correcting a note means cancelling it and issuing a new one, not
+    # editing the payment that settled its invoice(s) behind its back.
+    _promissory_note_locked_fields = ("amount", "amount_currency", "bank_account", "method")
     inlines = [PaymentAllocationInline, PaymentBankReconciliationInline]
     ordering = ("-payment_date", "-id")
     actions = ["journalize_selected"]
@@ -128,6 +160,12 @@ class PaymentAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ModelAdmin,
         "unchanged": messages.INFO,
         "error": messages.ERROR,
     }
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        if obj is not None and hasattr(obj, "promissory_note_issued"):
+            fields = tuple(fields) + self._promissory_note_locked_fields
+        return fields
 
     def get_queryset(self, request):
         from accounting.models import JournalEntry
@@ -265,6 +303,76 @@ class PaymentAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ModelAdmin,
             PaymentStatus.CONFIRMED: "info",
             PaymentStatus.RECONCILED: "success",
             PaymentStatus.CANCELLED: "danger",
+        },
+    )
+    def get_status_label(self, obj):
+        return obj.status
+
+
+class InCirculationFilter(admin.SimpleListFilter):
+    """
+    Notes still outstanding (not yet matured/cancelled) as of a cutoff date,
+    for closing a year: which issued/received notes were in circulation on
+    that day. Reads today's status, not a historical reconstruction - good
+    for a cutoff shortly after close, not for an arbitrary date long past.
+    """
+
+    title = _("In circulation as of")
+    parameter_name = "in_circulation_as_of"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("today", _("Today")),
+            ("last_year_end", _("Last December 31")),
+        ]
+
+    def queryset(self, request, queryset):
+        today = timezone.localdate()
+        if self.value() == "today":
+            as_of = today
+        elif self.value() == "last_year_end":
+            as_of = date(today.year - 1, 12, 31)
+        else:
+            return queryset
+        return queryset.filter(
+            issue_date__lte=as_of,
+            status__in=[PromissoryNoteStatus.ISSUED, PromissoryNoteStatus.IN_PORTFOLIO],
+        )
+
+
+@admin.register(PromissoryNote)
+class PromissoryNoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = (
+        "code",
+        "number",
+        "counterparty",
+        "amount",
+        "issue_date",
+        "due_date",
+        "bank_account",
+        "get_status_label",
+    )
+    list_filter = ("company", "status", "bank_account", InCirculationFilter, "due_date")
+    search_fields = ("number", "code", "provider__name", "client__name", "client__commercial_name")
+    list_select_related = ("company", "provider", "client", "bank_account")
+    autocomplete_fields = ("provider", "client", "bank_account", "payment")
+    readonly_fields = ("code",)
+    ordering = ("-issue_date", "-id")
+
+    @display(description=_("Counterparty"))
+    def counterparty(self, obj):
+        return obj.provider.name if obj.provider_id else obj.client.name
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            PromissoryNoteStatus.ISSUED: "info",
+            PromissoryNoteStatus.IN_PORTFOLIO: "info",
+            PromissoryNoteStatus.PAID: "success",
+            PromissoryNoteStatus.COLLECTED: "success",
+            PromissoryNoteStatus.CANCELLED: "danger",
+            PromissoryNoteStatus.RETURNED: "danger",
         },
     )
     def get_status_label(self, obj):

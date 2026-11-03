@@ -37,7 +37,8 @@
     </div>
     {% endif %}
 
-    <form method="post" novalidate id="register-payment-form">
+    <form method="post" enctype="multipart/form-data" novalidate id="register-payment-form"
+          x-data="{ method: '{{ form.method.value|default:'' }}' }">
         {% csrf_token %}
 
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">

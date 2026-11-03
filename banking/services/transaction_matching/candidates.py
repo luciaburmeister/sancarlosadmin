@@ -96,3 +96,25 @@ def tax_installment_candidates(company, cutoff_date, refund=False):
         payment_status__in=["unpaid", "partial"],
         due_date__lte=cutoff_date,
     )
+
+
+def promissory_note_payable_candidates(company, bank_account, cutoff_date):
+    PromissoryNote = apps.get_model("payments", "PromissoryNote")
+    return PromissoryNote.objects.filter(
+        company=company,
+        bank_account=bank_account,
+        provider__isnull=False,
+        status="issued",
+        due_date__lte=cutoff_date,
+    )
+
+
+def promissory_note_receivable_candidates(company, bank_account, cutoff_date):
+    PromissoryNote = apps.get_model("payments", "PromissoryNote")
+    return PromissoryNote.objects.filter(
+        company=company,
+        bank_account=bank_account,
+        client__isnull=False,
+        status="in_portfolio",
+        due_date__lte=cutoff_date,
+    )

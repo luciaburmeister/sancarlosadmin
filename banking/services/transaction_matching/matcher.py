@@ -35,6 +35,7 @@ from payments.models import (
     PaymentDirection,
     PaymentMethod,
     PaymentStatus,
+    PromissoryNote,
 )
 
 
@@ -483,9 +484,14 @@ class TransactionMatcher:
                 self.transaction.company, cutoff_date
             ).select_related("planned_tax_payment")
 
+            note_qs = candidates.promissory_note_payable_candidates(
+                self.transaction.company, self.transaction.bank_account, cutoff_date
+            )
+            note_qs = annotate_amount_remaining(note_qs, PromissoryNote, amount_field="amount")
+
             return (
                 list(qs) + list(installment_qs) + list(event_qs)
-                + list(claim_qs) + list(payroll_qs) + list(tax_installment_qs)
+                + list(claim_qs) + list(payroll_qs) + tax_payments + list(note_qs)
             )
 
         qs = candidates.sales_invoice_candidates(self.transaction.company, cutoff_date, self.counterparty)
@@ -523,7 +529,12 @@ class TransactionMatcher:
             matched.append(installment)
             budget -= remaining
 
-        return matched if matched and budget <= 0 else None
+        note_qs = candidates.promissory_note_receivable_candidates(
+            self.transaction.company, self.transaction.bank_account, cutoff_date
+        )
+        note_qs = annotate_amount_remaining(note_qs, PromissoryNote, amount_field="amount")
+
+        return list(annotate_amount_remaining(qs, SalesInvoice)) + tax_refunds + list(note_qs)
 
     @staticmethod
     def _determine_method(

@@ -131,6 +131,23 @@ class _JournalGeneratorBase:
             )
         return account
 
+    def _code_account(self, code_field):
+        """
+        The account whose code matches the chart's configured code for
+        code_field (e.g. notes_payable_account_code), found as-is - no
+        subaccount is generated under it, unlike _get_partner_account.
+        """
+        chart = self._chart()
+        default = CompanyChartOfAccounts._meta.get_field(code_field).default
+        code = getattr(chart, code_field) if chart else default
+        account = CompanyAccount.objects.filter(company=self.company, code=code).first()
+        if not account:
+            raise MissingAccount(
+                _("No account has the code “%(code)s”: create it in the company's chart of accounts.")
+                % {"code": code}
+            )
+        return account
+
     def _resolve_tax_account(self, tax_type, is_purchase=True):
         """
         The company's account for a tax: the template account mapped on the

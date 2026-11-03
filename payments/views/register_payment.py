@@ -24,11 +24,13 @@ from moneyed import CURRENCIES
 from unfold.widgets import (
     UnfoldAdminDateWidget,
     UnfoldAdminDecimalFieldWidget,
+    UnfoldAdminFileFieldWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminTextInputWidget,
 )
 
-from payments.models import Payment, PaymentAllocation, PaymentStatus
+from company.models import BankAccount
+from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod, PaymentStatus
 
 
 class RegisterPaymentForm(forms.Form):
@@ -62,13 +64,39 @@ class RegisterPaymentForm(forms.Form):
         label=_("Reference"),
         widget=UnfoldAdminTextInputWidget,
     )
+    number = forms.CharField(
+        max_length=50,
+        required=False,
+        label=_("Note Number"),
+        help_text=_("The number printed on the promissory note."),
+        widget=UnfoldAdminTextInputWidget,
+    )
+    due_date = forms.DateField(
+        required=False,
+        label=_("Note Due Date"),
+        widget=UnfoldAdminDateWidget,
+    )
+    bank_account = forms.ModelChoiceField(
+        queryset=BankAccount.objects.none(),
+        required=False,
+        label=_("Note Bank Account"),
+        help_text=_("Where the note will be charged at its due date."),
+        widget=UnfoldAdminSelectWidget,
+    )
+    note_document = forms.FileField(
+        required=False,
+        label=_("Note Document"),
+        widget=UnfoldAdminFileFieldWidget,
+    )
 
-    def __init__(self, *args, max_amount=None, **kwargs):
+    def __init__(self, *args, max_amount=None, company=None, direction=None, **kwargs):
         super().__init__(*args, **kwargs)
-        from payments.models import MANUAL_PAYMENT_METHODS
-
-        self.fields["method"].choices = MANUAL_PAYMENT_METHODS
+        self.fields["method"].choices = PaymentMethod.choices
+        self.fields["bank_account"].queryset = (
+            BankAccount.objects.filter(company=company) if company else BankAccount.objects.none()
+        )
         self.max_amount = max_amount
+        self.direction = direction
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
@@ -81,12 +109,27 @@ class RegisterPaymentForm(forms.Form):
             ),
             Row(
                 Column(Field("payment_date"), css_class="col-span-12 md:col-span-6"),
-                Column(Field("method"), css_class="col-span-12 md:col-span-6"),
+                Column(
+                    Field("method", **{"@change": "method = $event.target.value"}),
+                    css_class="col-span-12 md:col-span-6",
+                ),
                 css_class="gap-4 mb-4",
             ),
             Row(
                 Column(Field("reference"), css_class="col-span-12"),
                 css_class="gap-4 mb-4",
+            ),
+            Row(
+                Column(Field("number"), css_class="col-span-12 md:col-span-6"),
+                Column(Field("due_date"), css_class="col-span-12 md:col-span-6"),
+                css_class="gap-4 mb-4",
+                **{"x-show": "method === 'promissory_note'"},
+            ),
+            Row(
+                Column(Field("bank_account"), css_class="col-span-12 md:col-span-6"),
+                Column(Field("note_document"), css_class="col-span-12 md:col-span-6"),
+                css_class="gap-4 mb-4",
+                **{"x-show": "method === 'promissory_note'"},
             ),
         )
 
@@ -99,6 +142,18 @@ class RegisterPaymentForm(forms.Form):
                 _("Cannot pay more than the %(max)s still outstanding.") % {"max": self.max_amount}
             )
         return amount
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("method") != PaymentMethod.PROMISSORY_NOTE:
+            return cleaned
+        if not cleaned.get("number"):
+            self.add_error("number", _("Required for a promissory note."))
+        if not cleaned.get("due_date"):
+            self.add_error("due_date", _("Required for a promissory note."))
+        if self.direction == PaymentDirection.OUTBOUND and not cleaned.get("bank_account"):
+            self.add_error("bank_account", _("Required for a promissory note issued to a provider."))
+        return cleaned
 
 
 class RegisterPaymentView(View):
@@ -201,12 +256,19 @@ class RegisterPaymentView(View):
         form = RegisterPaymentForm(
             initial={"currency": str(self.get_default_currency(document))},
             max_amount=self.get_max_amount(document),
+            company=document.company,
+            direction=self.direction,
         )
         return self._render(request, document, form)
 
     def post(self, request, object_id):
         document = self.get_document(object_id)
-        form = RegisterPaymentForm(request.POST, max_amount=self.get_max_amount(document))
+        form = RegisterPaymentForm(
+            request.POST, request.FILES,
+            max_amount=self.get_max_amount(document),
+            company=document.company,
+            direction=self.direction,
+        )
 
         if form.is_valid():
             data = form.cleaned_data
@@ -217,23 +279,38 @@ class RegisterPaymentView(View):
             if self.allow_surplus_distribution and surplus.amount > 0:
                 return self._render_distribute_surplus(request, document, form, applied_amount, surplus)
 
-            with transaction.atomic():
-                payment = Payment.objects.create(
-                    company=document.company,
-                    payment_date=data["payment_date"],
-                    amount=money,
-                    direction=self.direction,
-                    method=data["method"],
-                    status=PaymentStatus.CONFIRMED,
+            if data["method"] == PaymentMethod.PROMISSORY_NOTE:
+                from payments.services.promissory_note_service import PromissoryNoteService
+
+                PromissoryNoteService.issue(
+                    document=document,
+                    money=money,
+                    applied_amount=applied_amount,
+                    number=data["number"],
+                    issue_date=data["payment_date"],
+                    due_date=data["due_date"],
+                    bank_account=data.get("bank_account"),
+                    note_document=data.get("note_document"),
                     reference=data["reference"] or None,
-                    amount_pending_allocation=money,
                 )
-                PaymentAllocation.objects.create(
-                    payment=payment,
-                    content_type=ContentType.objects.get_for_model(document),
-                    object_id=document.pk,
-                    amount_applied=applied_amount,
-                )
+            else:
+                with transaction.atomic():
+                    payment = Payment.objects.create(
+                        company=document.company,
+                        payment_date=data["payment_date"],
+                        amount=money,
+                        direction=self.direction,
+                        method=data["method"],
+                        status=PaymentStatus.CONFIRMED,
+                        reference=data["reference"] or None,
+                        amount_pending_allocation=money,
+                    )
+                    PaymentAllocation.objects.create(
+                        payment=payment,
+                        content_type=ContentType.objects.get_for_model(document),
+                        object_id=document.pk,
+                        amount_applied=applied_amount,
+                    )
             if self.model_admin:
                 self.model_admin.message_user(request, _("Payment registered successfully."))
             return redirect(self.get_cancel_url(document))

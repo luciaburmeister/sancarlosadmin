@@ -192,6 +192,18 @@ class CompanyChartOfAccounts(Timestampable):
         help_text=_("Default root for the company's bank accounts (e.g. 572 for Spain)")
     )
 
+    notes_payable_account_code = models.CharField(
+        max_length=12,
+        default="401",
+        help_text=_("Code of the account issued promissory notes settle to until their due date (e.g. 401 for Spain)")
+    )
+
+    notes_receivable_account_code = models.CharField(
+        max_length=12,
+        default="431",
+        help_text=_("Code of the account received promissory notes settle to until their due date (e.g. 431 for Spain)")
+    )
+
     partner_account_length = models.PositiveSmallIntegerField(
         default=7,
         validators=[MinValueValidator(4), MaxValueValidator(12)],

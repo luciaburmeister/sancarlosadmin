@@ -19,6 +19,7 @@ class PaymentMethod(models.TextChoices):
     CHEQUE = 'cheque', _('Cheque')
     SEPA_DIRECT_DEBIT = 'sepa_direct_debit', _('SEPA - Direct debit')
     CONFIRMING = 'confirming', _('Confirming')
+    PROMISSORY_NOTE = 'promissory_note', _('Promissory Note')
 
 
 class Provider(Timestampable,CompanyOwnedModel):

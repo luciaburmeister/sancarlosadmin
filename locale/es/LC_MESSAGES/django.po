@@ -21024,6 +21024,103 @@ msgstr ""
 "Se indica en el concepto de la transferencia para conciliar el pago con esta "
 "factura."
 
+#: payments/models.py
+msgid "In portfolio"
+msgstr "En cartera"
+
+#: payments/models.py
+msgid "Returned"
+msgstr "Impagado"
+
+#: payments/models.py materials/models.py
+msgid "Promissory Note"
+msgstr "Pagaré"
+
+#: payments/models.py
+msgid "Promissory Notes"
+msgstr "Pagarés"
+
+#: payments/models.py
+msgid "The number printed on the note itself."
+msgstr "El número impreso en el papel del pagaré."
+
+#: payments/models.py
+msgid ""
+"Where the note will be charged at due_date. Required when issued to a "
+"provider; a note received from a client needs one too before it can be "
+"matched against a bank transaction."
+msgstr ""
+"Dónde se cargará el pagaré en su vencimiento. Obligatorio si se emite a un "
+"proveedor; un pagaré recibido de un cliente también necesita uno antes de "
+"poder conciliarse contra un movimiento bancario."
+
+#: payments/models.py
+msgid "The payment that settled the underlying invoice(s) against this note."
+msgstr "El pago que saldó la(s) factura(s) contra este pagaré."
+
+#: payments/services/promissory_note_service.py
+msgid "Only a note still issued, not yet matured, can be cancelled."
+msgstr "Solo se puede cancelar un pagaré que todavía está emitido, sin vencer."
+
+#: payments/services/promissory_note_service.py
+msgid "Only a note still in portfolio, not yet collected, can be marked as returned."
+msgstr "Solo se puede marcar como impagado un pagaré que todavía está en cartera, sin cobrar."
+
+#: payments/views/register_payment.py
+msgid "Note Number"
+msgstr "Número de Pagaré"
+
+#: payments/views/register_payment.py
+msgid "The number printed on the promissory note."
+msgstr "El número impreso en el pagaré."
+
+#: payments/views/register_payment.py
+msgid "Note Due Date"
+msgstr "Vencimiento del Pagaré"
+
+#: payments/views/register_payment.py
+msgid "Note Bank Account"
+msgstr "Banco del Pagaré"
+
+#: payments/views/register_payment.py
+msgid "Where the note will be charged at its due date."
+msgstr "Dónde se cargará el pagaré en su vencimiento."
+
+#: payments/views/register_payment.py
+msgid "Note Document"
+msgstr "Documento del Pagaré"
+
+#: payments/views/register_payment.py
+msgid "Required for a promissory note."
+msgstr "Obligatorio para un pagaré."
+
+#: payments/views/register_payment.py
+msgid "Required for a promissory note issued to a provider."
+msgstr "Obligatorio para un pagaré emitido a un proveedor."
+
+#: payments/admin.py
+msgid "In circulation as of"
+msgstr "En circulación a fecha"
+
+#: payments/admin.py
+msgid "Last December 31"
+msgstr "31 de diciembre pasado"
+
+#: finance/services/payment_calendar.py
+msgid "Promissory notes payable"
+msgstr "Pagarés a pagar"
+
+#: finance/services/payment_calendar.py
+msgid "Promissory notes receivable"
+msgstr "Pagarés a cobrar"
+
+#: accounting/models.py
+msgid "Code of the account issued promissory notes settle to until their due date (e.g. 401 for Spain)"
+msgstr "Código de la cuenta donde quedan los pagarés emitidos hasta su vencimiento (ej. 401 en España)"
+
+#: accounting/models.py
+msgid "Code of the account received promissory notes settle to until their due date (e.g. 431 for Spain)"
+msgstr "Código de la cuenta donde quedan los pagarés recibidos hasta su vencimiento (ej. 431 en España)"
 #: banking/services/transaction_matching/matcher.py
 msgid "The payment belongs to another company."
 msgstr "El pago pertenece a otra empresa."

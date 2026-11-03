@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models, transaction
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -7,8 +9,12 @@ from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
-from django.db.models import Sum
+from django.db.models import Q, Sum
+from simple_history.models import HistoricalRecords
+from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel, BankAccount
+from configurator.utils.codegen import next_scoped_code
+from payments.mixins import Payable
 
 
 class PaymentDirection(models.TextChoices):
@@ -30,6 +36,7 @@ class PaymentMethod(models.TextChoices):
     CHEQUE = "cheque", _("Cheque")
     SEPA_DIRECT_DEBIT = "sepa_direct_debit", _("SEPA - Direct debit")
     CONFIRMING = "confirming", _("Confirming")
+    PROMISSORY_NOTE = "promissory_note", _("Promissory Note")
     # No money moves: another group company paid for us (IntercompanyPayment)
     INTERCOMPANY = "intercompany", _("Paid by another company")
     # No money moves: a credit note offsets the invoice it reverses (or another of the client's)
@@ -386,8 +393,10 @@ def _provider_id_for_document(content_type, object_id):
 def _recalculate_invoice_payment_status(content_type, object_id):
     """
     If the allocated object is a SalesInvoice, Invoice, LoanInstallment,
-    ExpenseClaim, FixedCostInstallment, or TaxInstallment, trigger its
-    recalculation method. Uses apps.get_model to avoid circular imports.
+    ExpenseClaim, FixedCostInstallment, PlannedTaxPayment, or PromissoryNote,
+    trigger its recalculation method. Uses apps.get_model to avoid circular
+    imports (PromissoryNote lives in this same module, so it's referenced
+    directly instead).
     """
     from django.apps import apps
 
@@ -437,6 +446,12 @@ def _recalculate_invoice_payment_status(content_type, object_id):
             installment = TaxInstallment.objects.get(pk=object_id)
             installment.recalculate_payment_status()
         except TaxInstallment.DoesNotExist:
+            pass
+    elif model_class is PromissoryNote:
+        try:
+            note = PromissoryNote.objects.get(pk=object_id)
+            note.recalculate_status()
+        except PromissoryNote.DoesNotExist:
             pass
 
 
@@ -514,3 +529,160 @@ def desync_linked_payable(source, target):
     PaymentAllocation.objects.filter(
         content_type=target_ct, object_id=target.pk, is_mirror=True,
     ).exclude(payment_id__in=source_payment_ids).delete()
+
+
+class PromissoryNoteStatus(models.TextChoices):
+    ISSUED = "issued", _("Issued")
+    IN_PORTFOLIO = "in_portfolio", _("In portfolio")
+    PAID = "paid", _("Paid")
+    COLLECTED = "collected", _("Collected")
+    CANCELLED = "cancelled", _("Cancelled")
+    RETURNED = "returned", _("Returned")
+
+
+class PromissoryNote(CompanyOwnedModel, Timestampable, Payable):
+    """
+    A pagaré/cheque handed to a provider (provider set) or received from a
+    client (client set). Settles the underlying invoice(s) immediately via
+    its own Payment/PaymentAllocation; the bank charge at due_date is a
+    second, separate event reconciled against this note, not the invoice.
+    """
+    provider = models.ForeignKey(
+        "materials.Provider",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="promissory_notes",
+        verbose_name=_("Provider"),
+    )
+    client = models.ForeignKey(
+        "sales.Client",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="promissory_notes",
+        verbose_name=_("Client"),
+    )
+    number = models.CharField(
+        max_length=50,
+        verbose_name=_("Number"),
+        help_text=_("The number printed on the note itself."),
+    )
+    code = models.CharField(max_length=20, blank=True, verbose_name=_("Code"))
+    amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        verbose_name=_("Amount"),
+    )
+    issue_date = models.DateField(verbose_name=_("Issue Date"))
+    due_date = models.DateField(verbose_name=_("Due Date"))
+    bank_account = models.ForeignKey(
+        BankAccount,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="promissory_notes",
+        verbose_name=_("Bank Account"),
+        help_text=_(
+            "Where the note will be charged at due_date. Required when "
+            "issued to a provider; a note received from a client needs one "
+            "too before it can be matched against a bank transaction."
+        ),
+    )
+    document = models.FileField(
+        upload_to="promissory_notes/",
+        null=True,
+        blank=True,
+        verbose_name=_("Document"),
+    )
+    status = models.CharField(
+        max_length=15,
+        choices=PromissoryNoteStatus.choices,
+        verbose_name=_("Status"),
+    )
+    payment = models.OneToOneField(
+        Payment,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="promissory_note_issued",
+        verbose_name=_("Issuance Payment"),
+        help_text=_("The payment that settled the underlying invoice(s) against this note."),
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("Promissory Note")
+        verbose_name_plural = _("Promissory Notes")
+        ordering = ["-issue_date", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(provider__isnull=False, client__isnull=True)
+                | Q(provider__isnull=True, client__isnull=False),
+                name="promissorynote_provider_xor_client",
+            ),
+            models.CheckConstraint(
+                condition=Q(provider__isnull=False, bank_account__isnull=False)
+                | Q(provider__isnull=True),
+                name="promissorynote_issued_requires_bank_account",
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="promissorynote_amount_positive",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "bank_account", "number"],
+                condition=Q(provider__isnull=False),
+                name="uniq_promissorynote_issued_bank_number",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "client", "number"],
+                condition=Q(client__isnull=False),
+                name="uniq_promissorynote_received_client_number",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.number} — {self.amount} — {self.due_date}"
+
+    def save(self, *args, **kwargs):
+        if not self.pk and not self.status:
+            self.status = (
+                PromissoryNoteStatus.ISSUED if self.provider_id else PromissoryNoteStatus.IN_PORTFOLIO
+            )
+        if not self.code and self.company_id:
+            self.code = next_scoped_code(
+                model=PromissoryNote,
+                scope_filter={"company": self.company},
+                prefix="PN",
+                width=5,
+                field_name="code",
+            )
+        super().save(*args, **kwargs)
+
+    @property
+    def amount_remaining(self):
+        if not self.pk:
+            return self.amount
+        allocated = PaymentAllocation.objects.filter(
+            content_type=ContentType.objects.get_for_model(PromissoryNote),
+            object_id=self.pk,
+            is_mirror=False,
+        ).aggregate(total=Sum("amount_applied"))["total"] or Decimal("0")
+        return Money(self.amount.amount - allocated, self.amount_currency)
+
+    def recalculate_status(self):
+        """
+        Called whenever an allocation against this note changes (see
+        _recalculate_invoice_payment_status). Moves it to paid/collected
+        once the bank charge at due_date is fully reconciled against it -
+        never overrides a cancelled/returned note, which no allocation
+        change should resurrect.
+        """
+        if self.status not in (PromissoryNoteStatus.ISSUED, PromissoryNoteStatus.IN_PORTFOLIO):
+            return
+        if self.amount_remaining_decimal > 0:
+            return
+        self.status = PromissoryNoteStatus.PAID if self.provider_id else PromissoryNoteStatus.COLLECTED
+        self.save(update_fields=["status"])

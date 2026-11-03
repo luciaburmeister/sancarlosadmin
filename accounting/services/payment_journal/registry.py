@@ -54,6 +54,8 @@ class Ledger(Protocol):
 
     def role_account(self, role: AccountRole) -> CompanyAccount: ...
 
+    def notes_account(self, issued: bool) -> CompanyAccount: ...
+
 
 class AllocationStrategy[DocumentT: Model]:
     """

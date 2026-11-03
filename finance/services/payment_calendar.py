@@ -14,6 +14,8 @@ from banking.models import BankTransaction
 from company.models import BankAccount, Company
 from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 from loans.models import LoanInstallment, LoanInstallmentPaymentStatus
+from finance.models_planned_tax_payment import PlannedTaxPayment
+from payments.models import PromissoryNote, PromissoryNoteStatus
 from finance.models_planned_tax_payment import TaxInstallment, TaxInstallmentPaymentStatus
 from payroll.models import EmployeePayroll, PayrollPeriod
 from payroll.services.payment_projection import get_projected_payment_date
@@ -33,12 +35,14 @@ EXPENSE_CATEGORIES = [
     "Payroll",
     "Taxes",
     "Financing",
+    "Promissory notes payable",
 ]
 
 INCOME_CATEGORIES = [
     "Invoice collections",
     "Proforma",
     "Work pending invoicing",
+    "Promissory notes receivable",
     "Tax refunds",
 ]
 
@@ -249,6 +253,42 @@ def _tax_installment_entries(company: Company, date_from: datetime.date, date_to
     return entries
 
 
+def _promissory_note_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
+    """
+    Unpaid/uncollected promissory notes, by due_date - the only cashflow
+    event a note creates. Issuing one settles its invoice(s) without moving
+    the bank, so that invoice already drops off the calendar on its own
+    (payment_status becomes paid); the note's due_date is what shows up
+    here instead. Rolled forward to today if overdue and still
+    unreconciled, same as payroll/fixed costs.
+    """
+    notes = (
+        PromissoryNote.objects
+        .filter(company=company, status__in=[PromissoryNoteStatus.ISSUED, PromissoryNoteStatus.IN_PORTFOLIO])
+        .select_related("provider", "client")
+    )
+
+    entries = []
+    for note in notes:
+        effective_date = _roll_forward_to_today(note.due_date)
+        if not (date_from <= effective_date <= date_to):
+            continue
+        is_issued = note.provider_id is not None
+        entries.append(
+            CalendarEntry(
+                date=effective_date,
+                amount=note.amount_remaining.amount,
+                direction=CalendarDirection.EXPENSE if is_issued else CalendarDirection.INCOME,
+                category="Promissory notes payable" if is_issued else "Promissory notes receivable",
+                description=str(note.provider) if is_issued else str(note.client),
+                source_model="payments.PromissoryNote",
+                source_id=note.pk,
+                admin_url=_admin_change_url("payments.PromissoryNote", note.pk),
+            )
+        )
+    return entries
+
+
 class FixedCostCalendarSource:
     """
     Builds the "Fixed costs" calendar entries for one company/date window.
@@ -414,6 +454,8 @@ def build_payment_calendar(company: Company, bank_accounts, date_from: datetime.
         + _purchase_invoice_entries(company, date_from, date_to)
         + _sales_invoice_entries(company, date_from, date_to)
         + _proforma_entries(company, date_from, date_to)
+        + _planned_tax_payment_entries(company, date_from, date_to)
+        + _promissory_note_entries(company, date_from, date_to)
         + _tax_installment_entries(company, date_from, date_to)
         + FixedCostCalendarSource(company, date_from, date_to).entries()
         + _payroll_salary_entries(company, date_from, date_to)

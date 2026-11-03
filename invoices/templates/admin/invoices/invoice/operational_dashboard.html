@@ -434,6 +434,102 @@
   {% endif %}
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ECONOMIC ANALYSIS (WITHOUT TAXES)                               -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="od-section">
+    <div class="od-section-title"><span class="icon">📐</span> {% trans "Economic Analysis (Without Taxes)" %}</div>
+
+    <div class="od-panel" style="margin-bottom:16px">
+      <div class="od-panel-title">📊 {% trans "Monthly Sales vs Purchases" %}</div>
+      <div style="position:relative;height:320px;max-height:320px">
+        <canvas id="salesVsPurchasesChart"></canvas>
+      </div>
+    </div>
+
+    <div class="od-charts">
+      <div class="od-panel">
+        <div class="od-panel-title">👥 {% trans "Top Clients" %}</div>
+        {% if invoicing.top_clients %}
+        {% for client in invoicing.top_clients %}
+        {% with max_total=invoicing.top_clients.0.total %}
+        <div class="od-client-row">
+          <div class="od-client-name" title="{{ client.client__name }}">{{ client.client__name|default:"—" }}</div>
+          <div class="od-client-bar-wrap">
+            <div class="od-client-bar" style="width:{% widthratio client.total max_total 100 %}%">
+              <span>€{{ client.total|euro_format }}</span>
+            </div>
+          </div>
+          <div class="od-client-amt">€{{ client.total|euro_format }}</div>
+        </div>
+        {% endwith %}
+        {% endfor %}
+        {% else %}
+        <div class="od-empty">
+          <div class="od-empty-icon">📭</div>
+          <p>{% trans "No invoices in this period." %}</p>
+        </div>
+        {% endif %}
+      </div>
+      <div class="od-panel">
+        <div class="od-panel-title">🏢 {% trans "Top Providers" %}</div>
+        {% if purchasing_without_tax.top_providers %}
+        {% for prov in purchasing_without_tax.top_providers %}
+        {% with max_total=purchasing_without_tax.top_providers.0.total %}
+        <div class="od-client-row">
+          <div class="od-client-name" title="{{ prov.provider__name }}">{{ prov.provider__name|default:"—" }}</div>
+          <div class="od-client-bar-wrap">
+            <div class="od-client-bar" style="width:{% widthratio prov.total max_total 100 %}%;background:linear-gradient(90deg, rgba(244,63,94,.8), rgba(244,63,94,.4))">
+              <span>€{{ prov.total|euro_format }}</span>
+            </div>
+          </div>
+          <div class="od-client-amt">€{{ prov.total|euro_format }}</div>
+        </div>
+        {% endwith %}
+        {% endfor %}
+        {% else %}
+        <div class="od-empty">
+          <div class="od-empty-icon">📭</div>
+          <p>{% trans "No purchase invoices in this period." %}</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <hr class="od-divider">
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- FINANCIAL ANALYSIS (WITH TAXES)                                 -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="od-section">
+    <div class="od-section-title"><span class="icon">💶</span> {% trans "Financial Analysis (With Taxes)" %}</div>
+
+    <div class="od-panel" style="margin-bottom:16px">
+      <div class="od-panel-title">💶 {% trans "Monthly Collections vs Payments" %}</div>
+      <div style="position:relative;height:320px;max-height:320px">
+        <canvas id="collectionsVsPaymentsChart"></canvas>
+      </div>
+    </div>
+
+    <div class="od-charts">
+      <div class="od-panel">
+        <div class="od-panel-title">📈 {% trans "Monthly Sales vs Collections" %}</div>
+        <div style="position:relative;height:300px;max-height:300px">
+          <canvas id="salesVsCollectionsChart"></canvas>
+        </div>
+      </div>
+      <div class="od-panel">
+        <div class="od-panel-title">📉 {% trans "Monthly Purchases vs Payments" %}</div>
+        <div style="position:relative;height:300px;max-height:300px">
+          <canvas id="purchasesVsPaymentsChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="od-divider">
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- SALES INVOICING                                                 -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
@@ -496,37 +592,6 @@
       </div>
     </div>
 
-    <div class="od-charts">
-      <div class="od-panel">
-        <div class="od-panel-title">📈 {% trans "Monthly Sales Invoicing (Without Taxes)" %}</div>
-        <div style="position:relative;height:300px;max-height:300px">
-          <canvas id="monthlyInvoicingChart"></canvas>
-        </div>
-      </div>
-      <div class="od-panel">
-        <div class="od-panel-title">👥 {% trans "Top Clients (Without Taxes)" %}</div>
-        {% if invoicing.top_clients %}
-        {% for client in invoicing.top_clients %}
-        {% with max_total=invoicing.top_clients.0.total %}
-        <div class="od-client-row">
-          <div class="od-client-name" title="{{ client.client__name }}">{{ client.client__name|default:"—" }}</div>
-          <div class="od-client-bar-wrap">
-            <div class="od-client-bar" style="width:{% widthratio client.total max_total 100 %}%">
-              <span>€{{ client.total|euro_format }}</span>
-            </div>
-          </div>
-          <div class="od-client-amt">€{{ client.total|euro_format }}</div>
-        </div>
-        {% endwith %}
-        {% endfor %}
-        {% else %}
-        <div class="od-empty">
-          <div class="od-empty-icon">📭</div>
-          <p>{% trans "No invoices in this period." %}</p>
-        </div>
-        {% endif %}
-      </div>
-    </div>
   </div>
 
   <hr class="od-divider">
@@ -580,38 +645,6 @@
         <div class="od-kpi-accent"></div>
         <div class="od-kpi-label">{% trans "Providers with Outstanding Payables" %}</div>
         <div class="od-kpi-value">{{ payment.outstanding_providers|length }}</div>
-      </div>
-    </div>
-
-    <div class="od-charts">
-      <div class="od-panel">
-        <div class="od-panel-title">📊 {% trans "Monthly Payments Due" %}</div>
-        <div style="position:relative;height:300px;max-height:300px">
-          <canvas id="monthlyPaymentChart"></canvas>
-        </div>
-      </div>
-      <div class="od-panel">
-        <div class="od-panel-title">🏢 {% trans "Top Providers (by Amount We Owe)" %}</div>
-        {% if payment.top_providers %}
-        {% for prov in payment.top_providers %}
-        {% with max_total=payment.top_providers.0.total %}
-        <div class="od-client-row">
-          <div class="od-client-name" title="{{ prov.provider__name }}">{{ prov.provider__name|default:"—" }}</div>
-          <div class="od-client-bar-wrap">
-            <div class="od-client-bar" style="width:{% widthratio prov.total max_total 100 %}%;background:linear-gradient(90deg, rgba(99,102,241,.8), rgba(99,102,241,.4))">
-              <span>€{{ prov.total|euro_format }}</span>
-            </div>
-          </div>
-          <div class="od-client-amt">€{{ prov.total|euro_format }}</div>
-        </div>
-        {% endwith %}
-        {% endfor %}
-        {% else %}
-        <div class="od-empty">
-          <div class="od-empty-icon">📭</div>
-          <p>{% trans "No purchase invoices due in this period." %}</p>
-        </div>
-        {% endif %}
       </div>
     </div>
 
@@ -1013,43 +1046,41 @@
     const textColor = isDark ? '#94a3b8' : '#64748b';
     const euro = (v) => '€' + v.toLocaleString('es-ES', { minimumFractionDigits: 2 });
 
-    const monthlyFinal = [
-      {% for m in invoicing.monthly_final %}
-      { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
+    const salesVsPurchasesLabels = [
+      {% for month in sales_vs_purchases.labels %}
+      "{{ month|date:'M Y' }}",
       {% endfor %}
     ];
-    const monthlyProforma = [
-      {% for m in invoicing.monthly_proforma %}
-      { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
+    const salesVsPurchasesSales = [
+      {% for amount in sales_vs_purchases.sales %}
+      {{ amount|unlocalize }},
+      {% endfor %}
+    ];
+    const salesVsPurchasesPurchases = [
+      {% for amount in sales_vs_purchases.purchases %}
+      {{ amount|unlocalize }},
       {% endfor %}
     ];
 
-    const allLabels = [...new Set([
-      ...monthlyFinal.map(m => m.label),
-      ...monthlyProforma.map(m => m.label),
-    ])];
-    const finalMap = Object.fromEntries(monthlyFinal.map(m => [m.label, m.amount]));
-    const proformaMap = Object.fromEntries(monthlyProforma.map(m => [m.label, m.amount]));
-
-    const invCtx = document.getElementById('monthlyInvoicingChart');
-    if (invCtx) {
-      new Chart(invCtx, {
+    const salesVsPurchasesCtx = document.getElementById('salesVsPurchasesChart');
+    if (salesVsPurchasesCtx) {
+      new Chart(salesVsPurchasesCtx, {
         type: 'bar',
         data: {
-          labels: allLabels,
+          labels: salesVsPurchasesLabels,
           datasets: [
             {
-              label: '{% trans "Finalized" %}',
-              data: allLabels.map(l => finalMap[l] || 0),
+              label: '{% trans "Sales" %}',
+              data: salesVsPurchasesSales,
               backgroundColor: 'rgba(16, 185, 129, .7)',
               borderColor: '#059669',
               borderWidth: 2, borderRadius: 6, borderSkipped: false,
             },
             {
-              label: '{% trans "Pro Forma" %}',
-              data: allLabels.map(l => proformaMap[l] || 0),
-              backgroundColor: 'rgba(245, 158, 11, .5)',
-              borderColor: '#d97706',
+              label: '{% trans "Purchases" %}',
+              data: salesVsPurchasesPurchases,
+              backgroundColor: 'rgba(244, 63, 94, .6)',
+              borderColor: '#e11d48',
               borderWidth: 2, borderRadius: 6, borderSkipped: false,
             },
           ]
@@ -1064,48 +1095,215 @@
               bodyColor: isDark ? '#cbd5e1' : '#334155',
               borderColor: isDark ? '#334155' : '#e2e8f0',
               borderWidth: 1, padding: 12, cornerRadius: 8,
-              callbacks: { label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y) }
+              callbacks: {
+                label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y),
+                footer: items => {
+                  const sales = salesVsPurchasesSales[items[0].dataIndex] || 0;
+                  const purchases = salesVsPurchasesPurchases[items[0].dataIndex] || 0;
+                  return '{% trans "Difference" %}: ' + euro(sales - purchases);
+                }
+              }
             }
           },
           scales: {
-            x: { stacked: true, grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
-            y: { stacked: true, grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
+            x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
           }
         }
       });
     }
 
-    const monthlyPayment = [
-      {% for m in payment.monthly %}
-      { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
+    const collectionsVsPaymentsLabels = [
+      {% for month in collections_vs_payments.labels %}
+      "{{ month|date:'M Y' }}",
+      {% endfor %}
+    ];
+    const collectionsVsPaymentsCollections = [
+      {% for amount in collections_vs_payments.collections %}
+      {{ amount|unlocalize }},
+      {% endfor %}
+    ];
+    const collectionsVsPaymentsPayments = [
+      {% for amount in collections_vs_payments.payments %}
+      {{ amount|unlocalize }},
       {% endfor %}
     ];
 
-    const payCtx = document.getElementById('monthlyPaymentChart');
-    if (payCtx) {
-      new Chart(payCtx, {
+    const collectionsVsPaymentsCtx = document.getElementById('collectionsVsPaymentsChart');
+    if (collectionsVsPaymentsCtx) {
+      new Chart(collectionsVsPaymentsCtx, {
         type: 'bar',
         data: {
-          labels: monthlyPayment.map(m => m.label),
-          datasets: [{
-            label: '{% trans "Due Amount" %}',
-            data: monthlyPayment.map(m => m.amount),
-            backgroundColor: 'rgba(99, 102, 241, .6)',
-            borderColor: '#4f46e5',
-            borderWidth: 2, borderRadius: 6, borderSkipped: false,
-          }]
+          labels: collectionsVsPaymentsLabels,
+          datasets: [
+            {
+              label: '{% trans "Collections" %}',
+              data: collectionsVsPaymentsCollections,
+              backgroundColor: 'rgba(16, 185, 129, .7)',
+              borderColor: '#059669',
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
+            },
+            {
+              label: '{% trans "Payments" %}',
+              data: collectionsVsPaymentsPayments,
+              backgroundColor: 'rgba(244, 63, 94, .6)',
+              borderColor: '#e11d48',
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
+            },
+          ]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {
-            legend: { display: false },
+            legend: { position: 'top', labels: { color: textColor, font: { family: 'Inter', weight: '600', size: 12 } } },
             tooltip: {
               backgroundColor: isDark ? '#1e293b' : '#fff',
               titleColor: isDark ? '#f1f5f9' : '#0f172a',
               bodyColor: isDark ? '#cbd5e1' : '#334155',
               borderColor: isDark ? '#334155' : '#e2e8f0',
               borderWidth: 1, padding: 12, cornerRadius: 8,
-              callbacks: { label: ctx => euro(ctx.parsed.y) }
+              callbacks: {
+                label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y),
+                footer: items => {
+                  const collections = collectionsVsPaymentsCollections[items[0].dataIndex] || 0;
+                  const payments = collectionsVsPaymentsPayments[items[0].dataIndex] || 0;
+                  return '{% trans "Difference" %}: ' + euro(collections - payments);
+                }
+              }
+            }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
+          }
+        }
+      });
+    }
+
+    const salesVsCollectionsLabels = [
+      {% for month in sales_vs_collections.labels %}
+      "{{ month|date:'M Y' }}",
+      {% endfor %}
+    ];
+    const salesVsCollectionsSales = [
+      {% for amount in sales_vs_collections.sales %}
+      {{ amount|unlocalize }},
+      {% endfor %}
+    ];
+    const salesVsCollectionsCollections = [
+      {% for amount in sales_vs_collections.collections %}
+      {{ amount|unlocalize }},
+      {% endfor %}
+    ];
+
+    const salesVsCollectionsCtx = document.getElementById('salesVsCollectionsChart');
+    if (salesVsCollectionsCtx) {
+      new Chart(salesVsCollectionsCtx, {
+        type: 'bar',
+        data: {
+          labels: salesVsCollectionsLabels,
+          datasets: [
+            {
+              label: '{% trans "Sales" %}',
+              data: salesVsCollectionsSales,
+              backgroundColor: 'rgba(16, 185, 129, .7)',
+              borderColor: '#059669',
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
+            },
+            {
+              label: '{% trans "Collections" %}',
+              data: salesVsCollectionsCollections,
+              backgroundColor: 'rgba(99, 102, 241, .6)',
+              borderColor: '#4f46e5',
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
+            },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { color: textColor, font: { family: 'Inter', weight: '600', size: 12 } } },
+            tooltip: {
+              backgroundColor: isDark ? '#1e293b' : '#fff',
+              titleColor: isDark ? '#f1f5f9' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1, padding: 12, cornerRadius: 8,
+              callbacks: {
+                label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y),
+                footer: items => {
+                  const sales = salesVsCollectionsSales[items[0].dataIndex] || 0;
+                  const collections = salesVsCollectionsCollections[items[0].dataIndex] || 0;
+                  return '{% trans "Pending" %}: ' + euro(sales - collections);
+                }
+              }
+            }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
+          }
+        }
+      });
+    }
+
+    const purchasesVsPaymentsLabels = [
+      {% for month in purchases_vs_payments.labels %}
+      "{{ month|date:'M Y' }}",
+      {% endfor %}
+    ];
+    const purchasesVsPaymentsPurchases = [
+      {% for amount in purchases_vs_payments.purchases %}
+      {{ amount|unlocalize }},
+      {% endfor %}
+    ];
+    const purchasesVsPaymentsPayments = [
+      {% for amount in purchases_vs_payments.payments %}
+      {{ amount|unlocalize }},
+      {% endfor %}
+    ];
+
+    const purchasesVsPaymentsCtx = document.getElementById('purchasesVsPaymentsChart');
+    if (purchasesVsPaymentsCtx) {
+      new Chart(purchasesVsPaymentsCtx, {
+        type: 'bar',
+        data: {
+          labels: purchasesVsPaymentsLabels,
+          datasets: [
+            {
+              label: '{% trans "Purchases" %}',
+              data: purchasesVsPaymentsPurchases,
+              backgroundColor: 'rgba(244, 63, 94, .6)',
+              borderColor: '#e11d48',
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
+            },
+            {
+              label: '{% trans "Payments" %}',
+              data: purchasesVsPaymentsPayments,
+              backgroundColor: 'rgba(99, 102, 241, .6)',
+              borderColor: '#4f46e5',
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
+            },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { color: textColor, font: { family: 'Inter', weight: '600', size: 12 } } },
+            tooltip: {
+              backgroundColor: isDark ? '#1e293b' : '#fff',
+              titleColor: isDark ? '#f1f5f9' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1, padding: 12, cornerRadius: 8,
+              callbacks: {
+                label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y),
+                footer: items => {
+                  const purchases = purchasesVsPaymentsPurchases[items[0].dataIndex] || 0;
+                  const payments = purchasesVsPaymentsPayments[items[0].dataIndex] || 0;
+                  return '{% trans "Pending" %}: ' + euro(purchases - payments);
+                }
+              }
             }
           },
           scales: {

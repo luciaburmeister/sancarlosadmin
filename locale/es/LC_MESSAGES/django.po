@@ -9954,27 +9954,22 @@ msgid "Collected"
 msgstr "Cobrado"
 
 msgid "invoice(s) fully paid"
-msgstr "¡Todas las facturas están pagadas!"
+msgstr "factura(s) pagada(s) por completo"
 
-#, fuzzy
-#| msgid "Collected"
 msgid "Partially Collected"
-msgstr "Cobrado"
+msgstr "Cobrado Parcialmente"
 
-#, fuzzy
-#| msgid "All invoices are paid!"
 msgid "invoice(s) partially paid"
-msgstr "¡Todas las facturas están pagadas!"
+msgstr "factura(s) pagada(s) parcialmente"
 
-#, fuzzy
-#| msgid "Collected"
 msgid "Not Yet Collected"
-msgstr "Cobrado"
+msgstr "Pendiente de Cobro"
 
-#, fuzzy
-#| msgid "All invoices are paid!"
 msgid "invoice(s) unpaid"
-msgstr "¡Todas las facturas están pagadas!"
+msgstr "factura(s) sin pagar"
+
+msgid "Sales Without Taxes"
+msgstr "Ventas Sin Impuestos"
 
 msgid "Monthly Sales Invoicing (Without Taxes)"
 msgstr "Facturación Mensual de Ventas (Sin Impuestos)"
@@ -9982,65 +9977,108 @@ msgstr "Facturación Mensual de Ventas (Sin Impuestos)"
 msgid "Top Clients (Without Taxes)"
 msgstr "Principales Clientes (Sin Impuestos)"
 
-#, fuzzy
-#| msgid "No pending invoices for this company."
+msgid "Sales With Taxes"
+msgstr "Ventas Con Impuestos"
+
+msgid "Monthly Sales Invoicing (With Taxes)"
+msgstr "Facturación Mensual de Ventas (Con Impuestos)"
+
+msgid "Top Clients (With Taxes)"
+msgstr "Principales Clientes (Con Impuestos)"
+
 msgid "No invoices in this period."
-msgstr "No hay facturas pendientes para esta empresa."
+msgstr "No hay facturas en este periodo."
 
-#, fuzzy
-#| msgid "Purchase Invoice"
+msgid "Economic Analysis (Without Taxes)"
+msgstr "Análisis Económico (Sin Impuestos)"
+
+msgid "Monthly Sales vs Purchases"
+msgstr "Ventas vs Compras Mensuales"
+
+msgid "Top Clients"
+msgstr "Principales Clientes"
+
+msgid "Top Providers"
+msgstr "Principales Proveedores"
+
+msgid "Financial Analysis (With Taxes)"
+msgstr "Análisis Financiero (Con Impuestos)"
+
+msgid "Monthly Collections vs Payments"
+msgstr "Cobros vs Pagos Mensuales"
+
+msgid "Collections"
+msgstr "Cobros"
+
+msgid "Monthly Sales vs Collections"
+msgstr "Ventas vs Cobros Mensuales"
+
+msgid "Monthly Purchases vs Payments"
+msgstr "Compras vs Pagos Mensuales"
+
+msgid "Sales vs Purchases (Excl. VAT)"
+msgstr "Ventas vs Compras (Sin IVA)"
+
+msgid "Monthly Sales vs Purchases (Excl. VAT)"
+msgstr "Ventas vs Compras Mensuales (Sin IVA)"
+
+msgid "Purchases"
+msgstr "Compras"
+
+msgid "Monthly Purchases (Without Taxes)"
+msgstr "Compras Mensuales (Sin Impuestos)"
+
+msgid "Purchases (Without Taxes)"
+msgstr "Compras (Sin Impuestos)"
+
+msgid "Top Providers (Without Taxes)"
+msgstr "Principales Proveedores (Sin Impuestos)"
+
+msgid "Purchases Without Taxes"
+msgstr "Compras Sin Impuestos"
+
+msgid "No purchase invoices in this period."
+msgstr "No hay facturas de compra en este periodo."
+
 msgid "Purchase Invoicing (Due in Period)"
-msgstr "Factura de venta"
+msgstr "Facturación de Compras (Vencimiento en el Periodo)"
 
-#, fuzzy
-#| msgid "Planned Start"
 msgid "Period Summary"
-msgstr "Inicio Planificado"
+msgstr "Resumen del Periodo"
 
 msgid "Total Due"
 msgstr "Total Debido"
 
-#, fuzzy
-#| msgid "Partial"
 msgid "Partially Paid"
-msgstr "Parcial"
+msgstr "Pago Parcial"
 
-#, fuzzy
-#| msgid "All invoices are paid!"
 msgid "invoice(s) not yet paid"
-msgstr "¡Todas las facturas están pagadas!"
+msgstr "factura(s) pendiente(s) de pago"
 
-#, fuzzy
-#| msgid "Computed Variables"
 msgid "Cumulative Payables"
-msgstr "Variables Computadas"
+msgstr "Cuentas por Pagar Acumuladas"
 
 msgid "Total Owed (Cumulative)"
 msgstr "Total Adeudado (Acumulado)"
 
-#, fuzzy
-#| msgid "Incoming Invoice"
 msgid "Unpaid Invoices"
-msgstr "Factura Entrante"
+msgstr "Facturas Impagadas"
 
 msgid "Providers with Outstanding Payables"
 msgstr "Proveedores con Cuentas por Pagar Pendientes"
 
-#, fuzzy
-#| msgid "Payment Date"
-msgid "Monthly Payments Due"
-msgstr "Fecha de Pago"
+msgid "Purchases With Taxes"
+msgstr "Compras Con Impuestos"
 
-#, fuzzy
-#| msgid "Top Providers (by Due Amount)"
+msgid "Monthly Payments Due"
+msgstr "Pagos Mensuales por Vencimiento (Con Impuestos)"
+
 msgid "Top Providers (by Amount We Owe)"
 msgstr "Principales Proveedores (por Monto Adeudado)"
 
 msgid "No purchase invoices due in this period."
 msgstr "No hay facturas de compra pendientes en este período."
 
-#, fuzzy
-#| msgid "Outstanding Debt by Provider"
 msgid "Outstanding Payables by Provider"
 msgstr "Deuda Pendiente por Proveedor"
 

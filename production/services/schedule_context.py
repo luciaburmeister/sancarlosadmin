@@ -80,6 +80,7 @@ class UiBlock:
     resource_labels: list[str]
     machine_labels: list[str]
     employee_labels: list[str]
+    employee_ids: list[int]
     state: str
     is_late: bool
     is_locked: bool
@@ -199,6 +200,8 @@ class UiMachineGroup:
     operator_rows: list[UiRow]
     unassigned_row: UiRow | None = None
     unattended_rows: list[UiRow] = field(default_factory=list)
+    # A drop on this machine's own rows assigns the machine without operators.
+    is_unattended: bool = False
 
     @property
     def blocks(self) -> list[UiBlock]:
@@ -549,10 +552,14 @@ class ProductionScheduleContext:
             for resource_id in resource_ids
             if self._kinds.get(resource_id) == "machine"
         ]
-        employee_labels = [
-            self._labels.get(resource_id, f"#{resource_id}")
+        employee_ids = [
+            resource_id
             for resource_id in resource_ids
             if self._kinds.get(resource_id) == "employee"
+        ]
+        employee_labels = [
+            self._labels.get(resource_id, f"#{resource_id}")
+            for resource_id in employee_ids
         ]
 
         state = stage_states.get(
@@ -577,6 +584,7 @@ class ProductionScheduleContext:
             resource_labels=resource_labels,
             machine_labels=machine_labels,
             employee_labels=employee_labels,
+            employee_ids=employee_ids,
             state=state,
             is_late=is_late,
             is_locked=session.locked,
@@ -738,6 +746,7 @@ class ProductionScheduleContext:
                 key_prefix=f"stage-{stage}-machine-{machine.resource_id}",
             ),
             unattended_rows=unattended_rows,
+            is_unattended=is_unattended,
             unassigned_row=(
                 UiRow(
                     key=f"stage-{stage}-machine-{machine.resource_id}-unassigned",

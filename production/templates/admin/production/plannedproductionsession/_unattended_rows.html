@@ -1,5 +1,5 @@
 {% for row in machine_group.unattended_rows %}
-  <div class="ps-row ps-row--child {% if nested %}ps-row--stage-operator {% endif %}border-b border-base-200" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="unattended" data-stage-name="{{ stage_group.stage }}">
+  <div class="ps-row ps-row--child {% if nested %}ps-row--stage-operator {% endif %}border-b border-base-200" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-machine-only-id="{{ machine_group.machine.resource_id }}" data-row-kind="unattended" data-stage-name="{{ stage_group.stage }}">
     <div class="ps-label flex flex-col justify-center bg-white px-3 py-2">
       <span class="truncate text-sm font-medium">{{ row.label }}</span>
     </div>

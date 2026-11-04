@@ -270,6 +270,21 @@ class ScheduleContextTest(TestCase):
         self.assertEqual([row.label for row in group.unattended_rows], ["Without operator 1"])
         self.assertEqual(len(group.machine.blocks), 1)
 
+    def test_unattended_machine_group_is_a_machine_only_drop_target(self):
+        make_session(
+            self.ticket, start=self.at(9), end=self.at(11),
+            resources=[self.machine, self.operator],
+        )
+
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+        self.assertFalse(group.is_unattended)
+        self.assertEqual(group.machine.blocks[0].employee_ids, [self.operator.pk])
+
+        self.cnc.needs_human = False
+        self.cnc.save(update_fields=["needs_human"])
+        group = self.stage_group(self.context().build(), STAGE_CUT).machine_groups[0]
+        self.assertTrue(group.is_unattended)
+
     def test_unattended_job_rows_appear_only_for_planned_jobs(self):
         self.enterContext(translation.override("en"))
         self.cnc.needs_human = False

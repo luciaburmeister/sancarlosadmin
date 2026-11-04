@@ -23301,3 +23301,33 @@ msgstr "Esquema"
 #: invoices/sepa.py
 msgid "Must match the mandates the clients signed: B2B only for businesses that registered the mandate with their bank."
 msgstr "Debe coincidir con los mandatos firmados por los clientes: B2B solo para empresas que hayan registrado el mandato en su banco."
+
+msgid "Shipped on line"
+msgstr "Expedido en la línea"
+
+msgid "Returned identity code"
+msgstr "Código de artículo devuelto"
+
+msgid "Returned identity codes"
+msgstr "Códigos de artículo devueltos"
+
+msgid "Returned item codes"
+msgstr "Códigos de artículo devueltos"
+
+msgid "Codes linked to this line or its components; they are unlinked when the return is received."
+msgstr "Códigos vinculados a esta línea o a sus componentes; se desvinculan al recibir la devolución."
+
+msgid "Code %(code)s is no longer linked to %(line)s."
+msgstr "El código %(code)s ya no está vinculado a %(line)s."
+
+msgid "Code %(code)s has been shipped again on %(line)s; unlink it there first."
+msgstr "El código %(code)s se ha vuelto a expedir en %(line)s; desvincúlalo allí primero."
+
+msgid "Code %(code)s is picked more than once."
+msgstr "El código %(code)s está seleccionado más de una vez."
+
+msgid "Code %(code)s was not shipped on %(line)s."
+msgstr "El código %(code)s no se expidió en %(line)s."
+
+msgid "%(line)s: %(count)s codes picked but only %(capacity)s units of it come back."
+msgstr "%(line)s: %(count)s códigos seleccionados pero solo vuelven %(capacity)s unidades."

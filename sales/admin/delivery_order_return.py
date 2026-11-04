@@ -18,13 +18,16 @@ from django.utils.translation import pgettext_lazy
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
 from unfold.enums import ActionVariant
+from unfold.widgets import UnfoldAdminSelect2MultipleWidget
 
 from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
+from inventory.models import ItemIdentityCode
 from sales.models import (
     DELIVERY_ORDER_STOCK_OUT_STATUSES,
     DeliveryOrder,
     DeliveryOrderReturn,
+    DeliveryOrderReturnCode,
     DeliveryOrderReturnItem,
     DeliveryOrderReturnStatus,
     ReturnReason,
@@ -64,8 +67,78 @@ class ReturnLineChoiceField(forms.ModelChoiceField):
         return f"{line.item_number} · {line.description} — {_('shipped')} {DeliveryOrderReturnService.shipped_units(line)}"
 
 
+class IdentityCodeChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, code):
+        line = code.delivery_order_item
+        return f"{code.code} · {code.item.code}" + (f" ({line.item_number})" if line else "")
+
+
+class DeliveryOrderReturnItemForm(forms.ModelForm):
+    """A return line plus the identity codes that came back with it.
+
+    The codes are kept as DeliveryOrderReturnCode rows recording the line
+    each one was shipped on; the codes stay linked to the delivery order
+    until the return is received.
+    """
+
+    codes = IdentityCodeChoiceField(
+        label=_("Returned item codes"),
+        queryset=ItemIdentityCode.objects.none(),
+        required=False,
+        widget=UnfoldAdminSelect2MultipleWidget,
+        help_text=_("Codes linked to this line or its components; they are unlinked when the return is received."),
+    )
+
+    #: Set by the inline from the delivery order on screen.
+    delivery_order = None
+
+    class Meta:
+        model = DeliveryOrderReturnItem
+        fields = ["delivery_order_item", "quantity", "reason"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        picked = (
+            list(self.instance.returned_codes.values_list("identity_code_id", flat=True))
+            if self.instance.pk else []
+        )
+        linked = ItemIdentityCode.objects.filter(
+            delivery_order_item__delivery_order=self.delivery_order,
+        ) if self.delivery_order else ItemIdentityCode.objects.none()
+        self.fields["codes"].queryset = (
+            linked | ItemIdentityCode.objects.filter(pk__in=picked)
+        ).select_related("item", "delivery_order_item").order_by("code").distinct()
+        self.initial.setdefault("codes", picked)
+
+    def save(self, commit=True):
+        line = super().save(commit=commit)
+        if commit:
+            self._save_codes(line)
+        else:
+            parent_save_m2m = self.save_m2m
+
+            def save_m2m():
+                parent_save_m2m()
+                self._save_codes(line)
+
+            self.save_m2m = save_m2m
+        return line
+
+    def _save_codes(self, line):
+        codes = {code.pk: code for code in self.cleaned_data.get("codes") or []}
+        line.returned_codes.exclude(identity_code_id__in=codes).delete()
+        kept = set(line.returned_codes.values_list("identity_code_id", flat=True))
+        DeliveryOrderReturnCode.objects.bulk_create([
+            DeliveryOrderReturnCode(
+                return_item=line, identity_code=code, delivery_order_item_id=code.delivery_order_item_id,
+            )
+            for pk, code in codes.items() if pk not in kept
+        ])
+
+
 class DeliveryOrderReturnItemFormSet(BaseInlineFormSet):
-    """Refuses more units than are still out, so the problem shows on the
+    """Refuses more units than are still out, and codes that do not belong
+    to the line or outnumber what comes back, so the problem shows on the
     draft rather than only when the return is received."""
 
     def clean(self):
@@ -75,27 +148,43 @@ class DeliveryOrderReturnItemFormSet(BaseInlineFormSet):
         delivery_order = getattr(self.instance, "delivery_order", None)
         if delivery_order is None:
             return
-        requested = defaultdict(int)
+        requested, selections = defaultdict(int), []
         for form in self.forms:
             data = getattr(form, "cleaned_data", None)
             if not data or data.get("DELETE") or not data.get("delivery_order_item"):
                 continue
             requested[data["delivery_order_item"]] += data.get("quantity") or 0
+            selections.append((data["delivery_order_item"], data.get("quantity"), data.get("codes") or []))
         errors = DeliveryOrderReturnService.check_quantities(
             delivery_order, requested, exclude_return=self.instance,
         )
+        errors += DeliveryOrderReturnService.check_codes(selections)
         if errors:
             raise ValidationError(errors)
 
 
 class DeliveryOrderReturnItemInline(TabularInline):
     model = DeliveryOrderReturnItem
+    form = DeliveryOrderReturnItemForm
     formset = DeliveryOrderReturnItemFormSet
     extra = 0
-    fields = ["delivery_order_item", "quantity", "reason", "stock_returned"]
-    readonly_fields = ["stock_returned"]
+    readonly_fields = ["stock_returned", "codes_display"]
     verbose_name = _("Returned line")
     verbose_name_plural = _("Returned lines")
+
+    def get_fields(self, request, obj=None):
+        # Once received the line is read-only, and a form-only field has
+        # nothing to display: the stored codes are shown instead.
+        codes = "codes" if self._editable(obj) else "codes_display"
+        return ["delivery_order_item", "quantity", "reason", codes, "stock_returned"]
+
+    def get_formset(self, request, obj=None, **kwargs):
+        form = type(self.form.__name__, (self.form,), {"delivery_order": _delivery_order_for(request)})
+        return super().get_formset(request, obj, form=form, **kwargs)
+
+    @display(description=_("Returned item codes"))
+    def codes_display(self, obj):
+        return ", ".join(link.identity_code.code for link in obj.returned_codes.select_related("identity_code")) or "—"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         delivery_order = _delivery_order_for(request)
@@ -255,10 +344,16 @@ class DeliveryOrderReturnInline(TabularInline):
 
     @display(description=pgettext_lazy("delivery order return", "Returned"))
     def lines_display(self, obj):
-        return ", ".join(
-            f"{line.delivery_order_item.item_number} ×{line.quantity} ({line.reason})"
-            for line in obj.items.select_related("delivery_order_item", "reason")
-        ) or "—"
+        parts = []
+        for line in obj.items.select_related("delivery_order_item", "reason").prefetch_related(
+            "returned_codes__identity_code",
+        ):
+            text = f"{line.delivery_order_item.item_number} ×{line.quantity} ({line.reason})"
+            codes = [link.identity_code.code for link in line.returned_codes.all()]
+            if codes:
+                text += f" [{', '.join(codes)}]"
+            parts.append(text)
+        return ", ".join(parts) or "—"
 
     def has_add_permission(self, request, obj=None):
         return False

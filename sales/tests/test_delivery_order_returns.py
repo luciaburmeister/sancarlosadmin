@@ -10,9 +10,11 @@ from django.core.exceptions import ValidationError
 from django.urls import reverse
 
 from inventory.choices import ItemType
+from inventory.models import ItemIdentityCode
 from sales.models import (
     DeliveryOrderItem,
     DeliveryOrderReturn,
+    DeliveryOrderReturnCode,
     DeliveryOrderReturnItem,
     DeliveryOrderReturnStatus,
     DeliveryOrderStatus,
@@ -237,3 +239,173 @@ class AdminTests(_ReturnsBase):
         self.client.get(reverse("admin:sales_deliveryorderreturn_receive_detail_action", args=[ret.pk]))
         self.assertEqual(self._stock(self.plain), 8)
         self.assertEqual(self.client.get(change).status_code, 200)
+
+
+class IdentityCodeTests(_ReturnsBase):
+    """Codes that come back are unlinked from the delivery order when the
+    return is received, and linked back if it is cancelled."""
+
+    def setUp(self):
+        super().setUp()
+        self.codes = [
+            ItemIdentityCode.objects.create(item=self.plain, code=f"SN{i}", delivery_order_item=self.line)
+            for i in range(1, 5)
+        ]
+
+    def _pick(self, ret, *codes):
+        line = ret.items.get()
+        for code in codes:
+            DeliveryOrderReturnCode.objects.create(
+                return_item=line, identity_code=code, delivery_order_item=code.delivery_order_item,
+            )
+
+    def _linked(self):
+        return set(
+            ItemIdentityCode.objects.filter(delivery_order_item=self.line).values_list("code", flat=True)
+        )
+
+    def test_a_draft_keeps_its_codes_linked(self):
+        self._pick(self._return((self.line, 2, self.excess)), *self.codes[:2])
+        self.assertEqual(self._linked(), {"SN1", "SN2", "SN3", "SN4"})
+
+    def test_receiving_unlinks_the_returned_codes_only(self):
+        ret = self._return((self.line, 2, self.excess))
+        self._pick(ret, *self.codes[:2])
+        R.receive(ret)
+        self.assertEqual(self._linked(), {"SN3", "SN4"})
+        returned = ItemIdentityCode.objects.get(code="SN1")
+        self.assertIsNone(returned.delivered_at)
+        self.assertEqual(returned.return_links.get().delivery_order_item, self.line)
+
+    def test_codes_are_unlinked_even_when_the_reason_does_not_restock(self):
+        ret = self._return((self.line, 1, self.damaged))
+        self._pick(ret, self.codes[0])
+        R.receive(ret)
+        self.assertNotIn("SN1", self._linked())
+
+    def test_cancelling_links_them_back(self):
+        ret = self._return((self.line, 2, self.excess))
+        self._pick(ret, *self.codes[:2])
+        R.receive(ret)
+        R.cancel(ret)
+        self.assertEqual(self._linked(), {"SN1", "SN2", "SN3", "SN4"})
+        self.assertIsNotNone(ItemIdentityCode.objects.get(code="SN1").delivered_at)
+
+    def test_cancel_is_refused_once_a_code_shipped_again(self):
+        ret = self._return((self.line, 1, self.excess))
+        self._pick(ret, self.codes[0])
+        R.receive(ret)
+        other = self._deliver(self._accepted_quote_line(self.plain, "1"))
+        ItemIdentityCode.objects.filter(code="SN1").update(delivery_order_item=other.items.get())
+
+        with self.assertRaises(ValidationError):
+            R.cancel(ret)
+        ret.refresh_from_db()
+        self.assertEqual(ret.status, DeliveryOrderReturnStatus.RECEIVED)
+        self.assertEqual(self._stock(self.plain), 6)  # 6 - 1 reshipped + 1 still returned
+
+    def test_receive_is_refused_when_a_code_was_unlinked_meanwhile(self):
+        ret = self._return((self.line, 1, self.excess))
+        self._pick(ret, self.codes[0])
+        ItemIdentityCode.objects.filter(code="SN1").update(delivery_order_item=None)
+        with self.assertRaises(ValidationError):
+            R.receive(ret)
+        self.assertEqual(self._stock(self.plain), 6)
+
+    def test_never_more_codes_than_units(self):
+        ret = self._return((self.line, 1, self.excess))
+        self._pick(ret, *self.codes[:2])
+        with self.assertRaises(ValidationError):
+            R.receive(ret)
+        self.assertEqual(self._linked(), {"SN1", "SN2", "SN3", "SN4"})
+
+    def test_a_code_of_another_line_is_refused(self):
+        extra = self._item("EXTRA", stock=5)
+        extra_line = DeliveryOrderItem.objects.create(delivery_order=self.do, inventory_item=extra, quantity=2)
+        foreign = ItemIdentityCode.objects.create(item=extra, code="X1", delivery_order_item=extra_line)
+        errors = R.check_codes([(self.line, 1, [foreign])])
+        self.assertEqual(len(errors), 1)
+
+    def test_a_kit_brings_back_its_components_codes_in_proportion(self):
+        window, frame, handle, profile = self._kit()
+        do = self._deliver(self._accepted_quote_line(window, "3"))
+        top = self._parent_line(do)
+        handle_line = self._component(top, handle)  # 3 handles shipped
+        codes = [
+            ItemIdentityCode.objects.create(item=handle, code=f"H{i}", delivery_order_item=handle_line)
+            for i in range(3)
+        ]
+        self.assertEqual(R.check_codes([(top, 2, codes[:2])]), [])
+        self.assertEqual(len(R.check_codes([(top, 2, codes)])), 1)  # 2 kits → 2 handles
+
+        ret = self._return((top, 2, self.excess), do=do)
+        line = ret.items.get()
+        for code in codes[:2]:
+            DeliveryOrderReturnCode.objects.create(
+                return_item=line, identity_code=code, delivery_order_item=handle_line,
+            )
+        R.receive(ret)
+        self.assertEqual(handle_line.identity_codes.count(), 1)
+
+
+class IdentityCodeAdminTests(_ReturnsBase):
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.superuser = User.objects.create_superuser("admin", "a@example.com", "pw")
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.superuser)
+        self.codes = [
+            ItemIdentityCode.objects.create(item=self.plain, code=f"SN{i}", delivery_order_item=self.line)
+            for i in range(1, 4)
+        ]
+
+    def _post(self, quantity, codes):
+        url = reverse("admin:sales_deliveryorderreturn_add") + f"?delivery_order={self.do.pk}"
+        return self.client.post(url, {
+            "delivery_order": self.do.pk, "date": "2026-11-04", "notes": "",
+            "items-TOTAL_FORMS": "1", "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "0", "items-MAX_NUM_FORMS": "1000",
+            "items-0-delivery_order_item": self.line.pk,
+            "items-0-quantity": quantity,
+            "items-0-reason": self.excess.pk,
+            "items-0-codes": [code.pk for code in codes],
+        })
+
+    def test_picked_codes_are_stored_and_unlinked_on_receive(self):
+        response = self._post(2, self.codes[:2])
+        self.assertEqual(response.status_code, 302)
+        ret = DeliveryOrderReturn.objects.get()
+        link_codes = set(ret.items.get().returned_codes.values_list("identity_code__code", flat=True))
+        self.assertEqual(link_codes, {"SN1", "SN2"})
+
+        self.client.get(reverse("admin:sales_deliveryorderreturn_receive_detail_action", args=[ret.pk]))
+        self.assertEqual(self.line.identity_codes.count(), 1)
+
+        page = self.client.get(reverse("admin:sales_deliveryorderreturn_change", args=[ret.pk]))
+        self.assertContains(page, "SN1")
+        do_page = self.client.get(reverse("admin:sales_deliveryorder_change", args=[self.do.pk]))
+        self.assertContains(do_page, "SN2")
+
+    def test_more_codes_than_units_is_refused_on_the_draft(self):
+        response = self._post(1, self.codes[:2])
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(DeliveryOrderReturn.objects.exists())
+
+    def test_a_returned_code_can_be_shipped_again(self):
+        self._post(1, self.codes[:1])
+        ret = DeliveryOrderReturn.objects.get()
+        self.client.get(reverse("admin:sales_deliveryorderreturn_receive_detail_action", args=[ret.pk]))
+
+        next_do = self._deliver(self._accepted_quote_line(self.plain, "1"))
+        next_line = next_do.items.get()
+        link_url = reverse("admin:sales_deliveryorder_link_identity_codes", args=[next_do.pk])
+        page = self.client.get(link_url, {"target_item": next_line.pk})
+        self.assertIn(self.codes[0], page.context["candidates"])
+
+        self.client.post(link_url, {"target_item": next_line.pk, "codes": [self.codes[0].pk]})
+        self.codes[0].refresh_from_db()
+        self.assertEqual(self.codes[0].delivery_order_item, next_line)

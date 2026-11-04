@@ -2789,6 +2789,45 @@ class DeliveryOrderReturnItem(Timestampable):
             })
 
 
+class DeliveryOrderReturnCode(models.Model):
+    """An identity code (serial number, lot) that came back on a return line.
+
+    The code stays linked to its delivery order line while the return is a
+    draft; receiving the return unlinks it, and cancelling a received return
+    links it back to ``delivery_order_item``, the line it was shipped on
+    (the returned line itself or one of its component lines).
+    """
+
+    return_item = models.ForeignKey(
+        DeliveryOrderReturnItem,
+        on_delete=models.CASCADE,
+        related_name="returned_codes",
+        verbose_name=_("Return line"),
+    )
+    identity_code = models.ForeignKey(
+        "inventory.ItemIdentityCode",
+        on_delete=models.PROTECT,
+        related_name="return_links",
+        verbose_name=_("Identity Code"),
+    )
+    delivery_order_item = models.ForeignKey(
+        DeliveryOrderItem,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name=_("Shipped on line"),
+    )
+
+    class Meta:
+        verbose_name = _("Returned identity code")
+        verbose_name_plural = _("Returned identity codes")
+        constraints = [
+            models.UniqueConstraint(fields=["return_item", "identity_code"], name="uniq_return_item_code"),
+        ]
+
+    def __str__(self):
+        return self.identity_code.code
+
+
 class ConversionThresholds(models.Model):
     """
     Per-company configuration for the conversion diagnosis thresholds.

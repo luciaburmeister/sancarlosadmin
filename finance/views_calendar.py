@@ -102,6 +102,34 @@ def _resolve_calendar_filters(request, companies: QuerySet[Company]) -> dict:
     }
 
 
+def _compute_bank_balances(company: Company | None) -> dict:
+    """Aggregate and per-account balances for the company's active bank accounts."""
+    if not company:
+        return {"total": None, "currency": "EUR", "accounts": []}
+
+    accounts = BankAccount.objects.filter(company=company, active=True).order_by("bank_name")
+
+    total = Decimal("0.00")
+    has_balance = False
+    account_rows = []
+    for account in accounts:
+        if account.last_known_balance is not None:
+            total += account.last_known_balance.amount
+            has_balance = True
+        account_rows.append({
+            "bank_name": account.bank_name,
+            "iban": account.iban or account.nuek_product_id or "—",
+            "balance": account.last_known_balance,
+            "updated_at": account.last_balance_updated_at,
+        })
+
+    return {
+        "total": total if has_balance else None,
+        "currency": "EUR",
+        "accounts": account_rows,
+    }
+
+
 def _build_kpis(matrix: dict) -> dict:
     saldo_cells = matrix["saldo_cells"]
     return {
@@ -171,6 +199,7 @@ class PaymentCalendarView(UnfoldModelAdminViewMixin, TemplateView):
 
         matrix = build_calendar_matrix(company, selected_bank_accounts, date_from, date_to) if company else None
         kpis = _build_kpis(matrix) if matrix else None
+        bank_balances = _compute_bank_balances(company)
 
         # The combined balance is only as fresh as its least recently synced
         # account, so surface the oldest last_balance_updated_at among the
@@ -217,6 +246,7 @@ class PaymentCalendarView(UnfoldModelAdminViewMixin, TemplateView):
             "today": today,
             "matrix": matrix,
             "kpis": kpis,
+            "bank_balances": bank_balances,
             "balance_updated_at": balance_updated_at,
             "range_was_truncated": range_was_truncated,
             "max_window_days": MAX_WINDOW_DAYS,

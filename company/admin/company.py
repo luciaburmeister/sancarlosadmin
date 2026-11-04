@@ -34,8 +34,9 @@ from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
 class BankAccountAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
-    list_display = ("bank_name", "account_number", "iban", "consent_status_badge", "is_default", "sync_from_date", "company")
-    list_filter = ("consent_status",)
+    list_display = ("bank_name", "account_number", "iban", "consent_status_badge", "is_default", "active", "sync_from_date", "company")
+    list_editable = ("active",)
+    list_filter = ("consent_status", "active")
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company", "account")
     readonly_fields = ("consent_status", "consent_status_message", "consent_valid_until", "consent_checked_at")
@@ -203,7 +204,7 @@ class BankAccountAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
 class BankAccountInline(StackedInline):
     model = BankAccount
     extra = 1
-    fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default", "sync_from_date")
+    fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default", "active", "sync_from_date")
     tab = True
     tab_title = _("Bank Accounts")
 

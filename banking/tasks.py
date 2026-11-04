@@ -226,7 +226,7 @@ def advance_fixed_cost_schedules_task():
 
 @shared_task(name="banking.tasks.send_bank_accounts_summary")
 def send_bank_accounts_summary():
-    """Periodic task: emails each company's bank account balances (last
+    """Periodic task: emails each company's active bank account balances (last
     known balance + when it was last synced) to that company's configured
     recipients (Company.bank_summary_emails).
 
@@ -259,7 +259,7 @@ def send_bank_accounts_summary():
     recipient_company_ids = {}  # normalized email -> {"email": str, "company_ids": [int]}
 
     for company in companies:
-        accounts = list(company.bankaccounts.all())
+        accounts = list(company.bankaccounts.filter(active=True))
         if not accounts:
             continue
 

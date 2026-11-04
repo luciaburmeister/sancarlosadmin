@@ -9920,6 +9920,9 @@ msgstr "Confirmar emparejamiento"
 msgid "Bank Account Balances"
 msgstr "Balance de Cuenta de banco"
 
+msgid "Total Balance (Active Accounts)"
+msgstr "Balance Total (Cuentas Activas)"
+
 msgid "ago"
 msgstr "hace"
 
@@ -10051,7 +10054,7 @@ msgid "Purchase Invoicing (Due in Period)"
 msgstr "Facturación de Compras (Vencimiento en el Periodo)"
 
 msgid "Period Summary"
-msgstr "Resumen del Periodo"
+msgstr "Resumen del Período"
 
 msgid "Total Due"
 msgstr "Total Debido"

@@ -1,1 +1,1 @@
-from .production_ticket.html_render import ProductionTicketHtmlRender
+from .production_ticket.html_render import ProductionTicketDrawingsView, ProductionTicketHtmlRender

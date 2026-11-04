@@ -6105,10 +6105,17 @@ msgid "Direct link to a project file for non-quotable configurations."
 msgstr ""
 "Enlace directo a un archivo de proyecto para configuraciones no citables."
 
-#, fuzzy
-#| msgid "Work Order"
 msgid "Work Order PDF"
-msgstr "Orden de Trabajo"
+msgstr "PDF de orden de trabajo"
+
+msgid "Supplier work order. Replaces the generated work order when present."
+msgstr "Orden de trabajo del proveedor. Si existe, sustituye a la orden de trabajo generada."
+
+msgid "Drawings"
+msgstr "Planos"
+
+msgid "Drawings shown alongside the work order."
+msgstr "Planos que se muestran junto a la orden de trabajo."
 
 #, fuzzy
 #| msgid "Quote"

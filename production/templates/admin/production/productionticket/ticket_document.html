@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} #{{ ticket.pk }}</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        .document {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        img.document {
+            object-fit: contain;
+            background-color: white;
+        }
+    </style>
+</head>
+<body>
+    {% if is_image %}
+        <img src="{{ file_url }}" alt="{{ title }}" class="document">
+    {% else %}
+        <iframe src="{{ file_url }}" title="{{ title }}" class="document"></iframe>
+    {% endif %}
+    {% include "admin/production/productionticket/ticket_document_nav.html" %}
+</body>
+</html>

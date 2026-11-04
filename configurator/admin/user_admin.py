@@ -6,6 +6,7 @@ from django.contrib.auth.models import User, Group
 from unfold.admin import TabularInline
 from unfold.forms import AdminPasswordChangeForm, UserChangeForm, UserCreationForm
 from unfold.admin import ModelAdmin
+from apps.public_api.admin import UserAPIKeyInline
 from company.models import CompanyUser
 
 
@@ -25,7 +26,7 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     form = UserChangeForm
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
-    inlines = [CompanyUserInline]
+    inlines = [CompanyUserInline, UserAPIKeyInline]
 
 
 @admin.register(Group)

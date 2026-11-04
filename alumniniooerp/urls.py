@@ -19,6 +19,7 @@ urlpatterns = [
     path("api/ai-agent/", include("apps.ai_agent.urls")),
     path("api/banking/", include("banking.urls")),  # Arcopay callbacks (no i18n)
     path("api/email-events/", include("core.urls")),  # SES/SNS callbacks (no i18n)
+    path("api/v1/", include("apps.public_api.v1.urls")),  # public API (no i18n)
     path("integrations/shopify/", include("apps.shopify.urls")),  # OAuth callback (no i18n)
     path("presupuestos/", include("purchasing.urls")),
     path("assets/", include("assets.urls")),

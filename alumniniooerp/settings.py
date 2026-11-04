@@ -119,6 +119,8 @@ INSTALLED_APPS = [
     "apps.reports",
     "loans",
     "djangoql",
+    "drf_spectacular",
+    "apps.public_api",
 ]
 
 MIDDLEWARE = [
@@ -1289,6 +1291,27 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': (
         'django_filters.rest_framework.DjangoFilterBackend',
     ),
+    # Only used to generate the OpenAPI docs (/api/v1/docs/); no effect on requests
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# Public API (/api/v1/, apps/public_api): API-key auth set on its own views,
+# so the defaults above (mobile app, JWT) don't apply to it.
+PUBLIC_API_RATE = os.getenv("PUBLIC_API_RATE", "600/min")  # per API key
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Polipus ERP API",
+    "DESCRIPTION": (
+        "Public API. Authenticate with `Authorization: Api-Key <key>`; a key acts as the "
+        "user it belongs to, on its company, with that user's permissions."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "PREPROCESSING_HOOKS": ["apps.public_api.schema.only_public_api"],
+    "COMPONENT_SPLIT_REQUEST": True,
+    # Pinned: the default (redoc@latest) is Redoc 3, which renders a blank
+    # page with drf-spectacular's Redoc 2 template
+    "REDOC_DIST": "https://cdn.jsdelivr.net/npm/redoc@2.5.0",
 }
 
 SIMPLE_JWT = {

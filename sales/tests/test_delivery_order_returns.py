@@ -277,11 +277,37 @@ class IdentityCodeTests(_ReturnsBase):
         self.assertIsNone(returned.delivered_at)
         self.assertEqual(returned.return_links.get().delivery_order_item, self.line)
 
-    def test_codes_are_unlinked_even_when_the_reason_does_not_restock(self):
+    def test_a_restocking_reason_leaves_the_code_free_to_ship(self):
+        ret = self._return((self.line, 1, self.excess))
+        self._pick(ret, self.codes[0])
+        R.receive(ret)
+        self.assertFalse(ItemIdentityCode.objects.get(code="SN1").is_blocked)
+
+    def test_a_reason_that_does_not_restock_blocks_the_code(self):
         ret = self._return((self.line, 1, self.damaged))
         self._pick(ret, self.codes[0])
         R.receive(ret)
+        code = ItemIdentityCode.objects.get(code="SN1")
         self.assertNotIn("SN1", self._linked())
+        self.assertTrue(code.is_blocked)
+        self.assertTrue(code.return_links.get().blocked)
+
+    def test_cancelling_lifts_the_block_it_set(self):
+        ret = self._return((self.line, 1, self.damaged))
+        self._pick(ret, self.codes[0])
+        R.receive(ret)
+        R.cancel(ret)
+        code = ItemIdentityCode.objects.get(code="SN1")
+        self.assertEqual(code.delivery_order_item, self.line)
+        self.assertFalse(code.is_blocked)
+
+    def test_cancelling_keeps_a_block_set_by_hand(self):
+        ItemIdentityCode.objects.filter(code="SN1").update(is_blocked=True)
+        ret = self._return((self.line, 1, self.damaged))
+        self._pick(ret, ItemIdentityCode.objects.get(code="SN1"))
+        R.receive(ret)
+        R.cancel(ret)
+        self.assertTrue(ItemIdentityCode.objects.get(code="SN1").is_blocked)
 
     def test_cancelling_links_them_back(self):
         ret = self._return((self.line, 2, self.excess))
@@ -409,3 +435,28 @@ class IdentityCodeAdminTests(_ReturnsBase):
         self.client.post(link_url, {"target_item": next_line.pk, "codes": [self.codes[0].pk]})
         self.codes[0].refresh_from_db()
         self.assertEqual(self.codes[0].delivery_order_item, next_line)
+
+    def test_a_blocked_code_is_not_offered_or_linked_again(self):
+        url = reverse("admin:sales_deliveryorderreturn_add") + f"?delivery_order={self.do.pk}"
+        self.client.post(url, {
+            "delivery_order": self.do.pk, "date": "2026-11-04", "notes": "",
+            "items-TOTAL_FORMS": "1", "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "0", "items-MAX_NUM_FORMS": "1000",
+            "items-0-delivery_order_item": self.line.pk,
+            "items-0-quantity": 1,
+            "items-0-reason": self.damaged.pk,
+            "items-0-codes": [self.codes[0].pk],
+        })
+        ret = DeliveryOrderReturn.objects.get()
+        self.client.get(reverse("admin:sales_deliveryorderreturn_receive_detail_action", args=[ret.pk]))
+
+        next_do = self._deliver(self._accepted_quote_line(self.plain, "1"))
+        next_line = next_do.items.get()
+        link_url = reverse("admin:sales_deliveryorder_link_identity_codes", args=[next_do.pk])
+        page = self.client.get(link_url, {"target_item": next_line.pk})
+        self.assertNotIn(self.codes[0], page.context["candidates"])
+
+        self.client.post(link_url, {"target_item": next_line.pk, "codes": [self.codes[0].pk]})
+        self.codes[0].refresh_from_db()
+        self.assertIsNone(self.codes[0].delivery_order_item)
+        self.assertTrue(self.codes[0].is_blocked)

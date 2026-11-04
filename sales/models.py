@@ -2793,9 +2793,10 @@ class DeliveryOrderReturnCode(models.Model):
     """An identity code (serial number, lot) that came back on a return line.
 
     The code stays linked to its delivery order line while the return is a
-    draft; receiving the return unlinks it, and cancelling a received return
-    links it back to ``delivery_order_item``, the line it was shipped on
-    (the returned line itself or one of its component lines).
+    draft; receiving the return unlinks it (and blocks it when the reason
+    does not restock), and cancelling a received return links it back to
+    ``delivery_order_item``, the line it was shipped on (the returned line
+    itself or one of its component lines).
     """
 
     return_item = models.ForeignKey(
@@ -2816,6 +2817,9 @@ class DeliveryOrderReturnCode(models.Model):
         related_name="+",
         verbose_name=_("Shipped on line"),
     )
+    # Set when receiving blocked the code (its reason does not restock), so
+    # cancelling the return unblocks only what the return itself blocked.
+    blocked = models.BooleanField(default=False, editable=False, verbose_name=_("Blocked by this return"))
 
     class Meta:
         verbose_name = _("Returned identity code")

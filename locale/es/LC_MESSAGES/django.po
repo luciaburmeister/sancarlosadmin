@@ -23331,3 +23331,15 @@ msgstr "El código %(code)s no se expidió en %(line)s."
 
 msgid "%(line)s: %(count)s codes picked but only %(capacity)s units of it come back."
 msgstr "%(line)s: %(count)s códigos seleccionados pero solo vuelven %(capacity)s unidades."
+
+msgid "Blocked"
+msgstr "Bloqueado"
+
+msgid "A blocked unit cannot be linked to a delivery order: damaged or defective goods a client sent back, say. Untick it once the unit can be shipped again."
+msgstr "Una unidad bloqueada no se puede vincular a un albarán: mercancía dañada o defectuosa devuelta por un cliente, por ejemplo. Desmárcalo cuando la unidad se pueda volver a expedir."
+
+msgid "Blocked by this return"
+msgstr "Bloqueado por esta devolución"
+
+msgid "No codes were linked — they may already be taken or blocked."
+msgstr "No se ha vinculado ningún código: puede que ya estén asignados o bloqueados."

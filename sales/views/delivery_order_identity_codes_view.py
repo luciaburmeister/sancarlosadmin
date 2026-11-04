@@ -62,6 +62,7 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
             candidates = ItemIdentityCode.objects.filter(
                 item=selected_line_item.inventory_item,
                 delivery_order_item__isnull=True,
+                is_blocked=False,
             ).select_related("item")
             if search_term:
                 candidates = candidates.filter(
@@ -167,6 +168,7 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
             pk__in=code_ids,
             item=target_item.inventory_item,
             delivery_order_item__isnull=True,
+            is_blocked=False,
         )
         count = 0
         for code in codes:
@@ -181,7 +183,7 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
                 % {"count": count, "item": target_item},
             )
         else:
-            messages.warning(request, _("No codes were linked — they may already be taken."))
+            messages.warning(request, _("No codes were linked — they may already be taken or blocked."))
 
         return redirect(redirect_url)
 

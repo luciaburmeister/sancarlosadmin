@@ -1418,6 +1418,16 @@ class ItemIdentityCode(Timestampable):
         ),
     )
 
+    is_blocked = models.BooleanField(
+        _("Blocked"),
+        default=False,
+        help_text=_(
+            "A blocked unit cannot be linked to a delivery order: damaged or "
+            "defective goods a client sent back, say. Untick it once the unit "
+            "can be shipped again."
+        ),
+    )
+
     note = models.TextField(_("Note"), blank=True)
 
     class Meta:

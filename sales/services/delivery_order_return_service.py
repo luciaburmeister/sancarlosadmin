@@ -17,8 +17,10 @@ components back, anything else its own stock.
 
 Identity codes (serial numbers, lots) that came back are picked per return
 line from the codes linked to that line or its component lines. They stay
-linked while the return is a draft; receiving unlinks them, cancelling a
-received return links them back to the line they were shipped on.
+linked while the return is a draft; receiving unlinks them so they can ship
+again, except that a reason that does not restock also blocks them;
+cancelling a received return links them back to the line they were shipped
+on and lifts the blocks it set.
 """
 from collections import defaultdict
 from decimal import Decimal
@@ -158,7 +160,7 @@ class DeliveryOrderReturnService:
         for line in lines:
             cls._move_stock(ret, line, sign=1, user=user)
         for link in links:
-            cls._link_code(link.identity_code, None)
+            cls._link_code(link, None, block=not link.return_item.reason.restocks)
         return ret
 
     @classmethod
@@ -186,7 +188,7 @@ class DeliveryOrderReturnService:
             for line in ret.items.select_related("delivery_order_item__inventory_item__default_warehouse"):
                 cls._move_stock(ret, line, sign=-1, user=user)
             for link in links:
-                cls._link_code(link.identity_code, link.delivery_order_item)
+                cls._link_code(link, link.delivery_order_item, block=False)
         return ret
 
     @classmethod
@@ -260,7 +262,7 @@ class DeliveryOrderReturnService:
         links = list(
             DeliveryOrderReturnCode.objects
             .filter(return_item__delivery_order_return=ret)
-            .select_related("delivery_order_item")
+            .select_related("delivery_order_item", "return_item__reason")
             .order_by("pk")
         )
         codes = ItemIdentityCode.objects.select_for_update(of=("self",)).select_related(
@@ -271,13 +273,19 @@ class DeliveryOrderReturnService:
         return links
 
     @staticmethod
-    def _link_code(code, line):
-        """Link ``code`` to ``line``, or unlink it with ``None``; save()
-        keeps ``delivered_at`` in step."""
-        if code.delivery_order_item_id == (line.pk if line else None):
-            return
+    def _link_code(link, line, *, block):
+        """Link ``link``'s code to ``line``, or unlink it with ``None``
+        (save() keeps ``delivered_at`` in step). ``block=True`` blocks the
+        code; ``block=False`` lifts a block only if this return set it, so a
+        block put on by hand stays."""
+        code = link.identity_code
         code.delivery_order_item = line
-        code.save(update_fields=["delivery_order_item", "delivered_at", "updated_at"])
+        if block and not code.is_blocked:
+            code.is_blocked = link.blocked = True
+        elif not block and link.blocked:
+            code.is_blocked = link.blocked = False
+        code.save(update_fields=["delivery_order_item", "delivered_at", "is_blocked", "updated_at"])
+        link.save(update_fields=["blocked"])
 
     # ── Stock ───────────────────────────────────────────────────────────
 

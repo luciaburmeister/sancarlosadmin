@@ -304,10 +304,12 @@ class ItemIdentityCodeInline(_BaseItemIdentityCodeInline):
     def status_display(self, obj):
         if not obj or not obj.pk:
             return "—"
-        label, color = (
-            (_("In stock"), "#16a34a") if obj.is_received
-            else (_("Registered"), "#9ca3af")
-        )
+        if obj.is_blocked:
+            label, color = _("Blocked"), "#dc2626"
+        elif obj.is_received:
+            label, color = _("In stock"), "#16a34a"
+        else:
+            label, color = _("Registered"), "#9ca3af"
         return format_html(
             '<span style="display:inline-flex;align-items:center;gap:5px;'
             'white-space:nowrap;font-weight:600;color:{};">'
@@ -1273,9 +1275,11 @@ class ItemIdentityCodeAdmin(ModelAdmin):
         "received_at",
         "delivered_status",
         "delivered_at",
+        "is_blocked",
     )
     list_filter = (
         ["item", AutocompleteSelectFilter],
+        "is_blocked",
     )
     search_fields = (
         "code",
@@ -1297,6 +1301,7 @@ class ItemIdentityCodeAdmin(ModelAdmin):
             "fields": (
                 "item",
                 "code",
+                "is_blocked",
                 "note",
             ),
         }),

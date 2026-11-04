@@ -476,5 +476,5 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
 
 @admin.register(EmployeeType)
 class EmployeeTypeAdmin(ModelAdmin):
-    list_display = ("type", "company")
+    list_display = ("type", "requires_truck", "company")
     search_fields = ("type",)

@@ -22,6 +22,8 @@ from api.fleet.serializers import (
     CubaReservationRequestSerializer,
     CubaReservationResultSerializer,
 )
+from assets.services import truck_km
+from assets.services.truck_km import TruckKmError
 from api.fleet.utils import find_zone_within_radius, get_zone_coordinates, haversine_distance, find_zones_within_radius, confirm_zone_location
 from company.utils import get_current_employee
 
@@ -200,6 +202,11 @@ class AssetAssignView(APIView):
             ).order_by("scheduled_time", "route_order", "pk").first()
         if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
+        if truck_km.enforces_truck_check(request):
+            try:
+                truck_km.check_planning_truck(planning, employee)
+            except TruckKmError as error:
+                return JsonResponse(error.as_payload(), status=error.status)
 
         # Same visibility rules as the Home pending card — do not block on a
         # stuck cuba the UI would not show (e.g. legacy movement with no plan).
@@ -1059,7 +1066,26 @@ class AssetTransactionView(APIView):
         strategy_class = TRANSACTION_STRATEGY_MAP.get(transaction_type)
         if strategy_class is None:
             return JsonResponse({"error": "Unsupported transaction type."}, status=400)
+        truck_error = self._truck_check_error(request, raw.get("planning_id"), employee)
+        if truck_error is not None:
+            return truck_error
         return strategy_class(raw, asset, employee, user).execute()
+
+    @staticmethod
+    def _truck_check_error(request, planning_id, employee):
+        from assets.models import DRIVER_TASK_PLANNING_TYPES
+        if not planning_id or not truck_km.enforces_truck_check(request):
+            return None
+        planning = AssetPlanning.objects.select_related("transport_asset").filter(
+            id=planning_id, assigned_to=employee, planning_type__in=DRIVER_TASK_PLANNING_TYPES,
+        ).first()
+        if planning is None:
+            return None
+        try:
+            truck_km.check_planning_truck(planning, employee)
+        except TruckKmError as error:
+            return JsonResponse(error.as_payload(), status=error.status)
+        return None
 
 
 class DeliveryCheckView(APIView):

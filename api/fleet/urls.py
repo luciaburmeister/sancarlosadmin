@@ -4,7 +4,7 @@ from company.views.views import LocationRecordCreateView
 from assets.views import asset_transaction_imagen_view
 from .views.assets import DeliveryCheckView, MachineHoursListView, MachineCheckView, LaborerZonesView, LaborerHoursView, LaborerHoursStatusView
 from .views.attendance import MachineHoursHistorialView
-from .views import assets, attendance, zones, planning_drafts, employees
+from .views import assets, attendance, zones, planning_drafts, employees, truck_km
 
 urlpatterns = [
     path("assets/", assets.AssetsListView.as_view(), name="assets"),
@@ -25,6 +25,11 @@ urlpatterns = [
     path("attendance/clock-in/", attendance.AttendanceClockInView.as_view(), name="clock_in"),
     path("attendance/clock-out/", attendance.AttendanceClockOutView.as_view(), name="clock_out"),
     path("attendance/status/", attendance.AttendanceStatusView.as_view(), name="attendance_status"),
+    path("trucks/", truck_km.TrucksListView.as_view(), name="trucks"),
+    path("truck-km/current/", truck_km.TruckKmCurrentView.as_view(), name="truck_km_current"),
+    path("truck-km/start/", truck_km.TruckKmStartView.as_view(), name="truck_km_start"),
+    path("truck-km/end/", truck_km.TruckKmEndView.as_view(), name="truck_km_end"),
+    path("truck-km/switch/", truck_km.TruckKmSwitchView.as_view(), name="truck_km_switch"),
     path("location-records/", LocationRecordCreateView.as_view(), name="location-record-create"),
     path("zones/", zones.ZonesListView.as_view(), name="zones"),
     path("clients/", zones.ClientsListView.as_view(), name="clients"),

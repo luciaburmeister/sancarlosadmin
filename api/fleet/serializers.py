@@ -2,6 +2,7 @@ from rest_framework import serializers
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
 from assets.models import AssetTransaction, CubaTransactionKey, TransactionTypeChoices
 from assets.serializers import MachineAssetSerializer
+from assets.services import truck_km
 from api.fleet.utils import get_zone_coordinates
 
 
@@ -117,7 +118,32 @@ class PorteMachineSerializer(serializers.Serializer):
         return zone.name if zone else None
 
 
-class CubaPlanningSerializer(serializers.Serializer):
+class TruckCheckFieldsMixin(serializers.Serializer):
+    """truck_mismatch tells the app to send the driver to the truck change
+    screen before starting. Views pass context["truck_state"] =
+    (employee, open_truck_id) via truck_state_context()."""
+    transport_asset_id = serializers.IntegerField(allow_null=True)
+    truck_mismatch = serializers.SerializerMethodField()
+    required_truck = serializers.SerializerMethodField()
+
+    def get_truck_mismatch(self, planning):
+        state = self.context.get("truck_state")
+        if state is None:
+            return False
+        employee, open_truck_id = state
+        return truck_km.planning_truck_mismatch(planning, employee, open_truck_id)
+
+    def get_required_truck(self, planning):
+        return truck_km.truck_payload(planning.transport_asset)
+
+
+def truck_state_context(employee):
+    from assets.models import TruckKmSession
+    session = TruckKmSession.open_for(employee)
+    return {"truck_state": (employee, session.truck_id if session is not None else None)}
+
+
+class CubaPlanningSerializer(TruckCheckFieldsMixin):
     id = serializers.IntegerField()
     planning_type = serializers.CharField()
     asset_id = serializers.SerializerMethodField()
@@ -209,7 +235,7 @@ class CubaPlanningSerializer(serializers.Serializer):
         return ChecklistStepSerializer(planning.cuba_checklist(), many=True).data
 
 
-class PortePlanningSerializer(serializers.Serializer):
+class PortePlanningSerializer(TruckCheckFieldsMixin):
     id = serializers.IntegerField()
     planning_type = serializers.CharField()
     asset_id = serializers.SerializerMethodField()

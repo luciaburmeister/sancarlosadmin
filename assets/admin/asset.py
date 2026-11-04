@@ -6,7 +6,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
-from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType, MachinePermission, AssetFaultType, AssetFault
+from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType, MachinePermission, AssetFaultType, AssetFault, AssetTypeCategory, TruckKmSession
 from assets.forms import AssetForm, AssetAddForm, build_asset_data_form_fields, DATA_FIELD_PREFIX
 from assets.resources import AssetResource
 from unfold.widgets import UnfoldAdminSelectWidget
@@ -153,6 +153,27 @@ class MachinePermissionInline(TabularInline):
         super().save_model(request, obj, form, change)
 
 
+class TruckKmSessionInline(TabularInline):
+    model = TruckKmSession
+    extra = 0
+    tab = True
+    verbose_name = _("Km record")
+    verbose_name_plural = _("Kilometers")
+    fields = ("driver", "start_at", "start_km", "end_at", "end_km", "km_driven", "end_reason", "created_at")
+    readonly_fields = fields
+    ordering = ("-start_at",)
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("driver")
+
+
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportExportModelAdmin):
     resource_classes = [AssetResource]
@@ -237,7 +258,12 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
     def get_inlines(self, request, obj=None):
         # The add form is intentionally minimal: identifiers and type-specific
         # fields are filled on the change form, where the type is known.
-        return [] if obj is None else super().get_inlines(request, obj)
+        if obj is None:
+            return []
+        inlines = super().get_inlines(request, obj)
+        if obj.asset_type and obj.asset_type.category == AssetTypeCategory.TRUCK:
+            inlines = [*inlines, TruckKmSessionInline]
+        return inlines
 
     def get_urls(self):
         from assets.views.asset_wizard import AssetCreateWizardView

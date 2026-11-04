@@ -433,6 +433,11 @@ if TESTING:
 
 SHOPIFY_APP_URL = os.getenv("SHOPIFY_APP_URL", BACKEND_URL)
 
+# First driver-app versionCode with the truck change screen; requests from
+# this version on are blocked from starting a planning in the wrong truck.
+# 0 disables the check.
+TRUCK_KM_MIN_APP_VERSION = int(os.getenv("TRUCK_KM_MIN_APP_VERSION", "0"))
+
 
 
 # Default primary key field type

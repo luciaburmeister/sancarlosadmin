@@ -2,6 +2,9 @@ TICKET_STAGE_LOOKUPS_KEY = "production:ticket_filters:stages"
 TICKET_STAGE_STATUS_LOOKUPS_KEY = "production:ticket_filters:stage_statuses"
 LOOKUPS_CACHE_TIMEOUT = 60  #seconds 
 
+DRAWING_IMAGE_EXTENSIONS = ("png", "jpg", "jpeg")
+DRAWING_FILE_EXTENSIONS = ("pdf", *DRAWING_IMAGE_EXTENSIONS)
+
 class ProductionActions:
     START_ACTIVITY = "start_activity"
     FINISH_ACTIVITY = "finish_activity"

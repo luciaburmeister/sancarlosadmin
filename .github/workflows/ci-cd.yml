@@ -161,6 +161,7 @@ jobs:
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
           echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env
           echo "ENCRYPTION_KEYS=${{ secrets.ENCRYPTION_KEYS }}" >> .env
+          echo "GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }}" >> .env
 
           echo "DEBUG=False" >> .env
 

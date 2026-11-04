@@ -403,35 +403,6 @@
     </form>
   </div>
 
-  <!-- ═══════════════════════════════════════════════════════════════ -->
-  <!-- BANK BALANCES                                                   -->
-  <!-- ═══════════════════════════════════════════════════════════════ -->
-  {% if bank_balances %}
-  <div class="od-section">
-    <div class="od-section-title"><span class="icon">🏦</span> {% trans "Bank Account Balances" %}</div>
-    <div class="od-kpi-grid od-kpi-grid--{{ bank_balances|length|default:"3" }}">
-      {% for acct in bank_balances %}
-      <div class="od-kpi od-kpi--blue">
-        <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{{ acct.bank_name }}</div>
-        <div class="od-kpi-value">
-          {% if acct.balance %}€{{ acct.balance.amount|floatformat:2 }}{% else %}—{% endif %}
-        </div>
-        <div class="od-kpi-sub">
-          {{ acct.iban }}
-          {% if acct.updated_at %}
-          · {% trans "Updated" %} {{ acct.updated_at|timesince }} {% trans "ago" %}
-          {% else %}
-          · {% trans "Pending sync" %}
-          {% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-
-  <hr class="od-divider">
-  {% endif %}
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ECONOMIC ANALYSIS (WITHOUT TAXES)                               -->

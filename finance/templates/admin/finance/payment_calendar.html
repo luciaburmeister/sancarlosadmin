@@ -19,7 +19,10 @@
     --pf-rose-500: #f43f5e;
     --pf-rose-50: #fff1f2;
     --pf-rose-600: #e11d48;
+    --pf-blue-500: #568c8a;
+    --pf-blue-50: #e9f1f0;
     --pf-shadow: 0 1px 3px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
+    --pf-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .07), 0 4px 6px -4px rgba(0, 0, 0, .05);
   }
 
   .dark {
@@ -29,7 +32,9 @@
     --pf-text: #f1f5f9;
     --pf-text-sub: #94a3b8;
     --pf-rose-50: rgba(244, 63, 94, .12);
+    --pf-blue-50: rgba(86, 140, 138, .16);
     --pf-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    --pf-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .4);
   }
 
   .pc-wrap {
@@ -65,6 +70,25 @@
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 14px;
     margin-bottom: 16px;
+  }
+
+  .pc-filters-grid input[type="text"].vDateField,
+  .pc-filters-grid input[type="date"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid var(--pf-border);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: .85rem;
+    color: var(--pf-text);
+    background: var(--pf-card);
+  }
+
+  .pc-filters-grid input[type="text"].vDateField:focus,
+  .pc-filters-grid input[type="date"]:focus {
+    outline: none;
+    border-color: var(--pf-teal-500);
   }
 
   .pc-filters-footer {
@@ -111,6 +135,25 @@
     border-radius: 14px;
     padding: 18px 20px;
     box-shadow: var(--pf-shadow);
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s, box-shadow .2s;
+  }
+
+  .pf-kpi:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--pf-shadow-lg);
+  }
+
+  .pf-kpi-accent {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 80px;
+    height: 80px;
+    border-radius: 0 14px 0 80px;
+    opacity: .08;
+    background: var(--pf-blue-500);
   }
 
   .pf-kpi-label {
@@ -123,8 +166,24 @@
   }
 
   .pf-kpi-value { font-size: 1.45rem; font-weight: 800; letter-spacing: -.01em; }
+  .pc-kpi--teal .pf-kpi-accent { background: var(--pf-teal-500); }
   .pc-kpi--teal .pf-kpi-value { color: var(--pf-teal-600); }
+  .pc-kpi--rose .pf-kpi-accent { background: var(--pf-rose-500); }
   .pc-kpi--rose .pf-kpi-value { color: var(--pf-rose-600); }
+  .pc-kpi--blue .pf-kpi-accent { background: var(--pf-blue-500); }
+  .pc-kpi--blue .pf-kpi-value { color: var(--pf-blue-500); }
+
+  .pc-divider { border: none; border-top: 1px solid var(--pf-border); margin: 24px 0; }
+
+  .pc-section-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    letter-spacing: -.01em;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
   .pc-table-card {
     background: var(--pf-card);
@@ -249,6 +308,37 @@
     </form>
   </div>
 
+  {% if bank_balances.accounts %}
+  <div class="pc-section-title">🏦 {% trans "Bank Account Balances" %}</div>
+  <div class="pc-kpi-grid">
+    <div class="pf-kpi {% if bank_balances.total < 0 %}pc-kpi--rose{% else %}pc-kpi--teal{% endif %}">
+      <div class="pf-kpi-accent"></div>
+      <div class="pf-kpi-label">{% trans "Total Balance (Active Accounts)" %}</div>
+      <div class="pf-kpi-value">
+        {% if bank_balances.total is not None %}€ {{ bank_balances.total|floatformat:2 }}{% else %}—{% endif %}
+      </div>
+    </div>
+    {% for acct in bank_balances.accounts %}
+    <div class="pf-kpi pc-kpi--blue">
+      <div class="pf-kpi-accent"></div>
+      <div class="pf-kpi-label">{{ acct.bank_name }}</div>
+      <div class="pf-kpi-value">
+        {% if acct.balance %}€ {{ acct.balance.amount|floatformat:2 }}{% else %}—{% endif %}
+      </div>
+      <div style="font-size:.72rem;color:var(--pf-text-sub);margin-top:4px;">
+        {{ acct.iban }}
+        {% if acct.updated_at %}
+        · {% trans "Updated" %} {{ acct.updated_at|timesince }} {% trans "ago" %}
+        {% else %}
+        · {% trans "Pending sync" %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <hr class="pc-divider">
+  {% endif %}
+
   {% if range_was_truncated %}
   <p style="font-size:.82rem;color:var(--pf-text-sub);margin-bottom:16px;">
     {% blocktrans %}The maximum visible range is {{ max_window_days }} days — it was adjusted automatically.{% endblocktrans %}
@@ -257,8 +347,10 @@
 
   {% if matrix %}
 
+  <div class="pc-section-title">📊 {% trans "Period Summary" %}</div>
   <div class="pc-kpi-grid">
     <div class="pf-kpi {% if kpis.opening_balance < 0 %}pc-kpi--rose{% else %}pc-kpi--teal{% endif %}">
+      <div class="pf-kpi-accent"></div>
       <div class="pf-kpi-label">{% trans "Current Balance" %}</div>
       <div class="pf-kpi-value">€ {{ kpis.opening_balance|floatformat:2 }}</div>
       {% if balance_updated_at %}
@@ -268,14 +360,17 @@
       {% endif %}
     </div>
     <div class="pf-kpi {% if kpis.closing_balance < 0 %}pc-kpi--rose{% else %}pc-kpi--teal{% endif %}">
+      <div class="pf-kpi-accent"></div>
       <div class="pf-kpi-label">{% trans "Projected Balance" %}</div>
       <div class="pf-kpi-value">€ {{ kpis.closing_balance|floatformat:2 }}</div>
     </div>
     <div class="pf-kpi pc-kpi--teal">
+      <div class="pf-kpi-accent"></div>
       <div class="pf-kpi-label">{% trans "Total Inflows" %}</div>
       <div class="pf-kpi-value">€ {{ kpis.total_entradas|floatformat:2 }}</div>
     </div>
     <div class="pf-kpi pc-kpi--rose">
+      <div class="pf-kpi-accent"></div>
       <div class="pf-kpi-label">{% trans "Total Outflows" %}</div>
       <div class="pf-kpi-value">€ {{ kpis.total_salidas|floatformat:2 }}</div>
     </div>

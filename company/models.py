@@ -1161,6 +1161,11 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         help_text=_("When the consent status was last verified against Arcopay."),
     )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+    active = models.BooleanField(
+        default=True,
+        verbose_name=_("Active"),
+        help_text=_("Included in cashflow balances and the bank summary email."),
+    )
     sync_from_date = models.DateField(
         null=True,
         blank=True,

@@ -141,14 +141,27 @@ class ScheduleViewTest(StaffUserMixin, TestCase):
             resources=[self.cnc],
         )
 
+        attended = None
         for multiple_machines in (False, True):
             if multiple_machines:
-                make_machine(self.company, name="CNC-02")
+                attended = resource_for(make_machine(self.company, name="CNC-02"))
             with self.subTest(multiple_machines=multiple_machines):
                 response = self.client.get(url, params)
                 self.assertContains(response, "Without operator 1", count=1)
                 self.assertContains(response, "Without operator 2", count=1)
                 self.assertContains(response, 'data-row-kind="unattended"', count=2)
+                # Every row of the unattended machine assigns it without operators.
+                only_cnc = f'data-machine-only-id="{self.cnc.pk}"'
+                self.assertContains(response, f'{only_cnc} data-row-kind="unattended"', count=2)
+                self.assertContains(response, f'{only_cnc} data-row-kind="machine"')
+                self.assertNotContains(
+                    response, f'data-row-resource-id="{self.cnc.pk}" data-row-kind="machine"'
+                )
+                if attended is not None:
+                    self.assertContains(
+                        response, f'data-row-resource-id="{attended.pk}" data-row-kind="machine"'
+                    )
+                    self.assertNotContains(response, f'data-machine-only-id="{attended.pk}"')
 
         with translation.override("es"):
             response = self.client.get(reverse(SCHEDULE_URL), params)
@@ -575,6 +588,30 @@ class ScheduleActionViewTest(StaffUserMixin, TestCase):
         self.assertEqual(len(body["sessions"]), 1)
         self.assertIn("left", body["sessions"][0])
         self.assertIn("width", body["sessions"][0])
+
+    def test_machine_only_move_unassigns_the_operator(self):
+        user = self.staff_user(perms=["view_plannedproductionsession", "change_plannedproductionsession"])
+        self.client.force_login(user)
+        session = make_session(
+            self.ticket, start=self.at(9), end=self.at(11),
+            resources=[self.cnc, self.operator],
+        )
+
+        response = self.post(
+            {
+                "action": "move_session",
+                "session_id": session.pk,
+                "start": self.at(9).isoformat(),
+                "resource_ids": [self.cnc.pk],
+                **self.window_bounds(),
+            }
+        )
+
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(
+            list(session.resources.values_list("resource_id", flat=True)),
+            [self.cnc.pk],
+        )
 
     def test_resize_session_returns_updated_geometry(self):
         user = self.staff_user(

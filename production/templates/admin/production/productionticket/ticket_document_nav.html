@@ -1,0 +1,45 @@
+{% load i18n %}
+<style>
+    @media print {
+        .no-print {
+            display: none !important;
+        }
+    }
+    .floating-nav {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        display: flex;
+        gap: 12px;
+        z-index: 9999;
+    }
+    .floating-nav-btn {
+        background-color: #2563eb;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 9999px;
+        text-decoration: none;
+        font-weight: 600;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 24px 10px -5px rgb(0 0 0 / 0.06);
+        transition: transform 0.2s;
+    }
+    .floating-nav-btn:hover {
+        transform: scale(1.05);
+        background-color: #1d4ed8;
+    }
+</style>
+<div class="floating-nav no-print">
+    {% if show_drawings_link and ticket.drawings_file %}
+        <a href="{% url 'admin:production_productionticket_drawings' ticket.pk %}" class="floating-nav-btn">
+            {% translate "Drawings" %}
+        </a>
+    {% endif %}
+    {% if show_work_order_link %}
+        <a href="{% url 'admin:production_productionticket_order_html' ticket.pk %}" class="floating-nav-btn">
+            {% translate "Work Order" %}
+        </a>
+    {% endif %}
+    <a href="{% url 'admin:production_productionticket_stages' ticket.pk %}" class="floating-nav-btn">
+        {% translate "Return to Stages" %}
+    </a>
+</div>

@@ -80,7 +80,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         cached = cache.get(cache_key)
 
         if cached:
-            invoicing_data, production_data, tax_data, payment_data, purchasing_without_tax_data, collections_and_payments_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data = cached
+            invoicing_data, production_data, tax_data, payment_data, purchasing_without_tax_data, collections_and_payments_data, cash_data, ar_aging_data, ap_aging_data, loan_data = cached
         else:
             invoicing_data = self._compute_invoicing(selected_company, date_from, date_to)
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
@@ -91,9 +91,8 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             cash_data = self._compute_tax_periods(selected_company, date_from, date_to)
             ar_aging_data = self._compute_ar_aging(selected_company)
             ap_aging_data = self._compute_ap_aging(selected_company)
-            bank_balances_data = self._compute_bank_balances(selected_company)
             loan_data = self._compute_loan_data(selected_company)
-            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, purchasing_without_tax_data, collections_and_payments_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data), _CACHE_TTL)
+            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, purchasing_without_tax_data, collections_and_payments_data, cash_data, ar_aging_data, ap_aging_data, loan_data), _CACHE_TTL)
 
         sales_vs_purchases_data = self._compute_sales_vs_purchases(invoicing_data, purchasing_without_tax_data)
         collections_vs_payments_data = self._compute_collections_vs_payments(collections_and_payments_data)
@@ -118,7 +117,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "sales_vs_collections": sales_vs_collections_data,
             "purchases_vs_payments": purchases_vs_payments_data,
             "tax_periods": cash_data,
-            "bank_balances": bank_balances_data,
             "loans": loan_data,
             "today": today,
         })
@@ -978,28 +976,3 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "upcoming_180_count": upcoming_180_qs["count"],
             "active_loans": active_loans_list,
         }
-
-    # ── Bank balance helpers ───────────────────────────────────────
-
-    @staticmethod
-    def _compute_bank_balances(company):
-        """Return linked bank accounts with their last known balance."""
-        if not company:
-            return []
-
-        from company.models import BankAccount
-
-        accounts = BankAccount.objects.filter(
-            company=company,
-        ).exclude(nuek_token="").order_by("bank_name")
-
-        return [
-            {
-                "bank_name": a.bank_name,
-                "iban": a.iban or a.nuek_product_id or "—",
-                "balance": a.last_known_balance,
-                "currency": a.last_known_balance_currency or "EUR",
-                "updated_at": a.last_balance_updated_at,
-            }
-            for a in accounts
-        ]

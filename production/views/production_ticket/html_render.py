@@ -1,86 +1,61 @@
-from django.shortcuts import get_object_or_404, reverse
-from django.views import View
-from django.utils.translation import gettext as _
-from unfold.views import UnfoldModelAdminViewMixin
-from django.http import HttpResponse
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest, HttpResponse
+from django.shortcuts import get_object_or_404
+from django.template.loader import render_to_string
 from django.utils.decorators import method_decorator
+from django.utils.translation import gettext as _
+from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
-from production.models import ProductionTicket
+from unfold.views import UnfoldModelAdminViewMixin
+
+
 @method_decorator(xframe_options_exempt, name='dispatch')
-class ProductionTicketHtmlRender(UnfoldModelAdminViewMixin, View):
+class ProductionTicketDocumentView(UnfoldModelAdminViewMixin, View):
+    """A standalone page showing one of a ticket's documents with shop-floor navigation."""
+
     permission_required = ("production.view_productionticket",)
-    def get(self, request: HttpRequest, ticket_id: int):
-        ticket = get_object_or_404(ProductionTicket, pk=ticket_id)
-        
-        stages_url = reverse("admin:production_productionticket_stages", args=[ticket_id])
-        button_label = _("Return to Stages")
-        
-        # Style for the floating button
-        style_html = f"""
-        <style>
-            @media print {{
-                .no-print {{
-                    display: none !important;
-                }}
-            }}
-            .floating-nav-btn {{
-                position: fixed;
-                bottom: 30px;
-                right: 30px;
-                background-color: #2563eb;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 9999px;
-                text-decoration: none;
-                font-weight: 600;
-                box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 24px 10px -5px rgb(0 0 0 / 0.06);
-                z-index: 9999;
-                transition: transform 0.2s;
-            }}
-            .floating-nav-btn:hover {{
-                transform: scale(1.05);
-                background-color: #1d4ed8;
-            }}
-        </style>
-        <a href="{stages_url}" class="floating-nav-btn no-print">
-            {button_label}
-        </a>
-        """
+    document_template_name = "admin/production/productionticket/ticket_document.html"
+    nav_template_name = "admin/production/productionticket/ticket_document_nav.html"
 
+    def get_ticket(self):
+        return get_object_or_404(self.model_admin.get_queryset(self.request), pk=self.kwargs["ticket_id"])
+
+    def get_nav_context(self, ticket):
+        return {"ticket": ticket}
+
+    def render_document(self, ticket, file, *, title, is_image=False):
+        context = {
+            **self.get_nav_context(ticket),
+            "title": title,
+            "file_url": file.url,
+            "is_image": is_image,
+        }
+        return HttpResponse(render_to_string(self.document_template_name, context, request=self.request))
+
+
+class ProductionTicketHtmlRender(ProductionTicketDocumentView):
+    """The work order: the supplier PDF when present, otherwise the rendered production order."""
+
+    def get_nav_context(self, ticket):
+        return {**super().get_nav_context(ticket), "show_drawings_link": True}
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        ticket = self.get_ticket()
         if ticket.work_order_pdf:
-            pdf_url = ticket.work_order_pdf.url
-            full_html = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>{_("Work Order")} #{ticket.pk}</title>
-                {style_html}
-                <style>
-                    body, html {{
-                        margin: 0;
-                        padding: 0;
-                        height: 100%;
-                        overflow: hidden;
-                    }}
-                    iframe {{
-                        width: 100%;
-                        height: 100%;
-                        border: none;
-                    }}
-                </style>
-            </head>
-            <body>
-                <iframe src="{pdf_url}"></iframe>
-            </body>
-            </html>
-            """
-            return HttpResponse(full_html, content_type="text/html; charset=utf-8")
+            return self.render_document(ticket, ticket.work_order_pdf, title=_("Work Order"))
 
-        # Inject floating button and no-print styles
-        full_html = (ticket.order_html or "") + style_html
-        
-        return HttpResponse(
-            full_html,
-            content_type="text/html; charset=utf-8"
+        # order_html is a complete rendered document; the navigation is appended after it.
+        nav_html = render_to_string(self.nav_template_name, self.get_nav_context(ticket), request=request)
+        return HttpResponse((ticket.order_html or "") + nav_html)
+
+
+class ProductionTicketDrawingsView(ProductionTicketDocumentView):
+    def get_nav_context(self, ticket):
+        return {**super().get_nav_context(ticket), "show_work_order_link": True}
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        ticket = self.get_ticket()
+        if not ticket.drawings_file:
+            raise Http404
+        return self.render_document(
+            ticket, ticket.drawings_file, title=_("Drawings"), is_image=ticket.drawings_is_image,
         )

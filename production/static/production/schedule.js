@@ -350,10 +350,9 @@ function productionSchedule() {
           sessionId: block.dataset.sessionId,
           block,
           ticketId: block.dataset.ticketId || null,
-          resourceIds: (block.dataset.resourceIds || "")
-            .split(",")
-            .filter(Boolean)
-            .map(Number),
+          resourceIds: this._idList(block.dataset.resourceIds),
+          employeeIds: this._idList(block.dataset.employeeIds),
+          originRow: row,
           grabOffsetPx: event.clientX - rect.left,
           widthPct: parseFloat(block.style.width) || 0,
           stage: block.dataset.stage || "",
@@ -650,14 +649,22 @@ function productionSchedule() {
         return;
       }
 
+      if (row.dataset.machineOnlyId) {
+        // An unattended machine's rows assign that machine with no operator;
+        // sliding a block along its own row stays a time change.
+        this._moveDroppedSession(
+          dragged, track, start,
+          row === dragged.originRow
+            ? null
+            : this._machineOnlyResourceIds(dragged, Number(row.dataset.machineOnlyId))
+        );
+        return;
+      }
+
       if (row.dataset.rowResourceId === undefined) {
         // The stage header and the "no operator yet" row stand for no resource
         // of their own, so landing on one can only ever be a time change.
-        this._previewDroppedSession(dragged, track, start);
-        this._post(
-          "move_session",
-          { session_id: dragged.sessionId, start: start.toISOString(), resource_ids: null }
-        );
+        this._moveDroppedSession(dragged, track, start, null);
         return;
       }
 
@@ -694,6 +701,11 @@ function productionSchedule() {
         }
       }
 
+      this._moveDroppedSession(dragged, track, start, resourceIds);
+    },
+
+    // resourceIds null keeps the session's current resources.
+    _moveDroppedSession(dragged, track, start, resourceIds) {
       this._previewDroppedSession(dragged, track, start);
       this._post(
         "move_session",
@@ -703,6 +715,22 @@ function productionSchedule() {
           resource_ids: resourceIds,
         }
       );
+    },
+
+    // Drops every operator and swaps the origin machine for *machineId*.
+    _machineOnlyResourceIds(dragged, machineId) {
+      const originMachineId = dragged.originKind === "machine"
+        ? dragged.originResourceId
+        : dragged.originParentMachineId;
+      const resourceIds = dragged.resourceIds.filter(
+        (id) => !dragged.employeeIds.includes(id) && id !== originMachineId
+      );
+      resourceIds.push(machineId);
+      return resourceIds;
+    },
+
+    _idList(value) {
+      return (value || "").split(",").filter(Boolean).map(Number);
     },
 
     _previewDroppedSession(dragged, track, start) {

@@ -57,7 +57,7 @@ from production.views.production_ticket_stages_view import ProductionTicketStage
 from production.views.production_control_view import ProductionControlView
 from production.views.production_hours_dashboard_view import ProductionHoursDashboardView
 from production.views.assembly_line_view import AssemblyLineActionView
-from production.views import ProductionTicketHtmlRender
+from production.views import ProductionTicketDrawingsView, ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
 
 from production.models import Employee, Machine
@@ -225,6 +225,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "source_object",
                     "project_file",
                     "work_order_pdf",
+                    "drawings_file",
                     "context",
                 )
             },
@@ -352,6 +353,13 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     ProductionTicketHtmlRender.as_view(model_admin=self)
                 ),
                 name="production_productionticket_order_html",
+            ),
+            path(
+                "<int:ticket_id>/drawings/",
+                self.admin_site.admin_view(
+                    ProductionTicketDrawingsView.as_view(model_admin=self)
+                ),
+                name="production_productionticket_drawings",
             ),
             path(
                 "dashboard/hours/",

@@ -1,3 +1,4 @@
+import os
 import unicodedata
 from datetime import timedelta
 
@@ -13,8 +14,10 @@ from company.models import Employee,Machine,CompanyOwnedModel
 from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 from materials.models import Component
 from django.conf import settings
+from production.constants import DRAWING_IMAGE_EXTENSIONS, DRAWING_FILE_EXTENSIONS
 
 
 class ProductionTicketStatus(models.TextChoices):
@@ -96,7 +99,16 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         upload_to="production/work_orders/",
         null=True,
         blank=True,
-        verbose_name=_("Work Order PDF")
+        verbose_name=_("Work Order PDF"),
+        help_text=_("Supplier work order. Replaces the generated work order when present."),
+    )
+    drawings_file = models.FileField(
+        upload_to="production/drawings/",
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=DRAWING_FILE_EXTENSIONS)],
+        verbose_name=_("Drawings"),
+        help_text=_("Drawings shown alongside the work order."),
     )
     project_file = models.ForeignKey(
         "management.ProjectFile",
@@ -139,6 +151,11 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return str(self.pk)
+
+    @property
+    def drawings_is_image(self):
+        extension = os.path.splitext(self.drawings_file.name or "")[1].lstrip(".").lower()
+        return extension in DRAWING_IMAGE_EXTENSIONS
 
     class Meta:
         indexes = [

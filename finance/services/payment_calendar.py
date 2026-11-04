@@ -454,7 +454,6 @@ def build_payment_calendar(company: Company, bank_accounts, date_from: datetime.
         + _purchase_invoice_entries(company, date_from, date_to)
         + _sales_invoice_entries(company, date_from, date_to)
         + _proforma_entries(company, date_from, date_to)
-        + _planned_tax_payment_entries(company, date_from, date_to)
         + _promissory_note_entries(company, date_from, date_to)
         + _tax_installment_entries(company, date_from, date_to)
         + FixedCostCalendarSource(company, date_from, date_to).entries()

@@ -17,6 +17,20 @@ def get_related_movement(transaction):
     return None
 
 
+def resolve_receipt_matricula(transaction, data):
+    """Truck plate for a RECEIPT (verteo) transaction's `data` -- it never
+    records its own plate, so fall back to the earlier MOVEMENT it was filed
+    against, then to its own plan's transport truck."""
+    if data.get("matricula"):
+        return data["matricula"]
+    movement = get_related_movement(transaction)
+    if movement and (movement.data or {}).get("matricula"):
+        return (movement.data or {}).get("matricula")
+    if transaction.planning_id:
+        return transaction.planning.transport_plate()
+    return ""
+
+
 def build_asset_transaction_context(transaction):
     """
     Pricing/applicability context builder for AssetTransaction, registered with

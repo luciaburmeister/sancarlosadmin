@@ -9,7 +9,13 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from assets.models import AssetTransaction, AssetTransactionPause, AssetTransactionReceipt
+from assets.models import (
+    AssetTransaction,
+    AssetTransactionPause,
+    AssetTransactionReceipt,
+    TransactionTypeChoices,
+)
+from assets.services.movement_context import resolve_receipt_matricula
 from configurator.models import (
     ConfigurationExportTemplate,
     ExportTemplateKind,
@@ -156,6 +162,10 @@ def _render_document_pdf(
         **(transaction.data or {}),
         "reference_number": transaction.reference_number or (transaction.data or {}).get("reference_number", ""),
     }
+    if transaction.transaction_type == TransactionTypeChoices.RECEIPT:
+        matricula = resolve_receipt_matricula(transaction, data)
+        if matricula:
+            data["matricula"] = matricula
     if data_override:
         data.update(data_override)
     extra_context = {
@@ -202,6 +212,7 @@ def generate_document(transaction_id: int, force: bool = False) -> bool:
         "asset", "asset__asset_type", "asset__client",
         "company", "project_file", "project_file__client",
         "from_zone", "to_zone", "performed_by",
+        "planning", "planning__transport_asset",
     ).get(pk=transaction_id)
     generated_at = transaction.document_generated_at
     if not force and transaction.document_file and generated_at and generated_at >= transaction.updated_at:
@@ -228,6 +239,7 @@ def generate_receipt_document(receipt_id: int, force: bool = False) -> bool:
         "transaction__asset", "transaction__asset__asset_type", "transaction__asset__client",
         "transaction__company", "transaction__project_file", "transaction__project_file__client",
         "transaction__from_zone", "transaction__to_zone", "transaction__performed_by",
+        "transaction__planning", "transaction__planning__transport_asset",
     ).get(pk=receipt_id)
     generated_at = receipt.document_generated_at
     if not force and receipt.document_file and generated_at and generated_at >= receipt.updated_at:

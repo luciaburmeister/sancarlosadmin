@@ -7,7 +7,15 @@ from django.urls import reverse
 from django.utils import timezone
 
 from assets.documents import generate_document
-from assets.models import AssetTransaction, TransactionTypeChoices
+from assets.models import (
+    Asset,
+    AssetIdentifier,
+    AssetIdentifierLabel,
+    AssetPlanning,
+    AssetTransaction,
+    AssetType,
+    TransactionTypeChoices,
+)
 from company.models import Company
 from configurator.models import (
     ConfigurationExportTemplate,
@@ -197,6 +205,44 @@ class AssetTransactionDocumentTests(TestCase):
         self.assertEqual(
             self.client.get(reverse("asset_transaction_document_status", args=["missing-token"])).status_code, 404,
         )
+
+
+@override_settings(BACKEND_URL="https://erp.example.com")
+class AssetTransactionReceiptDocumentMatriculaTests(TestCase):
+    """The printed/emailed albarán for a RECEIPT (verteo) transaction: it
+    never records the truck plate itself, so the DOCUMENT render must fall
+    back to the plan's own transport truck when there's no related MOVEMENT
+    to inherit it from either -- this used to be silently blank."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = Company.objects.create(name="Taller Co")
+        cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
+        cls.truck = Asset.objects.create(company=cls.company, asset_type=cls.asset_type, name="Truck-001")
+        AssetIdentifier.objects.create(asset=cls.truck, label=AssetIdentifierLabel.PLATE, value="0709CBB")
+        cls.planning = AssetPlanning.objects.create(
+            company=cls.company, transport_asset=cls.truck, scheduled_date=timezone.localdate(),
+        )
+        cls.transaction = AssetTransaction.objects.create(
+            company=cls.company,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            date=timezone.now(),
+            planning=cls.planning,
+            data={"nro_albaran": "01083485"},
+        )
+        cls.template = ConfigurationExportTemplate.objects.create(
+            company=cls.company,
+            kind=ExportTemplateKind.ASSET_TRANSACTION,
+            name="Albarán",
+            html="<p>Plate: {{ data.matricula }}</p>",
+        )
+
+    @patch("assets.documents.PDFService.html_to_pdf", return_value=b"%PDF-fake")
+    def test_receipt_document_prints_the_plans_plate(self, html_to_pdf):
+        generate_document(self.transaction.pk)
+
+        rendered_html = html_to_pdf.call_args.args[0]
+        self.assertIn("Plate: 0709CBB", rendered_html)
 
 
 class AssetTransactionDocumentAdminTests(TestCase):

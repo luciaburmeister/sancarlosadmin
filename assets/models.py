@@ -2765,3 +2765,76 @@ class AssetFault(CompanyOwnedModel, Timestampable):
         asset = self.asset
         super().delete(*args, **kwargs)
         asset.recalculate_operational_status()
+
+class TruckKmEndReason(models.TextChoices):
+    CLOCK_OUT = "clock_out", _("Clock-out")
+    TRUCK_CHANGE = "truck_change", _("Truck change")
+    TAKEN_OVER = "taken_over", _("Taken over by another driver")
+    ADMIN_CLOSED = "admin_closed", _("Closed by admin")
+
+
+class TruckKmSession(CompanyOwnedModel, Timestampable):
+    """A driver's stint in one truck, from the km read when they got in to
+    the km read when they left. Rows with no end_at are the trucks drivers
+    currently have."""
+    truck = models.ForeignKey(
+        Asset, on_delete=models.CASCADE, related_name="km_sessions",
+        limit_choices_to={"asset_type__category": AssetTypeCategory.TRUCK}, verbose_name=_("Truck"),
+    )
+    driver = models.ForeignKey(
+        "company.Employee", on_delete=models.CASCADE, related_name="truck_km_sessions", verbose_name=_("Driver"),
+    )
+    attendance = models.ForeignKey(
+        "company.WorkAttendance", on_delete=models.SET_NULL, null=True, blank=True, related_name="truck_km_sessions",
+        verbose_name=_("Attendance"),
+    )
+    planning = models.ForeignKey(
+        AssetPlanning, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name=_("Planning"), help_text=_("The planning that required this truck, when opened by a truck change."),
+    )
+    start_km = models.PositiveIntegerField(verbose_name=_("Start km"))
+    start_at = models.DateTimeField(verbose_name=_("Start"))
+    end_km = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("End km"))
+    end_at = models.DateTimeField(null=True, blank=True, verbose_name=_("End"))
+    end_reason = models.CharField(
+        max_length=20, choices=TruckKmEndReason.choices, blank=True, verbose_name=_("End reason"),
+    )
+
+    class Meta:
+        verbose_name = _("Truck km record")
+        verbose_name_plural = _("Truck km records")
+        ordering = ["-start_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["driver"], condition=Q(end_at__isnull=True), name="one_open_truck_session_per_driver",
+            ),
+            models.UniqueConstraint(
+                fields=["truck"], condition=Q(end_at__isnull=True), name="one_open_truck_session_per_truck",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.truck} — {self.driver} ({self.start_km}–{self.end_km if self.end_km is not None else '…'} km)"
+
+    @property
+    def km_driven(self):
+        if self.end_km is None:
+            return None
+        return self.end_km - self.start_km
+
+    @classmethod
+    def open_for(cls, driver):
+        return cls.objects.select_related("truck").filter(driver=driver, end_at__isnull=True).first()
+
+    @classmethod
+    def last_km(cls, truck):
+        last = cls.objects.filter(truck=truck).order_by("-start_at", "-pk").first()
+        if last is None:
+            return None
+        return last.end_km if last.end_km is not None else last.start_km
+
+    def close(self, km, reason):
+        self.end_km = km
+        self.end_at = timezone.now()
+        self.end_reason = reason
+        self.save(update_fields=["end_km", "end_at", "end_reason", "updated_at"])

@@ -23353,3 +23353,54 @@ msgstr "Bloqueado por esta devolución"
 
 msgid "No codes were linked — they may already be taken or blocked."
 msgstr "No se ha vinculado ningún código: puede que ya estén asignados o bloqueados."
+
+msgid "Attendance"
+msgstr "Fichaje"
+
+msgid "Clock-out"
+msgstr "Fichaje de salida"
+
+msgid "Closed by admin"
+msgstr "Cerrado por un administrador"
+
+msgid "End km"
+msgstr "Km final"
+
+msgid "End reason"
+msgstr "Motivo de cierre"
+
+msgid "Kilometers"
+msgstr "Kilómetros"
+
+msgid "Km record"
+msgstr "Registro de km"
+
+msgid "Requires Truck"
+msgstr "Requiere camión"
+
+msgid "Start km"
+msgstr "Km inicial"
+
+msgid "Taken over by another driver"
+msgstr "Tomado por otro chófer"
+
+msgid "Truck change"
+msgstr "Cambio de camión"
+
+msgid "Truck km record"
+msgstr "Registro de km de camión"
+
+msgid "Truck km records"
+msgstr "Registros de km de camión"
+
+msgid "Closed without end km"
+msgstr "Cerrado sin km final"
+
+msgid "Km driven"
+msgstr "Km recorridos"
+
+msgid "Employees of this type pick their truck and record its km when clocking in and out."
+msgstr "Los empleados de este tipo eligen su camión y registran sus km al fichar la entrada y la salida."
+
+msgid "The planning that required this truck, when opened by a truck change."
+msgstr "La planificación que requería este camión, cuando se abrió por un cambio de camión."

@@ -517,6 +517,10 @@ class CivilStatusChoices(models.TextChoices):
 
 class EmployeeType(CompanyOwnedModel):
     type = models.CharField(max_length=50, verbose_name=_("Employee Type"))
+    requires_truck = models.BooleanField(
+        default=False, verbose_name=_("Requires Truck"),
+        help_text=_("Employees of this type pick their truck and record its km when clocking in and out."),
+    )
 
     def __str__(self):
         return self.type

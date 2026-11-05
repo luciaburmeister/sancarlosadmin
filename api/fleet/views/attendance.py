@@ -8,8 +8,12 @@ from assets.models import (
     PorteAction, PorteTransactionDataKey, PorteMovementKind,
     PORTE_ACTION_TRANSACTION_TYPES,
 )
+from assets.models import TruckKmSession
+from assets.services import truck_km
+from assets.services.truck_km import TruckKmError
 from company.models import WorkAttendance
 from django.core.files.base import ContentFile
+from django.db import transaction as db_transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from company.utils import get_current_employee
@@ -18,7 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
-from api.fleet.serializers import CubaPlanningSerializer, PortePlanningSerializer
+from api.fleet.serializers import CubaPlanningSerializer, PortePlanningSerializer, truck_state_context
 
 
 def save_image_to_field(transaction, field_name, b64_data, filename):
@@ -61,12 +65,31 @@ class AttendanceClockInView(APIView):
         existing = WorkAttendance.objects.filter(employee=employee, clock_out_time__isnull=True).first()
         if existing:
             return JsonResponse({"error": "Ya has fichado entrada. Ficha salida primero."}, status=400)
-        attendance = WorkAttendance.objects.create(
-            employee=employee, company=employee.company, clock_in_time=timezone.now(),
-            clock_in_lat=Decimal(str(latitude)) if latitude else None,
-            clock_in_lng=Decimal(str(longitude)) if longitude else None,
-        )
-        return JsonResponse({"success": True, "message": "Entrada registrada", "attendance_id": attendance.id, "clock_in_time": attendance.clock_in_time.strftime("%d/%m/%Y %H:%M:%S")})
+        # Truck and km are optional so app versions without the truck picker keep working.
+        try:
+            with db_transaction.atomic():
+                attendance = WorkAttendance.objects.create(
+                    employee=employee, company=employee.company, clock_in_time=timezone.now(),
+                    clock_in_lat=Decimal(str(latitude)) if latitude else None,
+                    clock_in_lng=Decimal(str(longitude)) if longitude else None,
+                )
+                session = None
+                if data.get("truck_id") or data.get("matricula"):
+                    truck = truck_km.find_truck(
+                        employee.company, truck_id=data.get("truck_id"), matricula=data.get("matricula"),
+                    )
+                    session = truck_km.start_session(
+                        employee, truck, data.get("km"), attendance=attendance,
+                        confirm_lower=bool(data.get("confirm_lower")),
+                        confirm_takeover=bool(data.get("confirm_takeover")),
+                    )
+        except TruckKmError as error:
+            return JsonResponse(error.as_payload(), status=error.status)
+        return JsonResponse({
+            "success": True, "message": "Entrada registrada", "attendance_id": attendance.id,
+            "clock_in_time": attendance.clock_in_time.strftime("%d/%m/%Y %H:%M:%S"),
+            "open_session": truck_km.session_payload(session),
+        })
 
 
 class AttendanceClockOutView(APIView):
@@ -85,10 +108,15 @@ class AttendanceClockOutView(APIView):
         attendance = WorkAttendance.objects.filter(employee=employee, clock_out_time__isnull=True).first()
         if not attendance:
             return JsonResponse({"error": "No hay fichaje de entrada activo."}, status=400)
-        attendance.clock_out_time = timezone.now()
-        attendance.clock_out_lat = Decimal(str(latitude)) if latitude else None
-        attendance.clock_out_lng = Decimal(str(longitude)) if longitude else None
-        attendance.save()
+        try:
+            with db_transaction.atomic():
+                truck_km.end_session(employee, data.get("km"), confirm_lower=bool(data.get("confirm_lower")))
+                attendance.clock_out_time = timezone.now()
+                attendance.clock_out_lat = Decimal(str(latitude)) if latitude else None
+                attendance.clock_out_lng = Decimal(str(longitude)) if longitude else None
+                attendance.save()
+        except TruckKmError as error:
+            return JsonResponse(error.as_payload(), status=error.status)
         return JsonResponse({"success": True, "message": "Salida registrada", "clock_out_time": attendance.clock_out_time.strftime("%d/%m/%Y %H:%M:%S")})
 
 
@@ -98,9 +126,13 @@ class AttendanceStatusView(APIView):
     def get(self, request):
         employee = get_current_employee(request.user)
         if employee is None:
-            return JsonResponse({"is_clocked_in": False})
+            return JsonResponse({"is_clocked_in": False, "requires_truck": False, "open_session": None})
         is_clocked_in = WorkAttendance.objects.filter(employee=employee, clock_out_time__isnull=True).exists()
-        return JsonResponse({"is_clocked_in": is_clocked_in})
+        return JsonResponse({
+            "is_clocked_in": is_clocked_in,
+            "requires_truck": truck_km.requires_truck(employee),
+            "open_session": truck_km.session_payload(TruckKmSession.open_for(employee)),
+        })
 
 
 class PlanningsListView(APIView):
@@ -120,7 +152,9 @@ class PlanningsListView(APIView):
         ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
         plannings = list(plannings)
         AssetPlanning.attach_destination_pickups(plannings)
-        return JsonResponse({"plannings": CubaPlanningSerializer(plannings, many=True).data})
+        return JsonResponse({
+            "plannings": CubaPlanningSerializer(plannings, many=True, context=truck_state_context(employee)).data,
+        })
 
 
 _TASK_SERIALIZERS = {
@@ -180,18 +214,18 @@ class PlanningNextTaskView(APIView):
 
         if planning is None:
             return JsonResponse({"task": None, "pending_dropoff": pending_dropoff})
-        task = self._serialize_task(planning)
+        task = self._serialize_task(planning, truck_state_context(employee))
         if task is None:
             return JsonResponse({"error": f"No serializer registered for planning type '{planning.planning_type}'."}, status=500)
         return JsonResponse({"task": task, "pending_dropoff": pending_dropoff})
 
     @staticmethod
-    def _serialize_task(planning):
+    def _serialize_task(planning, context=None):
         registered = _TASK_SERIALIZERS.get(planning.planning_type)
         if registered is None:
             return None
         if isinstance(registered, type) and issubclass(registered, BaseSerializer):
-            return registered(planning).data
+            return registered(planning, context=context or {}).data
         return registered(planning)
 
 
@@ -331,6 +365,7 @@ class PortesPlanningListView(APIView):
             scheduled_time__isnull=False,
         ).select_related("asset", "origin", "destination", "transport_asset").order_by("scheduled_time", "pk")
         data = []
+        truck_context = truck_state_context(employee)
         # Same truck, several portes: only the earliest is scannable via QR.
         claimed_scannable_asset_ids = set()
         for p in plannings:
@@ -340,7 +375,7 @@ class PortesPlanningListView(APIView):
                 claimed_scannable_asset_ids.add(display_asset.id)
                 scannable_asset_id = display_asset.id
             data.append(
-                PortePlanningSerializer(p, context={"scannable_asset_id": scannable_asset_id}).data
+                PortePlanningSerializer(p, context={**truck_context, "scannable_asset_id": scannable_asset_id}).data
             )
         return JsonResponse({"transport_plannings": data})
 
@@ -374,6 +409,11 @@ class PorteSubmitView(APIView):
         if action not in PORTE_ACTION_TRANSACTION_TYPES:
             valid = ", ".join(PorteAction.values)
             return JsonResponse({"error": f"action must be one of: {valid}"}, status=400)
+        if truck_km.enforces_truck_check(request):
+            try:
+                truck_km.check_planning_truck(planning, employee)
+            except TruckKmError as error:
+                return JsonResponse(error.as_payload(), status=error.status)
         firma_b64 = raw.get("firma", "")
         imagen_b64 = raw.get("imagen", "")
         matricula = raw.get("matricula", "")

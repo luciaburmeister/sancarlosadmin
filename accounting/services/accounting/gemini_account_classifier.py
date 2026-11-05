@@ -97,6 +97,7 @@ You are an expert accountant {framework_line}.
 Your task: classify each invoice into exactly one accounting account.
 
 RULES:
+- These are purchase invoices received from providers: every line is a cost/expense of the company.
 - You MUST only pick account codes from the list provided below.
 - One account per line item.
 - If you are not confident, set account_code to null and confident to false.

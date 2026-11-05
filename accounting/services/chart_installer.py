@@ -130,6 +130,7 @@ class ChartInstallerService:
                 name=t_acc.name,
                 template_account=t_acc,
                 is_postable=t_acc.is_postable,
+                ai_classifiable=t_acc.ai_classifiable,
                 account_type=account_type,
                 normal_balance=normal_balance,
                 parent=parent_account

@@ -19,7 +19,6 @@ from dataclasses import dataclass
 
 from django.db import transaction
 
-from company.admin import company
 from invoices.models import Invoice
 from accounting.models import CompanyAccount
 from .account_classifier_interface import (
@@ -98,7 +97,7 @@ class AccountClassifierService:
         for company, company_invoices in invoices_by_company.items():
             account_options = self._get_account_options(company)
             if not account_options:
-                errors.append(f"No postable accounts for company {company}, skipping.")
+                errors.append(f"No accounts marked for AI classification for company {company}, skipping.")
                 continue
 
             invoice_payload = self._build_invoice_payload(company_invoices)
@@ -149,7 +148,9 @@ class AccountClassifierService:
     # -------------------------------------------------------------------------
 
     def _get_account_options(self, company) -> List[AccountOption]: 
-        accounts = CompanyAccount.objects.filter(company=company, is_postable=True).values("code", "name")
+        accounts = CompanyAccount.objects.filter(
+            company=company, is_postable=True, is_active=True, ai_classifiable=True,
+        ).order_by("code").values("code", "name")
         return [AccountOption(code=acc["code"], name=acc["name"]) for acc in accounts]
 
 

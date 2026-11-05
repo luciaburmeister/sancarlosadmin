@@ -103,6 +103,14 @@ class TemplateAccount(Timestampable):
         default=True,
         help_text=_("If this account is postable."),
     )
+    ai_classifiable = models.BooleanField(
+        default=False,
+        verbose_name=_("AI classification"),
+        help_text=_(
+            "Given to the company's copy of this account when the chart is installed: "
+            "the AI classifier may assign purchase invoice lines to it."
+        ),
+    )
     role = models.CharField(
         max_length=20,
         choices=AccountRole.choices,
@@ -302,6 +310,14 @@ class CompanyAccount(Timestampable):
 
     is_active = models.BooleanField(default=True)
     is_postable = models.BooleanField(default=True)
+    ai_classifiable = models.BooleanField(
+        default=False,
+        verbose_name=_("AI classification"),
+        help_text=_(
+            "The AI classifier may assign purchase invoice lines to this account. "
+            "Normally the expense accounts (group 6)."
+        ),
+    )
 
     account_type = models.CharField(
         max_length=20, 

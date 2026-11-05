@@ -1,4 +1,6 @@
-"""Shop wizard behavior for reception products (exclude_from_invoicing)."""
+"""Shop wizard behavior for reception products (exclude_from_invoicing): they
+skip ticket/receival slip creation and go straight to the configuration so
+the reception photos can be attached."""
 from django.test import TestCase, RequestFactory
 
 from assets.models import Asset, AssetType
@@ -53,7 +55,7 @@ class ShopWizardReceptionTests(TestCase):
 
         return view.done([selection_form, config_form])
 
-    def test_reception_skips_ticket_and_slip_and_links_expediente(self):
+    def test_reception_skips_ticket_and_slip_and_redirects_to_the_configuration(self):
         from configurator.models import ReceivalSlip
 
         response = self._run_wizard_done()
@@ -66,8 +68,7 @@ class ShopWizardReceptionTests(TestCase):
         self.assertEqual(ProductionTicket.objects.count(), 0)
         self.assertEqual(ReceivalSlip.objects.count(), 0)
 
-        # Redirects back to the expediente, not to a receival slip
-        self.assertIn(f"projectfile/{self.project_file.pk}", response.url)
+        self.assertIn(f"configuration/{config.pk}", response.url)
 
     def test_project_file_preselected_from_query_param(self):
         view = ShopConfigurationWizardView(model_admin=None)

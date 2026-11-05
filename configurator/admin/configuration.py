@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
-from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus,ConfigurationPlanningStatus,ConfigurationComponentGroup
+from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus,ConfigurationPlanningStatus,ConfigurationComponentGroup,AssetReceptionPhoto
 from sales.models import QuoteStatus
 from unfold.admin import TabularInline,GenericTabularInline,StackedInline
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter,RangeDateTimeFilter,MultipleChoicesDropdownFilter
@@ -22,6 +22,25 @@ from unfold.contrib.import_export.forms import ExportForm, ImportForm, Selectabl
 from django.http import HttpResponse
 from configurator.resources.configuration_resource import SummarizedConfigurationResource, DetailedItemsResource
 
+
+
+class AssetReceptionPhotoInline(TabularInline):
+    model = AssetReceptionPhoto
+    extra = 1
+    tab = True
+    verbose_name = _("Photo")
+    verbose_name_plural = _("Photos")
+    fields = ("photo", "photo_preview", "created_at")
+    readonly_fields = ("photo_preview", "created_at")
+
+    @display(description=_("Preview"))
+    def photo_preview(self, obj):
+        if obj and obj.photo:
+            return format_html(
+                '<a href="{}" target="_blank"><img src="{}" style="width:200px; height:150px; object-fit:cover; border:1px solid #ccc;" /></a>',
+                obj.photo.url, obj.photo.url,
+            )
+        return "—"
 
 
 class ConfigurationComponentGroupInline(StackedInline):
@@ -316,7 +335,14 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         PricingRuleAssignmentInline,
         AppliedTaxInline,
         ConfigurationComponentGroupInline,
+        AssetReceptionPhotoInline,
     ]
+
+    def get_inline_instances(self, request, obj=None):
+        instances = super().get_inline_instances(request, obj)
+        if obj is None or not obj.product_id or not obj.product.exclude_from_invoicing:
+            instances = [i for i in instances if not isinstance(i, AssetReceptionPhotoInline)]
+        return instances
 
     @display(
         description=_("Status"),

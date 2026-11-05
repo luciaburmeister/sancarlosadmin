@@ -10,7 +10,8 @@ class ProjectFileExportStrategy(BaseExportStrategy):
 
     Exposes the expediente, its client, the linked asset (vehicle) with its
     identifiers and type-defined data fields, and the latest reception
-    configuration (product with exclude_from_invoicing) if any.
+    configuration (product with exclude_from_invoicing) if any, including
+    any photos taken of the asset during that specific reception.
     """
 
     def __init__(self, project_file):
@@ -38,6 +39,7 @@ class ProjectFileExportStrategy(BaseExportStrategy):
         reception = None
         reception_fields = []
         reception_data = {}
+        reception_photos = []
         reception_config = (
             pf.direct_configurations.filter(product__exclude_from_invoicing=True)
             .order_by("-created_at")
@@ -49,6 +51,9 @@ class ProjectFileExportStrategy(BaseExportStrategy):
                 value = pv.parameter.normalize_value(pv.value)
                 reception_fields.append({"label": pv.parameter.label, "value": value})
                 reception_data[pv.parameter.name] = value
+            reception_photos = [
+                {"url": photo.photo.url} for photo in reception_config.photos.all()
+            ]
 
         context = {
             "project_file": pf,
@@ -79,6 +84,7 @@ class ProjectFileExportStrategy(BaseExportStrategy):
             "reception_data": reception_data,
             "reception_notes": reception.notes if reception else "",
             "reception_date": reception.created_at if reception else None,
+            "reception_photos": reception_photos,
         }
 
         context.update(get_company_context(pf.company))

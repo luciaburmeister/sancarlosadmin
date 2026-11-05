@@ -1604,6 +1604,27 @@ class ConfigurationFlow:
         self.configuration.save(update_fields=["status"])
 
 
+class AssetReceptionPhoto(models.Model):
+    """A photo taken of the asset (e.g. a vehicle) for one specific visit's
+    reception Configuration -- not the asset's lifetime record, so the same
+    asset coming back for an unrelated issue gets its own, separate set of
+    photos tied to that later visit's Configuration instead."""
+
+    configuration = models.ForeignKey(
+        Configuration, on_delete=models.CASCADE, related_name="photos", verbose_name=_("Configuration"),
+    )
+    photo = models.ImageField(upload_to="asset_reception/photos/", verbose_name=_("Photo"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+
+    class Meta:
+        verbose_name = _("Asset Reception Photo")
+        verbose_name_plural = _("Asset Reception Photos")
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.configuration} - {self.created_at:%Y-%m-%d %H:%M}"
+
+
 class ConfigurationItem(Timestampable):
     """
     Materials or parts selected during configuration.

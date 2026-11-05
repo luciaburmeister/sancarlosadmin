@@ -119,18 +119,10 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
             config.copy_taxes_from_client()
 
             if self.product.exclude_from_invoicing:
-                # Internal work (e.g. vehicle reception): no production ticket,
-                # no receival slip — go back to the expediente.
-                if project_file:
-                    url = reverse(
-                        "admin:management_projectfile_change",
-                        args=[project_file.pk]
-                    )
-                else:
-                    url = reverse(
-                        "admin:configurator_configuration_change",
-                        args=[config.pk]
-                    )
+                url = reverse(
+                    "admin:configurator_configuration_change",
+                    args=[config.pk]
+                )
             else:
                 # 2. Automatically generate Production Ticket linked to ProjectFile
                 ConfigurationToProductionService.create_ticket(config, project_file=project_file)

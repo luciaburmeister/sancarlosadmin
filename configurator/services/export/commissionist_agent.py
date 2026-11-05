@@ -3,7 +3,9 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Dict
 
+from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from .base import BaseExportStrategy
 from .context_helpers import get_company_context
@@ -11,14 +13,26 @@ from .context_helpers import get_company_context
 ZERO = Decimal("0.00")
 
 
+class SettlementScope(models.TextChoices):
+    """Which commission an agent report's settlement lists."""
+
+    PERIOD = "period", _("Released in the period")
+    PENDING = "pending", _("Pending settlement up to the end date")
+    RECORDED = "recorded", _("A recorded settlement")
+
+
 class CommissionistAgentExportStrategy(BaseExportStrategy):
     """
     Strategy for an agent's monthly reports (agent_report templates): the
     quotes, invoices and commission settlement of one agent in one period.
     Defaults to the last closed month, which is what template previews show.
+    The settlement lists what was released in the period, what is pending
+    settlement up to its end, or the lines of a recorded ``settlement``.
     """
 
-    def __init__(self, agent, date_from=None, date_to=None):
+    def __init__(
+        self, agent, date_from=None, date_to=None, settlement_scope=SettlementScope.PERIOD, settlement=None,
+    ):
         super().__init__(agent)
         self.agent = agent
         if date_from is None or date_to is None:
@@ -26,6 +40,10 @@ class CommissionistAgentExportStrategy(BaseExportStrategy):
             date_from = date_to.replace(day=1)
         self.date_from = date_from
         self.date_to = date_to
+        self.settlement = settlement
+        if settlement is not None:
+            settlement_scope = SettlementScope.RECORDED
+        self.settlement_scope = SettlementScope(settlement_scope)
 
     def get_product(self):
         return None
@@ -177,6 +195,76 @@ class CommissionistAgentExportStrategy(BaseExportStrategy):
 
     def get_settlement(self):
         """
+        The settlement's rows and totals, of the chosen scope; ``number`` is
+        the recorded settlement's, ``cut_off`` the date it settles up to.
+        """
+        entries = {
+            SettlementScope.PERIOD: self.released_in_period,
+            SettlementScope.PENDING: self.pending_settlement,
+            SettlementScope.RECORDED: self.recorded_settlement,
+        }[self.settlement_scope]()
+        rows = [self.settlement_row(*entry) for entry in entries]
+        totals = self.column_totals(rows, ("base", "commission"))
+        totals["percentage"] = (totals["commission"] / totals["base"] * 100).quantize(ZERO) if totals["base"] else ZERO
+        return {
+            "rows": rows,
+            "totals": totals,
+            "scope": self.settlement_scope.value,
+            "number": self.settlement.pk if self.settlement is not None else None,
+            "cut_off": self.settlement.settled_until if self.settlement is not None else self.date_to,
+        }
+
+    @staticmethod
+    def settlement_row(invoice, base, commission, rate, paid_on):
+        """One row of the settlement; ``invoice`` comes with its client and delivery orders."""
+        from configurator.commission.admin import commission_document_label
+
+        if rate is None:
+            rate = (commission / base * 100).quantize(ZERO) if base else ZERO
+        return {
+            "date": invoice.date_issued,
+            "document": commission_document_label(invoice),
+            "delivery_orders": ", ".join(order.number for order in invoice.delivery_orders.all()),
+            "client_code": invoice.client_id,
+            "client_name": invoice.client.name,
+            "paid_on": paid_on,
+            "base": base,
+            "percentage": rate,
+            "commission": commission,
+        }
+
+    def pending_settlement(self):
+        """Commission released up to the end of the period that no settlement has paid yet."""
+        from configurator.commission.services import CommissionSettlementService
+
+        for invoice in CommissionSettlementService.pending_invoices(self.agent, self.date_to):
+            yield (
+                invoice, invoice.pending_base, invoice.pending_commission,
+                invoice.commission_rate, invoice.released_on,
+            )
+
+    def recorded_settlement(self):
+        """The lines of the recorded settlement still settled, as they were settled."""
+        from django.db.models.functions import Length
+
+        lines = (
+            self.settlement.lines.uncancelled()
+            .select_related("sales_invoice__client")
+            .prefetch_related("sales_invoice__delivery_orders")
+            .order_by(
+                "sales_invoice__date_issued",
+                Length("sales_invoice__invoice_number"),
+                "sales_invoice__invoice_number",
+            )
+        )
+        for line in lines:
+            yield (
+                line.sales_invoice, line.base_amount.amount, line.commission_amount.amount,
+                line.commission_rate, line.released_on,
+            )
+
+    def released_in_period(self):
+        """
         Commission released in the period by the agent's collected invoices,
         whenever they were issued: an invoice paid in parts appears in each
         period that released part of its commission.
@@ -184,7 +272,6 @@ class CommissionistAgentExportStrategy(BaseExportStrategy):
         from django.db.models import Max, Sum
         from django.db.models.functions import Length
 
-        from configurator.commission.admin import commission_document_label
         from configurator.commission.models import CommissionRelease, InvoiceCommission
 
         released = {
@@ -211,26 +298,9 @@ class CommissionistAgentExportStrategy(BaseExportStrategy):
                 "sales_invoice__invoice_number",
             )
         )
-        rows = []
         for commission in commissions:
             period = released[commission.pk]
-            base = period["base"] or ZERO
-            amount = period["commission"] or ZERO
-            rate = commission.commission_rate
-            if rate is None:
-                rate = (amount / base * 100).quantize(ZERO) if base else ZERO
-            invoice = commission.sales_invoice
-            rows.append({
-                "date": invoice.date_issued,
-                "document": commission_document_label(invoice),
-                "delivery_orders": ", ".join(order.number for order in invoice.delivery_orders.all()),
-                "client_code": invoice.client_id,
-                "client_name": invoice.client.name,
-                "paid_on": period["paid_on"],
-                "base": base,
-                "percentage": rate,
-                "commission": amount,
-            })
-        totals = self.column_totals(rows, ("base", "commission"))
-        totals["percentage"] = (totals["commission"] / totals["base"] * 100).quantize(ZERO) if totals["base"] else ZERO
-        return {"rows": rows, "totals": totals}
+            yield (
+                commission.sales_invoice, period["base"] or ZERO, period["commission"] or ZERO,
+                commission.commission_rate, period["paid_on"],
+            )

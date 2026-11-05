@@ -15713,8 +15713,6 @@ msgstr "Clasificación"
 msgid "Requested by"
 msgstr "Solicitado por"
 
-#, fuzzy
-#| msgid "Created date"
 msgid "Created at"
 msgstr "Fecha de creación"
 
@@ -23353,6 +23351,119 @@ msgstr "Bloqueado por esta devolución"
 
 msgid "No codes were linked — they may already be taken or blocked."
 msgstr "No se ha vinculado ningún código: puede que ya estén asignados o bloqueados."
+
+msgid "Settled up to"
+msgstr "Liquidado hasta"
+
+msgid "The commission released up to this date and not settled yet is settled."
+msgstr "Se liquida la comisión liberada hasta esta fecha que aún no se haya liquidado."
+
+msgid "Commission settlement"
+msgstr "Liquidación de comisiones"
+
+msgid "Commission settlements"
+msgstr "Liquidaciones de comisiones"
+
+msgid "Commission cannot be settled up to a future date."
+msgstr "No se puede liquidar comisión hasta una fecha futura."
+
+msgid "This settlement is already cancelled."
+msgstr "Esta liquidación ya está cancelada."
+
+msgid "The rule's percentage when settled; empty when its parts use different rules."
+msgstr "El porcentaje de la regla al liquidarse; vacío cuando sus partes usan reglas distintas."
+
+msgid "Released on"
+msgstr "Liberada el"
+
+msgid "Date of the last release it settled."
+msgstr "Fecha de la última liberación que liquidó."
+
+msgid "Settlement line"
+msgstr "Línea de liquidación"
+
+msgid "Settlement lines"
+msgstr "Líneas de liquidación"
+
+msgid "%(agent)s has no commission pending settlement up to %(date)s."
+msgstr "%(agent)s no tiene comisión pendiente de liquidar hasta el %(date)s."
+
+msgid "Released in the period"
+msgstr "Liberada en el periodo"
+
+msgid "Pending settlement up to the end date"
+msgstr "Pendiente de liquidar hasta la fecha final"
+
+msgid "A recorded settlement"
+msgstr "Una liquidación registrada"
+
+msgid "What the settlement lists: the commission released in the period, what no settlement has paid up to the end date (whenever it was released), or the lines of a recorded settlement."
+msgstr "Qué incluye la liquidación: la comisión liberada en el periodo, lo que ninguna liquidación ha pagado hasta la fecha final (se liberara cuando se liberara) o las líneas de una liquidación registrada."
+
+msgid "The recorded settlement to print."
+msgstr "La liquidación registrada que se imprime."
+
+msgid "Choose the settlement to print."
+msgstr "Elige la liquidación que quieres imprimir."
+
+msgid "Pending settlement"
+msgstr "Pendiente de liquidar"
+
+msgid "Fully settled"
+msgstr "Liquidada"
+
+msgid "Settled commission"
+msgstr "Comisión liquidada"
+
+msgid "Print"
+msgstr "Imprimir"
+
+msgid "Cancel settlement"
+msgstr "Cancelar liquidación"
+
+msgid "Settlement %(settlement)s cancelled: its commission is pending settlement again."
+msgstr "Liquidación %(settlement)s cancelada: su comisión vuelve a estar pendiente de liquidar."
+
+msgid "Settle commissions"
+msgstr "Liquidar comisiones"
+
+msgid "Its commission will be pending settlement again, and the next settlement of this agent will include it."
+msgstr "Su comisión volverá a estar pendiente de liquidar y la incluirá la próxima liquidación de este agente."
+
+msgid "Set when the commission was marked as not settled: it is pending settlement again."
+msgstr "Se rellena al marcar la comisión como no liquidada: vuelve a estar pendiente de liquidar."
+
+msgid "Nothing of these commissions is pending settlement."
+msgstr "Ninguna de estas comisiones tiene nada pendiente de liquidar."
+
+msgid "Mark selected commissions as settled"
+msgstr "Marcar comisiones seleccionadas como liquidadas"
+
+msgid "Mark as settled"
+msgstr "Marcar como liquidada"
+
+msgid "What this commission has pending is settled today and no longer shows as pending."
+msgstr "Lo que esta comisión tiene pendiente se liquida hoy y deja de aparecer como pendiente."
+
+msgid "Mark as not settled"
+msgstr "Marcar como no liquidada"
+
+msgid "The commission is pending settlement again."
+msgstr "La comisión vuelve a estar pendiente de liquidar."
+
+msgid "Nothing of this commission is settled."
+msgstr "Esta comisión no tiene nada liquidado."
+
+msgid "What was settled of this commission is pending settlement again."
+msgstr "Lo liquidado de esta comisión vuelve a estar pendiente de liquidar."
+
+msgid "%(count)d commission settled."
+msgid_plural "%(count)d commissions settled."
+msgstr[0] "%(count)d comisión liquidada."
+msgstr[1] "%(count)d comisiones liquidadas."
+
+msgid "The agent belongs to another company."
+msgstr "El agente pertenece a otra empresa."
 
 msgid "Attendance"
 msgstr "Fichaje"

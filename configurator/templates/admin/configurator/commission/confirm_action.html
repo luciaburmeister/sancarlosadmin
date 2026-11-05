@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+
+{% load i18n unfold %}
+
+{% block content %}
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="border border-base-200 mb-8 rounded-default p-4 shadow-sm dark:border-base-800">
+            <p class="font-semibold text-important">{{ object }}</p>
+            <p class="mt-2">{{ explanation }}</p>
+        </div>
+
+        <div class="flex gap-2 justify-end">
+            {% component "unfold/components/button.html" with href=change_url variant="default" %}
+                {% translate "Back" %}
+            {% endcomponent %}
+            {% component "unfold/components/button.html" with submit=1 %}
+                {{ title }}
+            {% endcomponent %}
+        </div>
+    </form>
+{% endblock %}

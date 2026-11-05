@@ -334,6 +334,7 @@ class AgentReportExportViewTests(_AgentReportTestCase):
         with patch.object(PDFService, "html_to_pdf", return_value=b"%PDF fake") as pdf:
             response = self.client.post(self.url(agent), {
                 "template": template.pk, "date_from": date_from, "date_to": date_to, "file_format": file_format,
+                "settlement_scope": "period",
             })
         return response, pdf
 
@@ -368,7 +369,7 @@ class AgentReportExportViewTests(_AgentReportTestCase):
         self.assertEqual(
             delay.call_args.kwargs["kwargs"],
             {"agent_id": self.agent.pk, "template_id": self.templates["Presupuestos de agente"].pk,
-             "date_from": "2026-08-01", "date_to": "2026-08-31"},
+             "date_from": "2026-08-01", "date_to": "2026-08-31", "settlement_scope": "period", "settlement_id": None},
         )
         self.assertIn("Ávila Bosch", pdf.call_args.args[0])
 

@@ -1,7 +1,11 @@
 from decimal import Decimal
 from djmoney.money import Money
+from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Exists, OuterRef, Subquery, Sum
+from django.db.models.functions import Length
+from django.utils import formats, timezone
+from django.utils.translation import gettext
 
 from configurator.commission.models import CommissionRuleType
 
@@ -657,3 +661,153 @@ class CommissionReleaseService:
                 line_sources.source_id(line_sources.ADVANCE_DEDUCTION, pk) for pk in advance_line_ids
             ])
         return set(SalesInvoiceItem.objects.filter(lines).values_list("invoice_id", flat=True))
+
+
+class CommissionSettlementService:
+    """
+    Settles agents' commissions: what each invoice has released for an agent
+    and no settlement has paid yet, either everything up to a cut-off date
+    or the commissions chosen in the commissions list. A release dated in a
+    month already settled (a payment registered late, an invoice issued
+    after it was paid) is therefore still pending, and a settled release
+    taken back (a payment cancelled, an invoice cancelled) is pending as a
+    negative.
+    """
+
+    @staticmethod
+    def unsettled(released_until, released, settled):
+        """
+        What of ``released_until`` (released up to the cut-off) is not
+        settled, with ``settled`` paying the earliest releases first, so a
+        settlement that also paid later releases leaves nothing of these;
+        less what was settled beyond ``released`` (all released by now),
+        when releases were taken back after they were settled. Amounts of a
+        credit note are negative: they are compared by their size.
+        """
+        sign = -1 if (released or released_until or settled) < 0 else 1
+        released_until, released, settled = (sign * amount for amount in (released_until, released, settled))
+        overpaid = min(Decimal("0"), released - settled)
+        return sign * (released_until - min(settled, released_until) + overpaid)
+
+    @classmethod
+    def pending_invoices(cls, agent, until, invoice_ids=None):
+        """
+        The agent's sales invoices (of ``invoice_ids`` when given) with
+        commission pending settlement up to ``until``, with their client and
+        delivery orders, and ``pending_base``, ``pending_commission``,
+        ``released_on`` (their last release by then) and ``commission_rate``.
+        """
+        from configurator.commission.models import CommissionRelease, CommissionSettlementLine, InvoiceCommission
+        from invoices.models import SalesInvoice
+
+        releases = CommissionRelease.objects.filter(agent=agent)
+        settled = CommissionSettlementLine.objects.active().filter(settlement__agent=agent)
+        invoice = OuterRef("pk")
+        invoices = (
+            SalesInvoice.objects
+            .filter(company_id=agent.company_id)
+            .filter(Exists(releases.filter(sales_invoice=invoice)) | Exists(settled.filter(sales_invoice=invoice)))
+        )
+        if invoice_ids is not None:
+            invoices = invoices.filter(pk__in=invoice_ids)
+        invoices = (
+            invoices
+            .annotate(
+                released_base_until=releases.sum_by_invoice(
+                    "base_amount", sales_invoice=invoice, release_date__lte=until,
+                ),
+                released_commission_until=releases.sum_by_invoice(
+                    "released_amount", sales_invoice=invoice, release_date__lte=until,
+                ),
+                released_base=releases.sum_by_invoice("base_amount", sales_invoice=invoice),
+                released_commission=releases.sum_by_invoice("released_amount", sales_invoice=invoice),
+                settled_base=settled.sum_by_invoice("base_amount", sales_invoice=invoice),
+                settled_commission=settled.sum_by_invoice("commission_amount", sales_invoice=invoice),
+                released_on=Subquery(
+                    releases.filter(sales_invoice=invoice, release_date__lte=until)
+                    .order_by("-release_date").values("release_date")[:1]
+                ),
+                commission_rate=Subquery(
+                    InvoiceCommission.objects.filter(sales_invoice=invoice, agent=agent).values("commission_rate")[:1]
+                ),
+            )
+            .select_related("client")
+            .prefetch_related("delivery_orders")
+            # Shorter numbers first, so 26FC-98 sorts before 26FC-100.
+            .order_by("date_issued", Length("invoice_number"), "invoice_number")
+        )
+        pending = []
+        for row in invoices:
+            row.pending_base = cls.unsettled(row.released_base_until, row.released_base, row.settled_base)
+            row.pending_commission = cls.unsettled(
+                row.released_commission_until, row.released_commission, row.settled_commission,
+            )
+            if row.pending_base or row.pending_commission:
+                pending.append(row)
+        return pending
+
+    @staticmethod
+    def nothing_pending(agent, until):
+        """The error for settling an agent with nothing pending up to ``until``."""
+        return ValidationError(
+            gettext("%(agent)s has no commission pending settlement up to %(date)s."),
+            code="nothing_pending",
+            params={"agent": agent, "date": formats.date_format(until, "SHORT_DATE_FORMAT")},
+        )
+
+    @classmethod
+    @transaction.atomic
+    def settle(cls, settlement, invoice_ids=None):
+        """
+        Save ``settlement`` (its agent and cut-off set) with a line per
+        invoice (of ``invoice_ids`` when given) pending settlement up to its
+        cut-off. Raises ValidationError when the cut-off is not allowed or
+        nothing is pending.
+        """
+        from configurator.commission.models import CommissionSettlementLine
+        from sales.models import CommissionistAgent
+
+        # One settlement of an agent at a time, so no line is settled twice
+        CommissionistAgent.objects.select_for_update().only("pk").get(pk=settlement.agent_id)
+        settlement.inherit_company()
+        settlement.full_clean()
+        invoices = cls.pending_invoices(settlement.agent, settlement.settled_until, invoice_ids)
+        if not invoices:
+            raise cls.nothing_pending(settlement.agent, settlement.settled_until)
+        settlement.save()
+        CommissionSettlementLine.objects.bulk_create([
+            CommissionSettlementLine(
+                settlement=settlement,
+                sales_invoice=invoice,
+                base_amount=Money(invoice.pending_base, invoice.currency or "EUR"),
+                commission_amount=Money(invoice.pending_commission, invoice.currency or "EUR"),
+                commission_rate=invoice.commission_rate,
+                released_on=invoice.released_on,
+            )
+            for invoice in invoices
+        ])
+        return settlement
+
+    @classmethod
+    @transaction.atomic
+    def settle_commissions(cls, commissions, user=None):
+        """
+        Settle what ``commissions`` (InvoiceCommission rows) have pending
+        today: one settlement per agent, none for an agent whose chosen
+        commissions have nothing pending. Returns the settlements.
+        """
+        from configurator.commission.models import CommissionSettlement
+        from sales.models import CommissionistAgent
+
+        invoice_ids_by_agent = {}
+        for agent_id, invoice_id in commissions.values_list("agent_id", "sales_invoice_id"):
+            invoice_ids_by_agent.setdefault(agent_id, set()).add(invoice_id)
+        settlements = []
+        for agent in CommissionistAgent.objects.filter(pk__in=invoice_ids_by_agent).order_by("pk"):
+            settlement = CommissionSettlement(agent=agent, settled_until=timezone.localdate(), created_by=user)
+            try:
+                settlements.append(cls.settle(settlement, invoice_ids_by_agent[agent.pk]))
+            except ValidationError as error:
+                if getattr(error, "code", None) != "nothing_pending":
+                    raise
+        return settlements

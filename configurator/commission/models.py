@@ -1,10 +1,35 @@
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Sum
+from django.db.models import DecimalField, F, OuterRef, Q, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
+from django.utils import formats, timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
 from company.models import CompanyOwnedModel
+
+# The amount columns of MoneyField(max_digits=12, decimal_places=2)
+AMOUNT_FIELD = DecimalField(max_digits=12, decimal_places=2)
+
+
+class InvoiceTotalsQuerySet(models.QuerySet):
+    """Rows that belong to a sales invoice, summed per invoice for annotations."""
+
+    def sum_by_invoice(self, field, **filters):
+        """
+        Subquery of the sum of ``field`` over these rows matching ``filters``
+        (``sales_invoice=OuterRef(...)`` among them), 0 when there are none.
+        """
+        totals = (
+            self.filter(**filters)
+            .order_by()
+            .values("sales_invoice")
+            .annotate(total=Sum(field))
+            .values("total")
+        )
+        return Coalesce(Subquery(totals, output_field=AMOUNT_FIELD), Value(Decimal("0")), output_field=AMOUNT_FIELD)
 
 
 class CommissionRuleType(models.TextChoices):
@@ -303,6 +328,23 @@ class QuoteCommission(models.Model):
         return CommissionReleaseStatus.PARTIAL
 
 
+class InvoiceCommissionQuerySet(models.QuerySet):
+    def with_settled(self):
+        """
+        Annotate ``settled_total``, the commission settlements paid on the
+        row, and ``pending_settlement_total``, what it has
+        released beyond that, so listing rows need no query each.
+        """
+        settled = CommissionSettlementLine.objects.active().sum_by_invoice(
+            "commission_amount",
+            sales_invoice=OuterRef("sales_invoice"),
+            settlement__agent=OuterRef("agent"),
+        )
+        return self.annotate(settled_total=settled).annotate(
+            pending_settlement_total=F("released_amount") - F("settled_total"),
+        )
+
+
 class InvoiceCommission(models.Model):
     """
     What one agent earns on one sales invoice and how much of it has been
@@ -409,6 +451,8 @@ class InvoiceCommission(models.Model):
         verbose_name=_("Last calculated at"),
     )
 
+    objects = InvoiceCommissionQuerySet.as_manager()
+
     class Meta:
         unique_together = (("sales_invoice", "agent"),)
         verbose_name = _("Commission")
@@ -439,6 +483,23 @@ class InvoiceCommission(models.Model):
         if abs(released) >= abs(commission):
             return CommissionReleaseStatus.FULL
         return CommissionReleaseStatus.PARTIAL
+
+    @property
+    def settled_amount(self):
+        """The commission settlements paid the agent on this invoice."""
+        if hasattr(self, "settled_total"):
+            total = self.settled_total
+        else:
+            total = (
+                CommissionSettlementLine.objects.active().for_commission(self)
+                .aggregate(total=Sum("commission_amount"))["total"]
+            )
+        return Money(total or 0, self.commission_amount_currency)
+
+    @property
+    def pending_settlement_amount(self):
+        """Released and not settled yet; negative when a settled release was taken back."""
+        return self.released_amount - self.settled_amount
 
 
 class CommissionReleaseStatus(models.TextChoices):
@@ -514,6 +575,8 @@ class CommissionRelease(models.Model):
         verbose_name=_("Released commission"),
     )
 
+    objects = InvoiceTotalsQuerySet.as_manager()
+
     class Meta:
         verbose_name = _("Commission release")
         verbose_name_plural = _("Commission releases")
@@ -521,3 +584,219 @@ class CommissionRelease(models.Model):
 
     def __str__(self):
         return f"{self.released_amount} — {self.agent} on {self.sales_invoice} ({self.release_date})"
+
+
+class CommissionSettlementStatus(models.TextChoices):
+    CONFIRMED = "confirmed", _("Confirmed")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class CommissionSettlementQuerySet(models.QuerySet):
+    def confirmed(self):
+        return self.filter(status=CommissionSettlementStatus.CONFIRMED)
+
+    def with_totals(self):
+        """Annotate ``base_total`` and ``commission_total`` of the lines still settled."""
+        active = Q(lines__cancelled_at__isnull=True)
+        return self.annotate(
+            base_total=Coalesce(
+                Sum("lines__base_amount", filter=active), Value(Decimal("0")), output_field=AMOUNT_FIELD,
+            ),
+            commission_total=Coalesce(
+                Sum("lines__commission_amount", filter=active), Value(Decimal("0")), output_field=AMOUNT_FIELD,
+            ),
+        )
+
+
+class CommissionSettlement(CompanyOwnedModel):
+    """
+    A settlement of an agent's commissions: one line per invoice with what
+    it had released and no earlier settlement had paid, either everything up
+    to ``settled_until`` or the commissions chosen in the commissions list
+    (``settled_until`` is then the day they were settled). The lines keep
+    the amounts as they were settled, so rebuilding the releases never
+    changes a settlement: whatever is released (or taken back) afterwards,
+    whatever its date, stays pending for the next one.
+    Created by CommissionSettlementService; cancelled, never deleted. Its
+    company is its agent's.
+    """
+
+    agent = models.ForeignKey(
+        "sales.CommissionistAgent",
+        on_delete=models.PROTECT,
+        related_name="commission_settlements",
+        verbose_name=_("Agent"),
+    )
+    settled_until = models.DateField(
+        verbose_name=_("Settled up to"),
+        help_text=_("The commission released up to this date and not settled yet is settled."),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=CommissionSettlementStatus.choices,
+        default=CommissionSettlementStatus.CONFIRMED,
+        verbose_name=_("Status"),
+    )
+    notes = models.TextField(
+        blank=True,
+        verbose_name=_("Notes"),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Created by"),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=_("Created at"),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Cancelled at"),
+    )
+
+    objects = CommissionSettlementQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = _("Commission settlement")
+        verbose_name_plural = _("Commission settlements")
+        ordering = ["-settled_until", "-id"]
+
+    def __str__(self):
+        return f"#{self.pk} {self.agent} ({formats.date_format(self.settled_until, 'SHORT_DATE_FORMAT')})"
+
+    @property
+    def is_cancelled(self):
+        return self.status == CommissionSettlementStatus.CANCELLED
+
+    def clean(self):
+        super().clean()
+        if self.settled_until and self.settled_until > timezone.localdate():
+            raise ValidationError({"settled_until": ValidationError(
+                _("Commission cannot be settled up to a future date."), code="future_cut_off",
+            )})
+        if self.agent_id and self.company_id and self.company_id != self.agent.company_id:
+            raise ValidationError({"agent": ValidationError(
+                _("The agent belongs to another company."), code="agent_of_another_company",
+            )})
+
+    def inherit_company(self):
+        """Take the agent's company when none is set yet."""
+        if not self.company_id and self.agent_id:
+            self.company_id = self.agent.company_id
+
+    def save(self, *args, **kwargs):
+        self.inherit_company()
+        super().save(*args, **kwargs)
+
+    def cancel(self, user=None):
+        """Cancel the settlement: its lines are pending settlement again."""
+        if self.is_cancelled:
+            raise ValidationError(_("This settlement is already cancelled."), code="already_cancelled")
+        self.status = CommissionSettlementStatus.CANCELLED
+        self.cancelled_by = user
+        self.cancelled_at = timezone.now()
+        self.save(update_fields=["status", "cancelled_by", "cancelled_at"])
+
+
+class CommissionSettlementLineQuerySet(InvoiceTotalsQuerySet):
+    def uncancelled(self):
+        """Lines not cancelled on their own (marked as not settled)."""
+        return self.filter(cancelled_at__isnull=True)
+
+    def active(self):
+        """Lines still settled: uncancelled lines of confirmed settlements."""
+        return self.uncancelled().filter(settlement__status=CommissionSettlementStatus.CONFIRMED)
+
+    def for_commission(self, commission):
+        """The lines of ``commission``'s invoice in its agent's settlements."""
+        return self.filter(sales_invoice_id=commission.sales_invoice_id, settlement__agent_id=commission.agent_id)
+
+    def cancel(self, user=None):
+        """Cancel these lines: what they settled is pending settlement again. Returns how many."""
+        return self.uncancelled().update(cancelled_at=timezone.now(), cancelled_by=user)
+
+
+class CommissionSettlementLine(models.Model):
+    """What a settlement paid the agent on one invoice, as it was settled."""
+
+    settlement = models.ForeignKey(
+        CommissionSettlement,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("Settlement"),
+    )
+    # PROTECT: what an agent was paid on must stay on record
+    sales_invoice = models.ForeignKey(
+        "invoices.SalesInvoice",
+        on_delete=models.PROTECT,
+        related_name="commission_settlement_lines",
+        verbose_name=_("Sales invoice"),
+    )
+    base_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Base"),
+    )
+    commission_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Commission"),
+    )
+    commission_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("% Comm."),
+        help_text=_("The rule's percentage when settled; empty when its parts use different rules."),
+    )
+    released_on = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Released on"),
+        help_text=_("Date of the last release it settled."),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Cancelled at"),
+        help_text=_("Set when the commission was marked as not settled: it is pending settlement again."),
+    )
+
+    objects = CommissionSettlementLineQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = _("Settlement line")
+        verbose_name_plural = _("Settlement lines")
+        ordering = ["settlement", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["settlement", "sales_invoice"], name="unique_settlement_line_per_invoice"),
+        ]
+
+    def __str__(self):
+        return f"{self.commission_amount} — {self.sales_invoice}"

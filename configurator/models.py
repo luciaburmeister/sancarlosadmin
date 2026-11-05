@@ -25,7 +25,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
 from django.utils import timezone
-from configurator.commission.models import AgentCommissionRule, CommissionRelease, InvoiceCommission, QuoteCommission
+from configurator.commission.models import (
+    AgentCommissionRule,
+    CommissionRelease,
+    CommissionSettlement,
+    CommissionSettlementLine,
+    InvoiceCommission,
+    QuoteCommission,
+)
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")

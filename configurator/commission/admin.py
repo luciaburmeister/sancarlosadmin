@@ -1,12 +1,17 @@
+from urllib.parse import urlencode
+
 from django import forms
 from django.db import models
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.urls import path, reverse
-from django.shortcuts import redirect
-from django.utils.translation import gettext_lazy as _
+from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
+from django.utils import formats
+from django.utils.translation import gettext, gettext_lazy as _, ngettext
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
-from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter, RangeDateFilter
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter, DropdownFilter, RangeDateFilter
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from import_export import fields, resources, widgets
 from import_export.admin import ExportActionModelAdmin
@@ -16,18 +21,23 @@ from unfold.widgets import (
     UnfoldAdminTextInputWidget,
 )
 
+from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.commission.models import (
     AgentCommissionRule,
     CommissionRelease,
     CommissionReleaseStatus,
+    CommissionSettlement,
+    CommissionSettlementLine,
+    CommissionSettlementStatus,
     InvoiceCommission,
     CommissionRuleTemplate,
     CommissionRuleType,
     QuoteCommission,
     format_rule_snapshot,
 )
-from configurator.commission.services import CommissionService
+from configurator.commission.services import CommissionService, CommissionSettlementService
+from sales.models import CommissionistAgent
 
 
 class AgentCommissionRuleForm(forms.ModelForm):
@@ -438,9 +448,57 @@ class InvoiceCommissionReleaseInline(CommissionReleaseInline):
     readonly_fields = fields
 
 
+class ConfirmedActionMixin:
+    """
+    Detail actions that change data: a GET shows a confirmation page and
+    its POST runs the action, so following a link never changes anything.
+    """
+
+    confirm_action_template = "admin/configurator/commission/confirm_action.html"
+
+    def confirm_action(self, request, obj, *, title, explanation, run):
+        """The confirmation page of ``obj``'s action; on its POST, ``run()`` and back to ``obj``."""
+        change_url = reverse(f"admin:{self.opts.app_label}_{self.opts.model_name}_change", args=[obj.pk])
+        if request.method != "POST":
+            return TemplateResponse(request, self.confirm_action_template, {
+                **self.admin_site.each_context(request),
+                "title": title,
+                "opts": self.opts,
+                "object": obj,
+                "explanation": explanation,
+                "change_url": change_url,
+            })
+        run()
+        return redirect(change_url)
+
+
+class SettlementPendingFilter(DropdownFilter):
+    """Commissions by whether confirmed settlements have paid what they released."""
+
+    title = _("Settlement")
+    parameter_name = "settlement"
+    PENDING = "pending"
+    SETTLED = "settled"
+
+    def lookups(self, request, model_admin):
+        return ((self.PENDING, _("Pending settlement")), (self.SETTLED, _("Fully settled")))
+
+    def queryset(self, request, queryset):
+        # The admin's queryset carries InvoiceCommissionQuerySet.with_settled()
+        if self.value() == self.PENDING:
+            return queryset.exclude(pending_settlement_total=0)
+        if self.value() == self.SETTLED:
+            return queryset.filter(pending_settlement_total=0).exclude(settled_total=0)
+        return queryset
+
+
 @admin.register(InvoiceCommission)
-class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
-    """The commissions list: one row per invoice and agent, filtered by agent and date."""
+class InvoiceCommissionAdmin(ConfirmedActionMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+    """
+    The commissions list: one row per invoice and agent, filtered by agent
+    and date. Commissions are marked as settled here, one or a selection at
+    a time, or for an agent up to a date from the agent's page.
+    """
 
     company_field_name = "sales_invoice__company"
     resource_classes = [InvoiceCommissionResource]
@@ -456,12 +514,14 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
         "released_amount",
         "commission_amount",
         "release_status_display",
+        "pending_settlement_display",
         "agent",
     )
     list_filter = (
         ("agent", AutocompleteSelectMultipleFilter),
         ("release_date", RangeDateFilter),
         ("sales_invoice__date_issued", RangeDateFilter),
+        SettlementPendingFilter,
     )
     list_filter_submit = True
     search_fields = (
@@ -470,14 +530,28 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
         "sales_invoice__client__name",
     )
     list_select_related = ["agent", "sales_invoice__client"]
+    actions = ["mark_selected_as_settled"]
+    actions_detail = ["mark_settled_detail_action", "mark_unsettled_detail_action"]
     fields = (
         ("agent", "sales_invoice", "invoice_date_display"),
         ("base_amount", "commission_amount"),
         ("released_base_amount", "released_amount", "release_date"),
+        ("settled_amount_display", "pending_settlement_display"),
         ("own_base_amount", "own_commission_amount"),
         ("rule", "rule_type_snapshot", "rule_value_snapshot"),
     )
     readonly_fields = tuple(name for group in fields for name in group)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).with_settled()
+
+    @admin.display(description=_("Settled commission"), ordering="settled_total")
+    def settled_amount_display(self, obj):
+        return obj.settled_amount
+
+    @admin.display(description=_("Pending settlement"), ordering="pending_settlement_total")
+    def pending_settlement_display(self, obj):
+        return obj.pending_settlement_amount
 
     @admin.display(description=_("Document"), ordering="sales_invoice__invoice_number")
     def document_display(self, obj):
@@ -506,3 +580,207 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
     def has_change_permission(self, request, obj=None):
         return False
 
+    def has_mark_settled_permission(self, request, object_id=None):
+        return request.user.has_perm("configurator.add_commissionsettlement")
+
+    def has_mark_unsettled_permission(self, request, object_id=None):
+        return request.user.has_perm("configurator.change_commissionsettlement")
+
+    def _settle(self, request, commissions):
+        """Settle what ``commissions`` have pending and say how many were settled."""
+        settlements = CommissionSettlementService.settle_commissions(commissions, request.user)
+        count = CommissionSettlementLine.objects.filter(settlement__in=settlements).count()
+        if not count:
+            self.message_user(request, gettext("Nothing of these commissions is pending settlement."), messages.WARNING)
+            return
+        self.message_user(request, ngettext(
+            "%(count)d commission settled.", "%(count)d commissions settled.", count,
+        ) % {"count": count}, messages.SUCCESS)
+
+    @admin.action(description=_("Mark selected commissions as settled"), permissions=["mark_settled"])
+    def mark_selected_as_settled(self, request, queryset):
+        self._settle(request, queryset)
+
+    @action(description=_("Mark as settled"), icon="task_alt", permissions=["mark_settled"])
+    def mark_settled_detail_action(self, request, object_id):
+        commission = get_object_or_404(self.get_queryset(request), pk=object_id)
+        return self.confirm_action(
+            request, commission,
+            title=gettext("Mark as settled"),
+            explanation=gettext("What this commission has pending is settled today and no longer shows as pending."),
+            run=lambda: self._settle(request, self.get_queryset(request).filter(pk=commission.pk)),
+        )
+
+    @action(description=_("Mark as not settled"), icon="undo", permissions=["mark_unsettled"])
+    def mark_unsettled_detail_action(self, request, object_id):
+        commission = get_object_or_404(self.get_queryset(request), pk=object_id)
+
+        def unsettle():
+            if CommissionSettlementLine.objects.active().for_commission(commission).cancel(request.user):
+                self.message_user(request, gettext("The commission is pending settlement again."), messages.SUCCESS)
+            else:
+                self.message_user(request, gettext("Nothing of this commission is settled."), messages.WARNING)
+
+        return self.confirm_action(
+            request, commission,
+            title=gettext("Mark as not settled"),
+            explanation=gettext("What was settled of this commission is pending settlement again."),
+            run=unsettle,
+        )
+
+
+class CommissionSettlementLineInline(TabularInline):
+    model = CommissionSettlementLine
+    extra = 0
+    tab = True
+    fields = ("sales_invoice", "released_on", "base_amount", "commission_rate", "commission_amount", "cancelled_at")
+    readonly_fields = fields
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("sales_invoice")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class CommissionSettlementForm(forms.ModelForm):
+    class Meta:
+        model = CommissionSettlement
+        fields = ("agent", "settled_until", "notes")
+
+    def clean(self):
+        cleaned_data = super().clean()
+        agent, until = cleaned_data.get("agent"), cleaned_data.get("settled_until")
+        if (
+            self.instance.pk is None and agent and until
+            and not CommissionSettlementService.pending_invoices(agent, until)
+        ):
+            raise CommissionSettlementService.nothing_pending(agent, until)
+        return cleaned_data
+
+
+@admin.register(CommissionSettlement)
+class CommissionSettlementAdmin(ConfirmedActionMixin, CompanyRestrictedAdmin, ModelAdmin):
+    """
+    Agents' settlements: each settles what is pending up to its date, or
+    the commissions chosen in the commissions list. Cancelled, never deleted.
+    """
+
+    form = CommissionSettlementForm
+    inlines = [CommissionSettlementLineInline]
+    list_display = (
+        "id",
+        "agent",
+        "settled_until",
+        "base_total_display",
+        "commission_total_display",
+        "status_display",
+        "created_by",
+        "created_at",
+    )
+    list_filter = (
+        ("agent", AutocompleteSelectMultipleFilter),
+        "status",
+        ("settled_until", RangeDateFilter),
+    )
+    list_filter_submit = True
+    search_fields = ("agent__name",)
+    autocomplete_fields = ["agent"]
+    list_select_related = ["agent", "created_by"]
+    actions_detail = ["print_detail_action", "cancel_detail_action"]
+    add_fields = ("agent", "settled_until", "notes")
+    change_fields = (
+        ("agent", "settled_until", "status_display"),
+        ("base_total_display", "commission_total_display"),
+        ("created_by", "created_at"),
+        ("cancelled_by", "cancelled_at"),
+        "notes",
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).with_totals()
+
+    def get_fields(self, request, obj=None):
+        return self.change_fields if obj else self.add_fields
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            return ()
+        return tuple(
+            name for group in self.change_fields
+            for name in (group if isinstance(group, tuple) else (group,))
+            if name != "notes"
+        )
+
+    def get_inlines(self, request, obj):
+        return self.inlines if obj else []
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "agent":
+            kwargs["queryset"] = CommissionistAgent.objects.filter(company__in=get_user_companies(request.user))
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            super().save_model(request, obj, form, change)
+        else:
+            obj.created_by = request.user
+            CommissionSettlementService.settle(obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_cancel_permission(self, request, object_id=None):
+        return request.user.has_perm("configurator.change_commissionsettlement")
+
+    @admin.display(description=_("Base"), ordering="base_total")
+    def base_total_display(self, obj):
+        return formats.number_format(obj.base_total, 2, force_grouping=True)
+
+    @admin.display(description=_("Commission"), ordering="commission_total")
+    def commission_total_display(self, obj):
+        return formats.number_format(obj.commission_total, 2, force_grouping=True)
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={CommissionSettlementStatus.CONFIRMED: "success", CommissionSettlementStatus.CANCELLED: "danger"},
+    )
+    def status_display(self, obj):
+        return obj.status, obj.get_status_display()
+
+    @action(description=_("Print"), icon="picture_as_pdf", permissions=["view"])
+    def print_detail_action(self, request, object_id):
+        settlement = get_object_or_404(self.get_queryset(request), pk=object_id)
+        url = reverse("admin:sales_commissionistagent_reports", args=[settlement.agent_id])
+        return redirect(f"{url}?{urlencode({'settlement': settlement.pk})}")
+
+    @action(description=_("Cancel settlement"), icon="block", permissions=["cancel"])
+    def cancel_detail_action(self, request, object_id):
+        settlement = get_object_or_404(self.get_queryset(request), pk=object_id)
+
+        def cancel():
+            try:
+                settlement.cancel(request.user)
+            except ValidationError as error:
+                self.message_user(request, " ".join(error.messages), level=messages.WARNING)
+            else:
+                self.message_user(request, gettext(
+                    "Settlement %(settlement)s cancelled: its commission is pending settlement again."
+                ) % {"settlement": settlement})
+
+        return self.confirm_action(
+            request, settlement,
+            title=gettext("Cancel settlement"),
+            explanation=gettext(
+                "Its commission will be pending settlement again, and the next settlement "
+                "of this agent will include it."
+            ),
+            run=cancel,
+        )

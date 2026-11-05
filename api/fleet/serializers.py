@@ -261,7 +261,7 @@ class PortePlanningSerializer(TruckCheckFieldsMixin):
     service_type_label = serializers.SerializerMethodField()
     is_machine_porte = serializers.SerializerMethodField()
     machine_id = serializers.SerializerMethodField()
-    machine_name = serializers.CharField(source="machine.name", allow_null=True, default=None)
+    machine_name = serializers.SerializerMethodField()
     machine_count = serializers.SerializerMethodField()
     machines = serializers.SerializerMethodField()
     pickup_done = serializers.SerializerMethodField()
@@ -273,6 +273,7 @@ class PortePlanningSerializer(TruckCheckFieldsMixin):
         self._coord_cache = {}
         self._checklist_cache = {}
         self._progress_cache = {}
+        self._machine_links_cache = {}
 
     def _coords(self, zone):
         key = zone.pk if zone is not None else None
@@ -326,12 +327,20 @@ class PortePlanningSerializer(TruckCheckFieldsMixin):
         return planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA
 
     def get_machine_id(self, planning):
-        return planning.machine_id or 0
+        machine = planning.effective_machine(self._machine_links(planning))
+        return machine.id if machine else 0
+
+    def get_machine_name(self, planning):
+        machine = planning.effective_machine(self._machine_links(planning))
+        return machine.name if machine else None
 
     def _machine_links(self, planning):
-        if not self.get_is_machine_porte(planning):
-            return []
-        return list(planning.planning_machines.select_related("machine", "to_zone", "planning__destination").all())
+        if planning.pk not in self._machine_links_cache:
+            links = []
+            if self.get_is_machine_porte(planning):
+                links = list(planning.planning_machines.select_related("machine", "to_zone", "planning__destination").all())
+            self._machine_links_cache[planning.pk] = links
+        return self._machine_links_cache[planning.pk]
 
     def get_machine_count(self, planning):
         return len(self._machine_links(planning))

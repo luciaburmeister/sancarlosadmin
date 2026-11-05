@@ -379,6 +379,8 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             )
             planning.suggested_trucks.set(obj.suggested_trucks.all())
             planning.moved_employees.set(obj.moved_employees.all())
+            if obj.machine_id:
+                planning.planning_machines.create(machine=obj.machine, assigned_by_dispatch=True)
 
             if previous_planning is not None:
                 previous_planning.superseded_by = planning

@@ -233,7 +233,8 @@ class PorteStrategy(BaseManualTransactionStrategy):
         asset = self._resolve_asset()
         self.data = dict(self.data)
         self.data.setdefault(PorteTransactionDataKey.LOAD_DESCRIPTION, self.planning.load_description or "")
-        self.data.setdefault(PorteTransactionDataKey.MACHINE_ID, self.planning.machine_id)
+        effective_machine = self.planning.effective_machine()
+        self.data.setdefault(PorteTransactionDataKey.MACHINE_ID, effective_machine.id if effective_machine else None)
         self.data.setdefault(PorteTransactionDataKey.CLIENT_ID, None)
         self._set_if_blank(PorteTransactionDataKey.MATRICULA, self.planning.transport_plate())
         self._stamp_planning_id()
@@ -252,8 +253,9 @@ class PorteStrategy(BaseManualTransactionStrategy):
             return self.asset_override
         # Mirrors PorteSubmitView: the asset/truck, except on delivery for a
         # machine-porte, where the assigned machine is what's being delivered.
-        if self.transaction_type == TransactionTypeChoices.PORTE_DELIVERY and self.planning.machine_id:
-            asset = self.planning.machine
+        machine = self.planning.effective_machine() if self.transaction_type == TransactionTypeChoices.PORTE_DELIVERY else None
+        if machine is not None:
+            asset = machine
         else:
             asset = self.planning.asset or self.planning.transport_asset
         if asset is None:

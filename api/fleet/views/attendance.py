@@ -195,7 +195,7 @@ class PlanningNextTaskView(APIView):
             scheduled_time__isnull=False,
         ).select_related(
             "asset", "reserved_asset", "reserved_asset__current_working_zone",
-            "origin", "destination", "transport_asset",
+            "origin", "destination", "transport_asset", "machine",
         ).prefetch_related("stops__zone")
         planning = today_jobs.filter(
             status=PlanningStatus.IN_TRANSIT,
@@ -363,7 +363,7 @@ class PortesPlanningListView(APIView):
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.PORTE,
             scheduled_time__isnull=False,
-        ).select_related("asset", "origin", "destination", "transport_asset").order_by("scheduled_time", "pk")
+        ).select_related("asset", "origin", "destination", "transport_asset", "machine").order_by("scheduled_time", "pk")
         data = []
         truck_context = truck_state_context(employee)
         # Same truck, several portes: only the earliest is scannable via QR.

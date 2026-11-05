@@ -1441,10 +1441,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         Asset, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="machine_plannings", verbose_name=_("Machine"),
         limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
-        help_text=_(
-            "Own-machine transport only — the first/primary machine, kept in sync automatically. "
-            "To add or edit machines, use the Planning Machines table below, not this field."
-        ),
+        help_text=_("Own-machine transport only — the machine being carried, separate from the cuba used to transport it."),
     )
     origin = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_origin", verbose_name=_("From Zone"))
     destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))
@@ -1663,13 +1660,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         required = SERVICE_TYPE_FIELDS.get(self.service_type, set())
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
-        # Unlike AssetPlanningRequest (below), a planning's own `machine` is
-        # no longer something you type in directly here -- it's a read-only
-        # mirror (see AssetPlanningAdmin), kept in sync by the mobile app's
-        # scans or by adding rows in the Planning Machines table below, both
-        # of which can legitimately happen after this planning is first
-        # created. So it's never required at save time, only reset if the
-        # service type stops needing one at all.
+        # Not required at save time even when the service type needs one --
+        # the mobile app's scans and the Planning Machines table below can
+        # legitimately set it after this planning is first created. Only
+        # reset if the service type stops needing one at all.
         if "machine" not in required:
             self.machine = None
 
@@ -1905,6 +1899,20 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
             "pickup_done": by_key.get(ChecklistStepKey.RECOGER) == done,
             "load_done": by_key.get(ChecklistStepKey.CARGA) == done,
         }
+
+    def effective_machine(self, machine_links=None):
+        """The machine to treat as *the* machine on this planning: the first
+        entry in the Planning Machines table when one exists -- the source
+        of truth once dispatch or a scan has set one up -- else the legacy
+        `machine` field as a fallback, for a planning that predates that
+        table or hasn't been scanned yet. Pass an already-fetched
+        `machine_links` list (e.g. from a serializer) to avoid a second
+        query when the caller already has one."""
+        if machine_links is not None:
+            first_link = machine_links[0] if machine_links else None
+        else:
+            first_link = self.planning_machines.first()
+        return first_link.machine if first_link else self.machine
 
     def suppresses_pending_dropoff_warning(self, pending_dropoff):
         if pending_dropoff is None:

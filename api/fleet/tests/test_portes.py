@@ -559,6 +559,34 @@ class PorteMultiMachineTests(PorteTestCase):
         other_entry = next(m for m in data["machines"] if m["id"] == self.other_machine.id)
         self.assertEqual(other_entry["to_zone_name"], "Otro Destino")
 
+    def test_serializer_prefers_planning_machines_over_legacy_field_when_they_disagree(self):
+        """The legacy `machine` field is editable in the admin again, so it
+        can drift from the Planning Machines table. The app must never
+        surface that drift -- machine_id/machine_name always reflect the
+        tracked row, falling back to the legacy field only when there is no
+        row at all."""
+        from api.fleet.serializers import PortePlanningSerializer
+
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.machine = self.other_machine  # hand-edited to disagree with the tracked row
+        planning.save(update_fields=["machine"])
+        planning.planning_machines.create(machine=self.machine, sequence=1)
+
+        data = PortePlanningSerializer(planning).data
+        self.assertEqual(data["machine_id"], self.machine.id)
+        self.assertEqual(data["machine_name"], "MAQUINA-1")
+
+    def test_serializer_falls_back_to_legacy_field_with_no_tracked_row(self):
+        from api.fleet.serializers import PortePlanningSerializer
+
+        planning = self._make_planning(service_type="porte_maquina")
+        planning.machine = self.machine
+        planning.save(update_fields=["machine"])
+
+        data = PortePlanningSerializer(planning).data
+        self.assertEqual(data["machine_id"], self.machine.id)
+        self.assertEqual(data["machine_name"], "MAQUINA-1")
+
     def test_checklist_stays_flat_regardless_of_machine_count(self):
         """No "do machine 1 then machine 2" ordering is implied anywhere --
         the checklist is the same 3 generic steps whether there's one

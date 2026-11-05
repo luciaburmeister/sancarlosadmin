@@ -11,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
-from company.models import CompanyOwnedModel
+from company.models import CompanyOwnedModel, WorkingZone
 from timestamps.models import Timestampable
 from sales.models import Client
 from management.services import ProjectFileService
@@ -411,6 +411,36 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             resolved_count=resolved_count,
             unresolved_transaction_ids=unresolved_ids,
         )
+
+    def extra_travel_km(self) -> float | None:
+        """Driving distance (km) from the company's home-base WorkingZone to
+        this project file's own work site (its WorkingZone of type OBRA),
+        billable only when that site isn't in the home base's city. Returns
+        None -- never 0 -- when there's no home base configured, no work
+        site on this file, both share a city, or the route can't be
+        resolved, so callers don't mistake "not applicable" for "0km"."""
+        home_base = self.company.home_base_zone
+        if not home_base:
+            return None
+
+        site = self.working_zones.filter(zone_type=WorkingZone.ZoneType.OBRA, is_active=True).first()
+        if not site:
+            return None
+
+        if site.city.strip().casefold() == home_base.city.strip().casefold():
+            return None
+
+        try:
+            from assets.services.route_optimizer import GoogleRouteOptimizer
+
+            return GoogleRouteOptimizer().get_distance_km(home_base, site)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "extra_travel_km failed for ProjectFile %s", self.pk, exc_info=True,
+            )
+            return None
 
     def production_tickets_summary(self):
         """Every production ticket linked to this project file -- direct FK or,

@@ -298,6 +298,19 @@ class Company(models.Model):
             "register asset receptions from a project file."
         ),
     )
+    home_base_zone = models.ForeignKey(
+        "company.WorkingZone",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Home base zone"),
+        help_text=_(
+            "The company's home base (e.g. its main depot). Used to bill extra "
+            "travel distance on project files whose working zone is in a "
+            "different city."
+        ),
+    )
     ideal_daily_work_minutes = models.PositiveIntegerField(
         default=480,
         verbose_name=_("Ideal daily work minutes"),

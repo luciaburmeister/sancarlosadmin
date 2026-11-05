@@ -125,13 +125,14 @@ class WorkEntryService:
         return context
 
     @classmethod
-    def build_full_context(cls, entry_type, source_object=None, quantity=Decimal("1.00")) -> dict:
+    def build_full_context(cls, entry_type, source_object=None, quantity=Decimal("1.00"), project_file=None) -> dict:
         """
         Build the complete context for pricing evaluation:
         1. Base: quantity
         2. Source fields
-        3. Linked materials (static cost_per_unit)
-        4. Linked components (dynamic: evaluated via price rules with context)
+        3. Project file travel distance (extra_km)
+        4. Linked materials (static cost_per_unit)
+        5. Linked components (dynamic: evaluated via price rules with context)
         """
         context = {
             "quantity": float(quantity),
@@ -142,7 +143,13 @@ class WorkEntryService:
             source_ctx = cls.build_source_context(source_object)
             context.update(source_ctx)
 
-        # Layer 3: Linked materials pricing (static cost)
+        # Layer 3: Extra travel distance from the company's home base to the
+        # project file's work site, when billable (see ProjectFile.extra_travel_km).
+        if project_file is not None:
+            extra_km = project_file.extra_travel_km()
+            context["extra_km"] = extra_km if extra_km is not None else 0.0
+
+        # Layer 4: Linked materials pricing (static cost)
         if entry_type.pk:
             materials_ctx = {}
             for mat in entry_type.materials.all():
@@ -151,7 +158,7 @@ class WorkEntryService:
             if materials_ctx:
                 context["materials"] = materials_ctx
 
-            # Layer 4: Linked components as lazy accessor
+            # Layer 5: Linked components as lazy accessor
             # Components are NOT eagerly evaluated — they become a lazy
             # object so pricing step expressions can set variables (e.g.
             # MATERIAL_CUBA, CAPACIDAD) BEFORE the component's price rules
@@ -242,7 +249,7 @@ class WorkEntryService:
         from management.models import WorkEntry
 
         model_class = entry_type.entry_model
-        context = cls.build_full_context(entry_type, source_object, quantity)
+        context = cls.build_full_context(entry_type, source_object, quantity, project_file=project_file)
 
         # Compute unit price
         unit_price = entry_type.compute_unit_price(context)

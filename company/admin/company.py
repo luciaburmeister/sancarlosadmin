@@ -500,7 +500,7 @@ class CompanyAdmin(ModelAdmin):
         ] + super().get_urls()
 
     readonly_fields = ("terms_import_hint",)
-    autocomplete_fields = ("asset_reception_product",)
+    autocomplete_fields = ("asset_reception_product", "home_base_zone")
     inlines = [
         BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline,
         AssetPlanningNotificationRecipientInline, EmailReplyToInline,
@@ -557,6 +557,7 @@ class CompanyAdmin(ModelAdmin):
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",
                 "asset_reception_product",
+                "home_base_zone",
                 "ideal_daily_work_minutes",
                 "claude_api_key",
             ),

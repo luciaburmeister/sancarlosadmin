@@ -147,7 +147,10 @@ class ProductTemplate(CompanyOwnedModel):
         verbose_name=_("Exclude from invoicing"),
         help_text=_(
             "Configurations of this product are never included in the project file "
-            "invoiceable summary or invoices (e.g. vehicle reception). They also skip "
+            "invoiceable summary or invoices, whether created directly (e.g. vehicle "
+            "reception) or through an accepted quote (e.g. a price-only rate quoted "
+            "up front and actually billed later through another source, such as a "
+            "work entry per real movement). Direct configurations also skip "
             "production ticket and receival slip creation in the shop flow."
         ),
     )

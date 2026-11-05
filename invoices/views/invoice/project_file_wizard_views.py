@@ -190,7 +190,11 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         for quote_data in summary['quotes']:
             quote = quote_data['quote']
 
+            # .all() (not .exclude(...)) reuses get_invoiceable_summary's
+            # configurations__product prefetch instead of a query per quote
             for config in quote.configurations.all():
+                if config.product_id and config.product.exclude_from_invoicing:
+                    continue
                 sub = config.subtotal_price.amount
                 tot = config.total_price.amount
                 item_price = (sub * ratio).quantize(Decimal("0.01"))

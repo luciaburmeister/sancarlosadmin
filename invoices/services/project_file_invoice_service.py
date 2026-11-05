@@ -128,7 +128,7 @@ class ProjectFileInvoiceService:
         accepted_quotes = Quote.objects.filter(
             project_file=project_file,
             status=QuoteStatus.ACCEPTED,
-        ).order_by('id')
+        ).order_by('id').prefetch_related('configurations__product')
 
         total_invoiceable = Decimal("0.00")
         total_invoiceable_subtotal = Decimal("0.00")
@@ -140,13 +140,24 @@ class ProjectFileInvoiceService:
         quotes_data = []
 
         for quote in accepted_quotes:
-            total_amt = Decimal(str(quote.total_price.amount))
-            subtotal_amt = Decimal(str(quote.subtotal_price.amount))
-            tax_amt = Decimal(str(quote.tax_amount.amount))
+            # Configurations never billed (build_items_for_ratio excludes
+            # them too) must not leave a phantom pending balance here.
+            # Exact without a basket-level discount on the quote.
+            excluded_subtotal = Decimal("0.00")
+            excluded_total = Decimal("0.00")
+            for config in quote.configurations.all():
+                if config.product_id and config.product.exclude_from_invoicing:
+                    excluded_subtotal += Decimal(str(config.subtotal_price.amount))
+                    excluded_total += Decimal(str(config.total_price.amount))
+
+            excluded_tax = excluded_total - excluded_subtotal
+            total_amt = Decimal(str(quote.total_price.amount)) - excluded_total
+            subtotal_amt = Decimal(str(quote.subtotal_price.amount)) - excluded_subtotal
+            tax_amt = Decimal(str(quote.tax_amount.amount)) - excluded_tax
             discounted_sub = (
                 Decimal(str(quote.discounted_subtotal.amount))
                 if quote.discounted_subtotal else subtotal_amt
-            )
+            ) - excluded_subtotal
             total_invoiceable += total_amt
             total_invoiceable_subtotal += subtotal_amt
             total_invoiceable_subtotal_net += discounted_sub
@@ -594,7 +605,9 @@ class ProjectFileInvoiceService:
         for quote_data in summary["quotes"]:
             quote = quote_data["quote"]
             quote_name = quote.project_name if show_vehicle_name else "."
-            for config in quote.configurations.prefetch_related("items__component").all():
+            for config in quote.configurations.exclude(
+                product__exclude_from_invoicing=True
+            ).prefetch_related("items__component").all():
                 sub = Decimal(str(config.subtotal_price.amount))
                 # Zero-value configs are kept as a single 0-amount line
                 if sub < 0:
@@ -903,12 +916,13 @@ class ProjectFileInvoiceService:
             status=QuoteStatus.ACCEPTED,
         )
 
-        # Get taxes from Configurations linked to accepted quotes
+        # Get taxes from Configurations linked to accepted quotes (excluding
+        # ones never billed, same as build_items_for_ratio)
         config_ct = ContentType.objects.get_for_model(Configuration)
         config_ids = list(
             Configuration.objects.filter(
                 quote__in=accepted_quotes
-            ).values_list('id', flat=True)
+            ).exclude(product__exclude_from_invoicing=True).values_list('id', flat=True)
         )
 
         # Also include direct configurations (shop/work-order flow)

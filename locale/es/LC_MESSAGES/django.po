@@ -23404,3 +23404,8 @@ msgstr "Los empleados de este tipo eligen su camión y registran sus km al ficha
 
 msgid "The planning that required this truck, when opened by a truck change."
 msgstr "La planificación que requería este camión, cuando se abrió por un cambio de camión."
+
+#: core/admin/global_search.py
+#, python-format
+msgid "See all results in %(model)s"
+msgstr "Ver todos los resultados en %(model)s"

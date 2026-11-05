@@ -45,3 +45,8 @@ msgstr "Schéma"
 #: invoices/sepa.py
 msgid "Must match the mandates the clients signed: B2B only for businesses that registered the mandate with their bank."
 msgstr "Doit correspondre aux mandats signés par les clients : B2B uniquement pour les entreprises ayant enregistré le mandat auprès de leur banque."
+
+#: core/admin/global_search.py
+#, python-format
+msgid "See all results in %(model)s"
+msgstr "Voir tous les résultats dans %(model)s"

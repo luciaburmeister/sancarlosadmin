@@ -565,13 +565,7 @@ UNFOLD = {
     # Sidebar search / Cmd+K also searches these models' records, using each
     # admin's own search_fields and company-scoped get_queryset.
     "COMMAND": {
-        "search_models": [
-            "sales.client",
-            "management.projectfile",
-            "sales.quote",
-            "invoices.salesinvoice",
-            "materials.provider",
-        ],
+        "search_callback": "core.admin.global_search.search_callback",
     },
     "SIDEBAR": {
         "show_search": True,  

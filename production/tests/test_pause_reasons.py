@@ -150,6 +150,66 @@ class PauseReasonsTest(TestCase):
         self.assertEqual(started["status"], ProductionItemStatus.IN_PROGRESS)
         self.assertNotIn(StagesToSessionsService.RELEASED_TO_ASSIGNED, started)
 
+    def test_update_pause_reason_changes_stored_value(self):
+        self._start(self.jose)
+        StagesToSessionsService.leave_activity(
+            stage_name=self.STAGE,
+            items=[self.item],
+            employee=self.jose,
+            pause_reason=self.REASON,
+        )
+        sessions_before = ProductionItemSession.objects.filter(production_item=self.item).count()
+
+        StagesToSessionsService.update_pause_reason(
+            stage_name=self.STAGE,
+            item=self.item,
+            pause_reason="Espera de cliente",
+        )
+
+        info = self._stage_info()
+        self.assertEqual(info["status"], ProductionItemStatus.IN_PROGRESS)
+        self.assertEqual(info["pause_reason"], "Espera de cliente")
+        self.assertEqual(
+            ProductionItemSession.objects.filter(production_item=self.item).count(),
+            sessions_before,
+        )
+
+    def test_update_pause_reason_rejected_while_someone_is_active(self):
+        self._start(self.jose)
+
+        with self.assertRaises(ValidationError):
+            StagesToSessionsService.update_pause_reason(
+                stage_name=self.STAGE,
+                item=self.item,
+                pause_reason="Espera de cliente",
+            )
+
+    def test_update_pause_reason_rejected_when_not_paused(self):
+        with self.assertRaises(ValidationError):
+            StagesToSessionsService.update_pause_reason(
+                stage_name=self.STAGE,
+                item=self.item,
+                pause_reason=self.REASON,
+            )
+
+    def test_update_pause_reason_rejects_unknown_reason(self):
+        self._start(self.jose)
+        StagesToSessionsService.leave_activity(
+            stage_name=self.STAGE,
+            items=[self.item],
+            employee=self.jose,
+            pause_reason=self.REASON,
+        )
+
+        with self.assertRaises(ValidationError):
+            StagesToSessionsService.update_pause_reason(
+                stage_name=self.STAGE,
+                item=self.item,
+                pause_reason="Motivo inventado",
+            )
+
+        self.assertEqual(self._stage_info()["pause_reason"], self.REASON)
+
     def test_release_rejected_while_someone_is_active(self):
         self._start(self.jose)
 

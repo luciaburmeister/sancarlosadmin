@@ -123,6 +123,11 @@ urlpatterns = [
         name="terminal_supervisor_release_paused_stage",
     ),
     path(
+        "production/supervisor/update-pause-reason/",
+        terminal.SupervisorUpdatePauseReasonView.as_view(),
+        name="terminal_supervisor_update_pause_reason",
+    ),
+    path(
         "production/supervisor/finish-stage/",
         terminal.SupervisorFinishStageView.as_view(),
         name="terminal_supervisor_finish_stage",

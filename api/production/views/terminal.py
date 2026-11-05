@@ -1092,6 +1092,38 @@ class SupervisorReleasePausedStageView(SharedTerminalAPIView):
         return JsonResponse({"success": True})
 
 
+class SupervisorUpdatePauseReasonView(SharedTerminalAPIView):
+    def post(self, request):
+        body = json.loads(request.body or b"{}")
+        supervisor_id = body.get("supervisor_id")
+        item_id = body.get("item_id")
+        stage_name = body.get("stage_name", "")
+        pause_reason = body.get("pause_reason")
+
+        try:
+            Employee.objects.get(
+                id=supervisor_id,
+                company=self.company,
+                is_production_supervisor=True,
+                is_active=True,
+            )
+        except Employee.DoesNotExist:
+            return JsonResponse({"error": _("Invalid supervisor.")}, status=403)
+
+        item = get_object_or_404(ProductionItem, id=item_id, company=self.company)
+        stage_name_n = _uc.normalize("NFC", stage_name)
+        try:
+            StagesToSessionsService.update_pause_reason(
+                stage_name=stage_name_n,
+                item=item,
+                pause_reason=pause_reason,
+            )
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
+        return JsonResponse({"success": True})
+
+
 # ─── Supervisor: close a stage with worker time attribution ───────────────────
 
 class SupervisorFinishStageView(SharedTerminalAPIView):

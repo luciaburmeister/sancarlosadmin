@@ -622,6 +622,28 @@ class StagesToSessionsService:
         cls._save_planning(item, stage_name, stage_info)
 
     @classmethod
+    def update_pause_reason(
+        cls, *, stage_name: str, item: ProductionItem, pause_reason: str
+    ) -> None:
+        """Change the recorded reason of a stage that is already paused."""
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        reason = cls._validated_pause_reason([item], pause_reason)
+        if not reason:
+            raise ValidationError(_("A pause reason is required."))
+        current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
+        if current_stage != stage_name or stage_info is None:
+            raise ValidationError(_("This stage's pause reason cannot be changed."))
+        status = stage_info.get("status") or ProductionItemStatus.PENDING
+        if status != ProductionItemStatus.IN_PROGRESS:
+            raise ValidationError(_("Only a paused stage's reason can be changed."))
+        if cls._stage_has_open_session(item, stage_name):
+            raise ValidationError(_("This stage still has an active employee."))
+        if not stage_info.get("pause_reason"):
+            raise ValidationError(_("This stage is not paused."))
+        stage_info["pause_reason"] = reason
+        cls._save_planning(item, stage_name, stage_info)
+
+    @classmethod
     def end_session(
         cls,
         *,

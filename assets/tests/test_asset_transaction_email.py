@@ -110,7 +110,8 @@ class LandfillReceiptEmailTests(TestCase):
 
     @patch("core.tasks.send_asset_transaction_email_task.delay")
     def test_automatic_send_queues_the_existing_email_task(self, delay):
-        email = self.pickup.queue_landfill_receipt_email()
+        with self.captureOnCommitCallbacks(execute=True):
+            email = self.pickup.queue_landfill_receipt_email()
 
         self.assertEqual(email, "vertedero@example.com")
         delay.assert_called_once_with(
@@ -119,10 +120,12 @@ class LandfillReceiptEmailTests(TestCase):
 
     @patch("core.tasks.send_asset_transaction_email_task.delay")
     def test_flag_off_skips_automatic_send_but_manual_still_uses_the_email(self, delay):
-        self.assertEqual(self.manual_pickup.queue_landfill_receipt_email(), "")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.manual_pickup.queue_landfill_receipt_email(), "")
         delay.assert_not_called()
 
-        email = self.manual_pickup.queue_landfill_receipt_email(require_auto=False)
+        with self.captureOnCommitCallbacks(execute=True):
+            email = self.manual_pickup.queue_landfill_receipt_email(require_auto=False)
 
         self.assertEqual(email, "sur@example.com")
         delay.assert_called_once_with(
@@ -138,7 +141,8 @@ class LandfillReceiptEmailTests(TestCase):
             date=timezone.now(),
         )
 
-        self.assertEqual(receipt.queue_landfill_receipt_email(), "")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(receipt.queue_landfill_receipt_email(), "")
         delay.assert_not_called()
 
     @patch("core.tasks.send_asset_transaction_email_task.delay")
@@ -157,7 +161,8 @@ class LandfillReceiptEmailTests(TestCase):
             date=timezone.now(),
         )
 
-        self.assertEqual(pickup.queue_landfill_receipt_email(), "")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(pickup.queue_landfill_receipt_email(), "")
         delay.assert_not_called()
 
     def test_automatic_send_requires_an_email(self):

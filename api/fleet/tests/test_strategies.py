@@ -131,7 +131,8 @@ class MovementStrategyTests(DriverFixtureMixin, TestCase):
         landfill.auto_send_receipt = True
         landfill.save()
 
-        self._run_movement()
+        with self.captureOnCommitCallbacks(execute=True):
+            self._run_movement()
 
         delay.assert_called_once()
         self.assertEqual(delay.call_args.kwargs["to_email"], "vertedero@example.com")
@@ -465,6 +466,19 @@ class ReceiptStrategyTests(DriverFixtureMixin, TestCase):
         tx = AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).first()
         self.assertEqual(tx.reference_number, "REF-003")
         self.assertNotIn("reference_number", tx.data)
+
+    def test_receipt_save_failure_rolls_back_the_transaction_too(self):
+        """Regression: the RECEIPT AssetTransaction and its AssetTransactionReceipt
+        used to be two separate, non-atomic writes -- a failure on the receipt
+        save (e.g. DI numbering) left an orphaned transaction invisible to the
+        Receipt admin's search."""
+        with patch("assets.models.AssetTransactionReceipt.save", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self._run_receipt()
+        self.assertFalse(
+            AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).exists()
+        )
+        self.assertEqual(AssetTransactionReceipt.objects.count(), 0)
 
     def test_receipt_requires_nro_albaran(self):
         """

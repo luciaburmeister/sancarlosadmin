@@ -81,12 +81,13 @@ class CreateManualTransactionMovementTests(TestCase):
         landfill.auto_send_receipt = True
         landfill.save()
 
-        transaction = create_manual_transaction(
-            planning=self.planning,
-            transaction_type=TransactionTypeChoices.MOVEMENT,
-            zone=self.zone,
-            data={CubaTransactionKey.LANDFILL: "Vertedero Norte"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            transaction = create_manual_transaction(
+                planning=self.planning,
+                transaction_type=TransactionTypeChoices.MOVEMENT,
+                zone=self.zone,
+                data={CubaTransactionKey.LANDFILL: "Vertedero Norte"},
+            )
 
         self.assertIsNone(transaction.to_zone_id)
         delay.assert_called_once()
@@ -371,6 +372,22 @@ class CreateManualTransactionReceiptTests(TestCase):
         self.assertEqual(implicit_pickups.count(), 1)
         self.assertEqual(
             implicit_pickups.get().data[PorteTransactionDataKey.PLANNING_ID], self.planning.pk,
+        )
+
+    def test_receipt_save_failure_rolls_back_the_transaction_too(self):
+        """Regression: the RECEIPT AssetTransaction and its AssetTransactionReceipt
+        used to be two separate, non-atomic writes -- a failure on the receipt
+        save (e.g. DI numbering) left an orphaned transaction invisible to the
+        Receipt admin's search."""
+        with patch("assets.models.AssetTransactionReceipt.save", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                create_manual_transaction(
+                    planning=self.planning,
+                    transaction_type=TransactionTypeChoices.RECEIPT,
+                    data={"nro_albaran": "01083485"},
+                )
+        self.assertFalse(
+            AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).exists()
         )
 
     def test_receipt_without_prior_delivery_has_no_implicit_repickup(self):

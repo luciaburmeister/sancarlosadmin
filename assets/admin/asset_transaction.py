@@ -310,12 +310,18 @@ class AssetTransactionReceiptAdmin(RegenerateDocumentAdminMixin, ModelAdmin):
     form = AssetTransactionReceiptAdminForm
     regenerate_document_url_name = "assets_assettransactionreceipt_regenerate_document"
     change_url_name = "admin:assets_assettransactionreceipt_change"
-    list_display = ("nro_albaran", "di_number", "part_display", "transaction", "movement_transaction", "foto_thumbnail", "created_at")
+    list_display = ("nro_albaran", "transaction_reference_number", "di_number", "part_display", "transaction", "movement_transaction", "foto_thumbnail", "created_at")
     list_filter = (
         ("transaction__asset", AutocompleteSelectMultipleFilter),
         ("created_at", RangeDateTimeFilter),
     )
-    search_fields = ("nro_albaran", "=di_number", "transaction__asset__name", "movement_transaction__asset__name")
+    search_fields = (
+        "nro_albaran",
+        "=di_number",
+        "transaction__reference_number",
+        "transaction__asset__name",
+        "movement_transaction__asset__name",
+    )
     autocomplete_fields = ["transaction", "movement_transaction"]
     list_select_related = ["transaction__asset", "movement_transaction__asset"]
     formfield_overrides = {
@@ -354,6 +360,10 @@ class AssetTransactionReceiptAdmin(RegenerateDocumentAdminMixin, ModelAdmin):
         if not request.user.is_superuser:
             fields.append("di_number")
         return fields
+
+    @admin.display(description=_("Customer Reference"), ordering="transaction__reference_number")
+    def transaction_reference_number(self, obj):
+        return obj.transaction.reference_number
 
     @admin.display(description="Foto")
     def foto_thumbnail(self, obj):

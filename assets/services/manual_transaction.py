@@ -8,6 +8,7 @@ One strategy class per transaction_type, mirroring the mobile app's own split
 api.fleet.views.attendance.PorteSubmitView) -- same field resolution and side
 effects, minus the mobile-only concerns (GPS, QR-scan gating, photo capture).
 """
+from django.db import transaction as db_transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -295,4 +296,5 @@ def create_manual_transaction(*, planning, transaction_type, zone=None, performe
         performed_by=performed_by, notes=notes, data=data, asset=asset,
         reference_number=reference_number,
     )
-    return strategy.execute()
+    with db_transaction.atomic():
+        return strategy.execute()

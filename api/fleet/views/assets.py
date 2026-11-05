@@ -7,6 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
+from django.db import transaction as db_transaction
 from django.db.models import Prefetch
 from assets.constants import AssignRequestKey
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey, AssetDataKey
@@ -648,43 +649,45 @@ class ReceiptStrategy(BaseTransactionStrategy):
         ).order_by("-date").first()
         form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran", "reference_number")}
         movement_project_file = movement_tx.project_file if movement_tx else None
-        transaction = AssetTransaction(
-            asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
-            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
-            project_file=AssetTransaction.resolve_project_file(planning, movement_project_file),
-            planning=planning, reference_number=reference_number,
-            notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
-            data=form_data,
-        )
-        transaction.save()
-        receipt = AssetTransactionReceipt(
-            transaction=transaction, nro_albaran=nro_albaran,
-            data={"peso_neto": peso_neto, "material_vertido": material_vertido},
-            movement_transaction=movement_tx,
-        )
-        foto_file = _base64_to_image_file(foto_b64)
-        if foto_file:
-            receipt.foto.save(foto_file.name, foto_file, save=False)
-        receipt.save()
-        # If this cuba had already been dropped off (e.g. left full at an almacén)
-        # before this verteo, the verteo itself implies picking it back up to take
-        # it to the vertedero — register that pickup too, so the rest of the system
-        # (status, Home "cuba sin resolver" card, Escanear/Dejar buttons) correctly
-        # treats it as back on the truck instead of still "delivered" at the almacén.
-        was_delivered_since_pickup = movement_tx is not None and AssetTransaction.objects.filter(
-            asset=asset, transaction_type=TransactionTypeChoices.DELIVERY, date__gt=movement_tx.date,
-        ).exists()
-        if was_delivered_since_pickup:
-            AssetTransaction.objects.create(
-                asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
-                transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
-                project_file=transaction.project_file,
-                planning=planning,
-                notes=f"Recogida implícita al verter (ya estaba entregada) por {user.username}.",
-                data={CubaTransactionKey.ESTADO: CubaFillState.EMPTY},
+
+        with db_transaction.atomic():
+            transaction = AssetTransaction(
+                asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
+                transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
+                project_file=AssetTransaction.resolve_project_file(planning, movement_project_file),
+                planning=planning, reference_number=reference_number,
+                notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
+                data=form_data,
             )
-        if planning is not None:
-            planning.sync_cuba_operation_status()
+            transaction.save()
+            receipt = AssetTransactionReceipt(
+                transaction=transaction, nro_albaran=nro_albaran,
+                data={"peso_neto": peso_neto, "material_vertido": material_vertido},
+                movement_transaction=movement_tx,
+            )
+            foto_file = _base64_to_image_file(foto_b64)
+            if foto_file:
+                receipt.foto.save(foto_file.name, foto_file, save=False)
+            receipt.save()
+            # If this cuba had already been dropped off (e.g. left full at an almacén)
+            # before this verteo, the verteo itself implies picking it back up to take
+            # it to the vertedero — register that pickup too, so the rest of the system
+            # (status, Home "cuba sin resolver" card, Escanear/Dejar buttons) correctly
+            # treats it as back on the truck instead of still "delivered" at the almacén.
+            was_delivered_since_pickup = movement_tx is not None and AssetTransaction.objects.filter(
+                asset=asset, transaction_type=TransactionTypeChoices.DELIVERY, date__gt=movement_tx.date,
+            ).exists()
+            if was_delivered_since_pickup:
+                AssetTransaction.objects.create(
+                    asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
+                    transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
+                    project_file=transaction.project_file,
+                    planning=planning,
+                    notes=f"Recogida implícita al verter (ya estaba entregada) por {user.username}.",
+                    data={CubaTransactionKey.ESTADO: CubaFillState.EMPTY},
+                )
+            if planning is not None:
+                planning.sync_cuba_operation_status()
         response_data = {
             "success": True,
             "message": "Verteo registrado correctamente.",

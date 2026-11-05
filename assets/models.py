@@ -915,8 +915,10 @@ class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampabl
             return ""
         from core.tasks import send_asset_transaction_email_task
 
-        send_asset_transaction_email_task.delay(
-            self.pk, to_email=email, reply_to=reply_to,
+        transaction.on_commit(
+            lambda: send_asset_transaction_email_task.delay(
+                self.pk, to_email=email, reply_to=reply_to,
+            )
         )
         return email
 

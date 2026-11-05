@@ -22,6 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
+from api.fleet.future_planning import future_planning_error
 from api.fleet.serializers import CubaPlanningSerializer, PortePlanningSerializer, truck_state_context
 
 
@@ -172,7 +173,9 @@ class PlanningNextTaskView(APIView):
 
     Scoped to today only: a plan left open from a previous day (missed, delayed, never
     resolved) must not leak into today's queue, and a future day's plan must not be
-    revealed early. Stale open plans from past days are dispatch's problem to reassign
+    actionable early. Once today's queue is empty, ``next_day_task`` previews the first
+    PENDING plan of the next scheduled day (view-only — every action endpoint refuses
+    it via api.fleet.future_planning). Stale open plans from past days are dispatch's problem to reassign
     via the schedule — see AssetPlanning.abandoned_stage / the "horario" admin view.
 
     To support a new planning type, register its serializer in _TASK_SERIALIZERS above
@@ -186,17 +189,17 @@ class PlanningNextTaskView(APIView):
     def get(self, request):
         employee = get_current_employee(request.user)
         if employee is None:
-            return JsonResponse({"task": None, "pending_dropoff": None})
+            return JsonResponse({"task": None, "pending_dropoff": None, "next_day_task": None})
         today = timezone.localdate()
-        today_jobs = AssetPlanning.objects.filter(
+        driver_jobs = AssetPlanning.objects.filter(
             assigned_to=employee,
             planning_type__in=DRIVER_TASK_PLANNING_TYPES,
-            scheduled_date=today,
             scheduled_time__isnull=False,
         ).select_related(
             "asset", "reserved_asset", "reserved_asset__current_working_zone",
             "origin", "destination", "transport_asset", "machine",
         ).prefetch_related("stops__zone")
+        today_jobs = driver_jobs.filter(scheduled_date=today)
         planning = today_jobs.filter(
             status=PlanningStatus.IN_TRANSIT,
         ).order_by("scheduled_time", "route_order", "pk").first()
@@ -212,12 +215,28 @@ class PlanningNextTaskView(APIView):
                 if planning is not None else False
             )
 
+        context = truck_state_context(employee)
         if planning is None:
-            return JsonResponse({"task": None, "pending_dropoff": pending_dropoff})
-        task = self._serialize_task(planning, truck_state_context(employee))
+            return JsonResponse({
+                "task": None,
+                "pending_dropoff": pending_dropoff,
+                "next_day_task": self._next_day_task(driver_jobs, today, context),
+            })
+        task = self._serialize_task(planning, context)
         if task is None:
             return JsonResponse({"error": f"No serializer registered for planning type '{planning.planning_type}'."}, status=500)
-        return JsonResponse({"task": task, "pending_dropoff": pending_dropoff})
+        return JsonResponse({"task": task, "pending_dropoff": pending_dropoff, "next_day_task": None})
+
+    @classmethod
+    def _next_day_task(cls, driver_jobs, today, context):
+        """First PENDING plan on the earliest day after today that has one (so on
+        a Friday with an empty weekend this is Monday's first plan), or None."""
+        planning = driver_jobs.filter(
+            scheduled_date__gt=today, status=PlanningStatus.PENDING,
+        ).order_by("scheduled_date", "scheduled_time", "route_order", "pk").first()
+        if planning is None:
+            return None
+        return cls._serialize_task(planning, context)
 
     @staticmethod
     def _serialize_task(planning, context=None):
@@ -385,7 +404,6 @@ class PorteSubmitView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, planning_id):
-        from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
         from assets.models import (
             AssetPlanning, AssetPlanningMachine, AssetPlanningMachineStatus, AssetTypeCategory, PlanningType,
         )
@@ -409,6 +427,9 @@ class PorteSubmitView(APIView):
         if action not in PORTE_ACTION_TRANSACTION_TYPES:
             valid = ", ".join(PorteAction.values)
             return JsonResponse({"error": f"action must be one of: {valid}"}, status=400)
+        future_error = future_planning_error(planning)
+        if future_error is not None:
+            return future_error
         if truck_km.enforces_truck_check(request):
             try:
                 truck_km.check_planning_truck(planning, employee)
@@ -423,7 +444,7 @@ class PorteSubmitView(APIView):
         tonnes_transported = raw.get("tonnes_transported", "")
         package_count = raw.get("package_count", "")
         reference_number = raw.get("reference_number", "")
-        is_machine_porte = planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA
+        is_machine_porte = planning.is_machine_porte
         transaction_type = PORTE_ACTION_TRANSACTION_TYPES[action]
 
         tx_asset = planning.asset or planning.transport_asset

@@ -108,10 +108,25 @@ class PorteMachineSerializer(serializers.Serializer):
     name = serializers.SerializerMethodField()
     sequence = serializers.IntegerField()
     status = serializers.CharField()
+    from_zone_name = serializers.SerializerMethodField()
+    from_zone_address = serializers.SerializerMethodField()
     to_zone_name = serializers.SerializerMethodField()
+    to_zone_address = serializers.SerializerMethodField()
 
     def get_name(self, link):
         return link.machine.name if link.machine_id else ""
+
+    def get_from_zone_name(self, link):
+        zone = link.effective_from_zone
+        return zone.name if zone else None
+
+    def get_from_zone_address(self, link):
+        zone = link.effective_from_zone
+        return zone.full_address if zone else None
+
+    def get_to_zone_address(self, link):
+        zone = link.effective_to_zone
+        return zone.full_address if zone else None
 
     def get_to_zone_name(self, link):
         zone = link.effective_to_zone
@@ -163,6 +178,7 @@ class CubaPlanningSerializer(TruckCheckFieldsMixin):
     )
     route_order = serializers.IntegerField(allow_null=True)
     scheduled_date = serializers.DateField(format="%d/%m/%Y")
+    scheduled_time = serializers.TimeField(format="%H:%M", allow_null=True)
     status = serializers.CharField()
     notes = serializers.CharField(allow_blank=True, allow_null=True)
     service_type = serializers.CharField(allow_blank=True, allow_null=True)
@@ -242,15 +258,18 @@ class PortePlanningSerializer(TruckCheckFieldsMixin):
     asset_name = serializers.SerializerMethodField()
     asset_assigned = serializers.SerializerMethodField()
     load_description = serializers.CharField(allow_blank=True, allow_null=True)
-    origin = serializers.CharField(source="origin.name", allow_null=True, default=None)
-    origin_address = serializers.CharField(source="origin.full_address", allow_null=True, default=None)
+    # origin/destination fall back to the first machine's own zones when the
+    # planning leaves them blank (machine portes set per-machine zones only).
+    origin = serializers.SerializerMethodField()
+    origin_address = serializers.SerializerMethodField()
     origin_lat = serializers.SerializerMethodField()
     origin_lon = serializers.SerializerMethodField()
-    destination = serializers.CharField(source="destination.name", allow_null=True, default=None)
-    destination_address = serializers.CharField(source="destination.full_address", allow_null=True, default=None)
+    destination = serializers.SerializerMethodField()
+    destination_address = serializers.SerializerMethodField()
     destination_lat = serializers.SerializerMethodField()
     destination_lon = serializers.SerializerMethodField()
     scheduled_date = serializers.DateField(format="%d/%m/%Y")
+    scheduled_time = serializers.TimeField(format="%H:%M", allow_null=True)
     status = serializers.CharField()
     notes = serializers.CharField(allow_blank=True, allow_null=True)
     transport_asset = MachineAssetSerializer(allow_null=True)
@@ -308,23 +327,51 @@ class PortePlanningSerializer(TruckCheckFieldsMixin):
     def get_asset_assigned(self, planning):
         return planning.asset_id is not None
 
+    def _origin(self, planning):
+        if planning.origin_id:
+            return planning.origin
+        links = self._machine_links(planning)
+        return links[0].effective_from_zone if links else None
+
+    def _destination(self, planning):
+        if planning.destination_id:
+            return planning.destination
+        links = self._machine_links(planning)
+        return links[0].effective_to_zone if links else None
+
+    def get_origin(self, planning):
+        zone = self._origin(planning)
+        return zone.name if zone else None
+
+    def get_origin_address(self, planning):
+        zone = self._origin(planning)
+        return zone.full_address if zone else None
+
     def get_origin_lat(self, planning):
-        return self._coords(planning.origin)[0]
+        return self._coords(self._origin(planning))[0]
 
     def get_origin_lon(self, planning):
-        return self._coords(planning.origin)[1]
+        return self._coords(self._origin(planning))[1]
+
+    def get_destination(self, planning):
+        zone = self._destination(planning)
+        return zone.name if zone else None
+
+    def get_destination_address(self, planning):
+        zone = self._destination(planning)
+        return zone.full_address if zone else None
 
     def get_destination_lat(self, planning):
-        return self._coords(planning.destination)[0]
+        return self._coords(self._destination(planning))[0]
 
     def get_destination_lon(self, planning):
-        return self._coords(planning.destination)[1]
+        return self._coords(self._destination(planning))[1]
 
     def get_service_type_label(self, planning):
         return planning.get_service_type_display() if planning.service_type else None
 
     def get_is_machine_porte(self, planning):
-        return planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA
+        return planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA or bool(self._porte_machine_rows(planning))
 
     def get_machine_id(self, planning):
         machine = planning.effective_machine(self._machine_links(planning))
@@ -334,13 +381,19 @@ class PortePlanningSerializer(TruckCheckFieldsMixin):
         machine = planning.effective_machine(self._machine_links(planning))
         return machine.name if machine else None
 
-    def _machine_links(self, planning):
+    def _porte_machine_rows(self, planning):
+        """All Planning Machines rows, fetched once per planning. Same rule as
+        AssetPlanning.is_machine_porte without the extra exists() query."""
         if planning.pk not in self._machine_links_cache:
-            links = []
-            if self.get_is_machine_porte(planning):
-                links = list(planning.planning_machines.select_related("machine", "to_zone", "planning__destination").all())
-            self._machine_links_cache[planning.pk] = links
+            self._machine_links_cache[planning.pk] = list(
+                planning.planning_machines.select_related(
+                    "machine", "from_zone", "to_zone", "planning__origin", "planning__destination",
+                ).all()
+            )
         return self._machine_links_cache[planning.pk]
+
+    def _machine_links(self, planning):
+        return self._porte_machine_rows(planning) if self.get_is_machine_porte(planning) else []
 
     def get_machine_count(self, planning):
         return len(self._machine_links(planning))

@@ -610,3 +610,63 @@ class PorteMultiMachineTests(PorteTestCase):
         self._submit(planning, "carga", extra={"asset_id": self.machine.id})
         planning.refresh_from_db()
         self.assertTrue(planning.porte_progress_flags()["load_done"])
+
+
+class PorteMachinesWithoutServiceTypeTests(PorteTestCase):
+    """Dispatch filled Planning Machines but left service_type blank and the
+    planning's own origin/destination empty (local plan 677). The machines and
+    their zones must still reach the app, and submit must run the machine flow."""
+
+    def setUp(self):
+        super().setUp()
+        self.machine_type = make_asset_type(self.company, name="Retroexcavadora", category=AssetTypeCategory.MACHINE)
+        self.machine = Asset.objects.create(company=self.company, asset_type=self.machine_type, name="MAQUINA-1")
+        self.planning = AssetPlanning.objects.create(
+            company=self.company, assigned_to=self.employee, scheduled_date=date.today(),
+            scheduled_time=time(8, 0), planning_type="porte", service_type="", status="pending",
+        )
+        self.planning.planning_machines.create(
+            machine=self.machine, sequence=1, from_zone=self.origin, to_zone=self.destination,
+        )
+
+    def _task(self):
+        return self.api_client.get("/en/api/plannings/next/").json()["task"]
+
+    def test_is_a_machine_porte(self):
+        self.assertTrue(self.planning.is_machine_porte)
+        task = self._task()
+        self.assertTrue(task["is_machine_porte"])
+        self.assertEqual(task["machine_count"], 1)
+        self.assertEqual(task["machine_id"], self.machine.id)
+
+    def test_machine_rows_carry_from_and_to_zone(self):
+        machine = self._task()["machines"][0]
+        self.assertEqual(machine["from_zone_name"], "Origen")
+        self.assertEqual(machine["to_zone_name"], "Destino")
+
+    def test_route_falls_back_to_first_machine_zones(self):
+        task = self._task()
+        self.assertEqual(task["origin"], "Origen")
+        self.assertEqual(task["destination"], "Destino")
+        self.assertIsNotNone(task["origin_lat"])
+        self.assertIsNotNone(task["destination_lon"])
+
+    def test_planning_zones_win_over_machine_zones(self):
+        other = make_zone(self.company, name="Almacen Propio")
+        self.planning.origin = other
+        self.planning.save(update_fields=["origin"])
+        task = self._task()
+        self.assertEqual(task["origin"], "Almacen Propio")
+        self.assertEqual(task["machines"][0]["from_zone_name"], "Origen")
+
+    def test_carga_runs_the_machine_scan_flow(self):
+        response = self._submit(self.planning, "carga")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("escanear", response.json()["error"])
+
+    def test_plain_porte_without_machine_rows_is_not_a_machine_porte(self):
+        plain = AssetPlanning.objects.create(
+            company=self.company, assigned_to=self.employee, scheduled_date=date.today(),
+            planning_type="porte", service_type="porte_material", status="pending",
+        )
+        self.assertFalse(plain.is_machine_porte)

@@ -127,7 +127,7 @@ from core.admin.company_access import get_user_companies
 from core.forms.dynamic_fields import DynamicFieldBuilder
 from sales.models import Client
 
-from .constants import SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_PLANNING_TYPE
+from .constants import SERVICE_TYPE_PLANNING_TYPE
 from .models import (
     Asset,
     AssetIdentifier,
@@ -681,7 +681,7 @@ class ManualTransactionForm(forms.Form):
             TransactionTypeChoices.PORTE_MOVEMENT,
             TransactionTypeChoices.PORTE_DELIVERY,
         ]
-        if planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA:
+        if planning.is_machine_porte:
             plate_types.append(TransactionTypeChoices.PORTE_LOAD)
         if not planning.transport_plate():
             self._add_plate_field(",".join(plate_types), group)

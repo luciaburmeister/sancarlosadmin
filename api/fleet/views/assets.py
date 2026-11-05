@@ -16,6 +16,7 @@ from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from api.constants import MAX_ZONE_RADIUS_M, FIRST_TRANSACTION_RADIUS_M
+from api.fleet.future_planning import future_planning_error
 from api.fleet.serializers import (
     AssetListItemSerializer,
     AssetTransactionSerializer,
@@ -266,6 +267,13 @@ class CubaReservationMixin:
             return None, None, JsonResponse({"error": "Plan not found"}, status=404)
         return employee, planning, None
 
+    def startable_planning_for_employee(self, request, planning_id):
+        """planning_for_employee, but also refuses a plan scheduled after today."""
+        employee, planning, error = self.planning_for_employee(request, planning_id)
+        if error is None:
+            error = future_planning_error(planning)
+        return employee, planning, error
+
 
 class CubaSuggestionsView(CubaReservationMixin, APIView):
     permission_classes = [IsAuthenticated]
@@ -273,7 +281,7 @@ class CubaSuggestionsView(CubaReservationMixin, APIView):
     def get(self, request, planning_id):
         from assets.services.cuba_reservation import find_candidates
 
-        _employee, planning, error = self.planning_for_employee(request, planning_id)
+        _employee, planning, error = self.startable_planning_for_employee(request, planning_id)
         if error:
             return error
         return JsonResponse({
@@ -287,7 +295,7 @@ class CubaReservationView(CubaReservationMixin, APIView):
     def post(self, request, planning_id):
         from assets.services.cuba_reservation import CubaReservationConflict, reserve_cuba
 
-        employee, planning, error = self.planning_for_employee(request, planning_id)
+        employee, planning, error = self.startable_planning_for_employee(request, planning_id)
         if error:
             return error
 
@@ -1069,10 +1077,23 @@ class AssetTransactionView(APIView):
         strategy_class = TRANSACTION_STRATEGY_MAP.get(transaction_type)
         if strategy_class is None:
             return JsonResponse({"error": "Unsupported transaction type."}, status=400)
+        future_error = self._future_planning_error(raw.get("planning_id"), employee)
+        if future_error is not None:
+            return future_error
         truck_error = self._truck_check_error(request, raw.get("planning_id"), employee)
         if truck_error is not None:
             return truck_error
         return strategy_class(raw, asset, employee, user).execute()
+
+    @staticmethod
+    def _future_planning_error(planning_id, employee):
+        if not planning_id:
+            return None
+        try:
+            planning = AssetPlanning.objects.filter(id=int(planning_id), company=employee.company).first()
+        except (TypeError, ValueError):
+            return None
+        return future_planning_error(planning)
 
     @staticmethod
     def _truck_check_error(request, planning_id, employee):

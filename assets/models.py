@@ -943,7 +943,7 @@ class AssetTransaction(PublicDocumentTokenMixin, CompanyOwnedModel, Timestampabl
         if not self.planning_id or not self.to_zone_id:
             return
         planning = self.planning
-        if planning.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
+        if not planning.is_machine_porte:
             return
         machine_id = (self.data or {}).get(PorteTransactionDataKey.MACHINE_ID) or planning.machine_id
         if machine_id:
@@ -1877,7 +1877,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         # list instead, which the app reads to know what a given scanned
         # machine still needs -- recoger/carga/entrega are resolved per scan,
         # not by working down an ordered list.
-        is_machine = self.service_type == SERVICE_TYPE_MAQUINA_PROPIA
+        is_machine = self.is_machine_porte
         pickup_done = self.driver_claimed_cuba or self.transactions.filter(
             transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
         ).exists()
@@ -1899,6 +1899,17 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
             "pickup_done": by_key.get(ChecklistStepKey.RECOGER) == done,
             "load_done": by_key.get(ChecklistStepKey.CARGA) == done,
         }
+
+    @property
+    def is_machine_porte(self):
+        """An own-machine porte: service_type says so, or dispatch filled in the
+        Planning Machines table on a porte left with a blank/other service type
+        (that table only exists for machine portes, so its rows are the stronger
+        signal). The app's machine flow, the porte checklist, submit and the
+        delivery's machine move all key off this, so they always agree."""
+        if self.service_type == SERVICE_TYPE_MAQUINA_PROPIA:
+            return True
+        return self.planning_type == PlanningType.PORTE and self.pk is not None and self.planning_machines.exists()
 
     def effective_machine(self, machine_links=None):
         """The machine to treat as *the* machine on this planning: the first

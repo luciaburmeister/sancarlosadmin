@@ -557,6 +557,17 @@ UNFOLD = {
 },
 
     "BORDER_RADIUS": "12px",
+    # Sidebar search / Cmd+K also searches these models' records, using each
+    # admin's own search_fields and company-scoped get_queryset.
+    "COMMAND": {
+        "search_models": [
+            "sales.client",
+            "management.projectfile",
+            "sales.quote",
+            "invoices.salesinvoice",
+            "materials.provider",
+        ],
+    },
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  

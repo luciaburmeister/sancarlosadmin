@@ -973,10 +973,8 @@ msgstr "Se requiere una expresión cuando el tipo de regla es Personalizado."
 msgid "Cannot transition from '%(current)s' to '%(new)s'."
 msgstr "No se puede transitar de '%(current)s' a '%(new)s'."
 
-#, fuzzy
-#| msgid "Photos"
 msgid "Photo"
-msgstr "Fotos"
+msgstr "Foto"
 
 #, fuzzy
 #| msgid "Date of Birth"
@@ -1472,10 +1470,8 @@ msgstr ""
 "material_vertido arriba es la forma recomendada de editar esto. El JSON en "
 "bruto se mantiene como respaldo para cualquier otra cosa almacenada aquí."
 
-#, fuzzy
-#| msgid "Asset transaction"
 msgid "Asset Transaction"
-msgstr "Transacción de activos"
+msgstr "Transacción de Activo"
 
 msgid "Type-Specific Data"
 msgstr "Datos Específicos del Tipo"
@@ -1492,8 +1488,6 @@ msgstr ""
 "bruto se mantiene como respaldo para claves antiguas no cubiertas por los "
 "campos tipados."
 
-#, fuzzy
-#| msgid "Image"
 msgid "Imagen"
 msgstr "Imagen"
 
@@ -1531,11 +1525,8 @@ msgstr "Crear Parte de Trabajo"
 msgid "This transaction has no Project File linked."
 msgstr "Esta transacción no tiene ningún Expediente vinculado."
 
-#, fuzzy
-#| msgid "All expected work entries already exist for this transaction."
 msgid "All expected entries already exist for this transaction."
-msgstr ""
-"Todos los partes de trabajo esperados ya existen para esta transacción."
+msgstr "Todos los partes de trabajo esperados ya existen para esta transacción."
 
 #, python-format
 msgid "Failed to create entry '%(name)s': %(error)s"
@@ -1573,10 +1564,8 @@ msgstr "Borradores"
 msgid "Requests"
 msgstr "Solicitudes"
 
-#, fuzzy
-#| msgid "Asset transaction"
 msgid "Asset Transaction Receipt"
-msgstr "Transacción de activos"
+msgstr "Recibo de Transacción de Activo"
 
 msgid "Asset Planning Request"
 msgstr "Solicitud de Planificación de Activo"
@@ -1929,10 +1918,8 @@ msgstr "Tipos de Activos"
 msgid "Return"
 msgstr "Regresar"
 
-#, fuzzy
-#| msgid "Components"
 msgid "Movement"
-msgstr "Componentes"
+msgstr "Movimiento"
 
 #, fuzzy
 #| msgid "Movement type"
@@ -1950,10 +1937,8 @@ msgstr "Alabarán de Transporte"
 msgid "Machine Hours"
 msgstr "Horas de Máquina"
 
-#, fuzzy
-#| msgid "Labor cost"
 msgid "Laborer Hours"
-msgstr "Costo laboral"
+msgstr "Horas de Peón"
 
 msgid "—"
 msgstr "—"
@@ -1982,18 +1967,14 @@ msgstr "Imagen de firma"
 msgid "Image"
 msgstr "Imagen"
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Billing Status"
-msgstr "Etapas de Producción"
+msgstr "Estado de Facturación"
 
 msgid "Planning"
 msgstr "Planificación"
 
-#, fuzzy
-#| msgid "Termination Date"
 msgid "Public token"
-msgstr "Fecha de Terminación"
+msgstr "Token Público"
 
 msgid "Unguessable key for the public document link encoded in the QR."
 msgstr ""
@@ -2019,20 +2000,14 @@ msgstr "Resumir"
 msgid "Other"
 msgstr "Otro"
 
-#, fuzzy
-#| msgid "Location Type"
 msgid "Photo Type"
-msgstr "Tipo de ubicación"
+msgstr "Tipo de Foto"
 
-#, fuzzy
-#| msgid "Transaction"
 msgid "Transaction Photo"
-msgstr "Transacción"
+msgstr "Foto de Transacción"
 
-#, fuzzy
-#| msgid "Transaction"
 msgid "Transaction Photos"
-msgstr "Transacción"
+msgstr "Fotos de Transacción"
 
 msgid "Employee"
 msgstr "Empleado"
@@ -2058,15 +2033,11 @@ msgstr "Foto del Albarán"
 msgid "Nro de Albaran"
 msgstr "Número de Albarán"
 
-#, fuzzy
-#| msgid "Original Filename"
 msgid "Original Movement"
-msgstr "Nombre de archivo original"
+msgstr "Movimiento Original"
 
-#, fuzzy
-#| msgid "Asset Transactions"
 msgid "Asset Transaction Receipts"
-msgstr "Transacciónes de activos"
+msgstr "Recibos de Transacción de Activo"
 
 msgid "Own Machine Transport"
 msgstr "Porte de Máquina Propia"
@@ -3119,15 +3090,15 @@ msgstr "Verteo"
 
 msgctxt "asset transaction"
 msgid "Movement Porte"
-msgstr "Recogida"
+msgstr "Recogida (Porte)"
 
 msgctxt "asset transaction"
 msgid "Load Porte"
-msgstr "Carga"
+msgstr "Carga (Porte)"
 
 msgctxt "asset transaction"
 msgid "Delivery Porte"
-msgstr "Entrega"
+msgstr "Entrega (Porte)"
 
 #, python-format
 msgid "Interval %(n)d start"
@@ -23520,3 +23491,81 @@ msgstr "La planificación que requería este camión, cuando se abrió por un ca
 #, python-format
 msgid "See all results in %(model)s"
 msgstr "Ver todos los resultados en %(model)s"
+
+msgid "Customer Reference"
+msgstr "Albarán de Venta"
+
+msgid "Customer/order reference the driver enters, if any. Promoted out of `data` so it's searchable."
+msgstr "Referencia de cliente/pedido que introduce el conductor, si existe. Se extrajo de `data` para que sea buscable."
+
+msgid "Reference Number"
+msgstr "Número de Referencia"
+
+#, python-format
+msgid "Another DI on this transaction already uses part %(n)d of %(t)d."
+msgstr "Otro DI de esta transacción ya usa la parte %(n)d de %(t)d."
+
+msgid "Container material is required when the container is full."
+msgstr "El material del contenedor es obligatorio cuando el contenedor está lleno."
+
+msgid "Container state is required."
+msgstr "El estado del contenedor es obligatorio."
+
+msgid "DI Number"
+msgstr "Número de DI"
+
+msgid "Date overridden"
+msgstr "Fecha sobrescrita"
+
+msgid "Date printed on this pause's document. Tracks the movement's resolving receipt (verteo/dejada) once it's filed, or the movement's own date while still pending; hand-editable by a superuser only, to correct it."
+msgstr "Fecha impresa en el documento de esta pausa. Sigue el recibo (verteo/dejada) que resuelve el movimiento una vez registrado, o la fecha del propio movimiento mientras está pendiente; solo un superusuario puede editarla a mano para corregirla."
+
+msgid "Distance"
+msgstr "Distancia"
+
+#, python-format
+msgid "Generated on %(date)s."
+msgstr "Generado el %(date)s."
+
+msgid "Has DI"
+msgstr "Tiene DI"
+
+msgid "No recipient email found (check the client or the landfill)."
+msgstr "No se encontró ningún correo de destinatario (revisa el cliente o el vertedero)."
+
+msgid "Not generated yet: it is created the first time the link is opened."
+msgstr "Aún no generado: se crea la primera vez que se abre el enlace."
+
+#, python-format
+msgid "Part number can't be greater than the total parts (%(n)d)."
+msgstr "El número de parte no puede ser mayor que el total de partes (%(n)d)."
+
+msgid "Plate is required."
+msgstr "La matrícula es obligatoria."
+
+msgid "Say whether it is going to be dumped."
+msgstr "Indica si se va a verter."
+
+msgid "Sequential number printed on this pause's document. Assigned once, never reassigned."
+msgstr "Número secuencial impreso en el documento de esta pausa. Se asigna una vez y nunca se reasigna."
+
+msgid "Set once a superuser hand-edits date; from then on it stops auto-tracking the resolving receipt."
+msgstr "Se marca en cuanto un superusuario edita la fecha a mano; desde entonces deja de seguir automáticamente el recibo que la resuelve."
+
+msgid "The landfill is required when it is going to be dumped."
+msgstr "El vertedero es obligatorio cuando se va a verter."
+
+msgid "The landfill is required."
+msgstr "El vertedero es obligatorio."
+
+msgid "Transaction Pause"
+msgstr "Pausa de Transacción"
+
+msgid "Transaction Pauses"
+msgstr "Pausas de Transacción"
+
+msgid "Updating after the last change; the previous version is served meanwhile."
+msgstr "Actualizando tras el último cambio; mientras tanto se sirve la versión anterior."
+
+msgid "m³ is required."
+msgstr "m³ es obligatorio."
